@@ -1,5 +1,9 @@
 ---
-globs: "web/**/*.ts, web/**/*.tsx, web/**/*.json, web/**/*.css"
+paths:
+  - "web/**/*.ts"
+  - "web/**/*.tsx"
+  - "web/**/*.json"
+  - "web/**/*.css"
 ---
 
 - Never hardcode hostnames, IPs, or connection strings. Read `process.env.*`.
