@@ -16,6 +16,17 @@
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Context was compacted. Re-read MEMORY.md and LEARNED.md — they are not automatically re-injected after compaction.'"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
