@@ -2,6 +2,7 @@
 name: grade
 description: Trigger the grading workflow. Asks for sport and mode, then dispatches
   and monitors the run.
+disable-model-invocation: true
 ---
 
 Ask: "Sport (nba/mlb) and mode (upcoming/intraday/backfill/outcomes)?"
