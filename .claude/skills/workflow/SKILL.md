@@ -1,7 +1,10 @@
 ---
 name: workflow
-description: Workflow orchestration, planning, verification, and task management rules.
-  Use when starting a non-trivial task or when asked how to approach a problem.
+description: Workflow orchestration, planning, verification, and task management. Use
+  when starting a non-trivial task, when asked how to approach a problem, or when a
+  task has 3 or more steps.
+usage: "plan this, how should I approach, what's the order of operations, help me
+  organize, where do I start"
 ---
 
 ## Plan
