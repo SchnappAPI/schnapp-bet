@@ -18,6 +18,10 @@
           {
             "type": "command",
             "command": "jq -r '.tool_input.file_path' | xargs npx prettier --write 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ \"$FILE\" == *.ts || \"$FILE\" == *.tsx ]]; then cd \"${CLAUDE_PROJECT_DIR}/web\" && npx --no-install tsc --noEmit -p . 2>&1 || true; fi"
           }
         ]
       }
