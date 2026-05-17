@@ -1,6 +1,7 @@
 ---
 name: status
 description: Show current state of the Schnapp stack — workflows, services, and Mac.
+disable-model-invocation: true
 ---
 
 Run all of the following in parallel and report results in a single summary:
