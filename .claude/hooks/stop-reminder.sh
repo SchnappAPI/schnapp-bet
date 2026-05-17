@@ -1,5 +1,11 @@
 #!/bin/bash
 # Stop hook — fires at end of every Claude turn.
+# Guard: exit immediately if we already triggered a continuation to avoid infinite loops.
+INPUT=$(cat)
+if [ "$(echo "$INPUT" | jq -r '.stop_hook_active')" = "true" ]; then
+  exit 0
+fi
+
 # If code files were modified but CHANGELOG.md was not touched, remind.
 CHANGED=$(git -C "${CLAUDE_PROJECT_DIR}" status --short 2>/dev/null \
   | grep -v 'CHANGELOG' \
