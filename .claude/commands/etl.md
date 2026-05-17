@@ -2,6 +2,7 @@
 name: etl
 description: Trigger a sport-specific ETL workflow. Asks for sport, then dispatches
   and monitors the run.
+disable-model-invocation: true
 ---
 
 Ask: "Sport (nba/mlb/nfl) and any non-default inputs?"
