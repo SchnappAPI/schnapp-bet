@@ -23,6 +23,8 @@ proceeding.
 str_replace any README section that changed. Add an ADR for any non-obvious decision.
 If Austin corrected a mistake mid-session, append an entry to LEARNED.md immediately —
 do not wait until end of session.
+**Context**: Check `/context` periodically. At ~50% usage, stop and update MEMORY.md with
+current state. Recommend a new session if the task is long.
 
 ## How I Work
 
@@ -41,6 +43,7 @@ These apply everywhere, every session, no exceptions.
 
 - Python runs in GitHub Actions on mac-runner or via Mac MCP shell_exec only.
 - Never commit without a CHANGELOG entry.
+- One commit per file. Never bundle multiple file changes into a single commit.
 - Never hardcode credentials, hostnames, or IPs.
 - Never run DROP TABLE, git reset --hard, or rm -rf without explicit confirmation.
 - Every new workflow importing from shared/ must set
@@ -57,9 +60,13 @@ These apply everywhere, every session, no exceptions.
 ## References
 
 - Workflow orchestration and task management: `/skill workflow`
-- ETL rules: `etl/CLAUDE.md`
-- Grading rules: `grading/CLAUDE.md`
-- Web rules: `web/CLAUDE.md`
-- Shared utilities: `shared/CLAUDE.md`
-- Flask service: `services/flask/CLAUDE.md`
-- Database: `database/CLAUDE.md`
+- Deploy web app: `/deploy`
+- Run grading: `/grade`
+- Run ETL: `/etl`
+- Check stack status: `/status`
+- ETL rules: `.claude/rules/etl.md` (auto-loads on etl/ files)
+- Grading rules: `.claude/rules/grading.md` (auto-loads on grading/ files)
+- Web rules: `.claude/rules/web.md` (auto-loads on web/ files)
+- Shared rules: `.claude/rules/shared.md` (auto-loads on shared/ files)
+- Component details: `etl/CLAUDE.md`, `grading/CLAUDE.md`, `web/CLAUDE.md`,
+  `shared/CLAUDE.md`, `services/flask/CLAUDE.md`, `database/CLAUDE.md`
