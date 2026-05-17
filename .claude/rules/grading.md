@@ -1,7 +1,10 @@
 ---
-globs: "grading/**/*.py, .github/workflows/grading.yml,
-  .github/workflows/mlb-grading.yml, .github/workflows/weekly-calibration.yml,
-  .github/workflows/compute-patterns*.yml"
+paths:
+  - "grading/**/*.py"
+  - ".github/workflows/grading.yml"
+  - ".github/workflows/mlb-grading.yml"
+  - ".github/workflows/weekly-calibration.yml"
+  - ".github/workflows/compute-patterns*.yml"
 ---
 
 - `_common_grade_data` returns a 7-tuple. Seventh element is `opp_df`. Never revert to 5 or 6 elements. All callers unpack all seven.
