@@ -1,5 +1,6 @@
 ---
-globs: "shared/**/*.py"
+paths:
+  - "shared/**/*.py"
 ---
 
 - `get_engine()` reads SQL_SERVER, SQL_DATABASE, SQL_USERNAME, SQL_PASSWORD, SQL_TRUST_CERT from env. Never pass connection strings directly.
