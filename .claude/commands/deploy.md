@@ -2,6 +2,7 @@
 name: deploy
 description: Trigger deploy-web.yml to build and restart the web app on Schnapps-MBP.
   Confirms the run completed and smoke-tests port 3001.
+disable-model-invocation: true
 ---
 
 Trigger the deploy-web workflow:
