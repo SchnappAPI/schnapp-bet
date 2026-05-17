@@ -15,10 +15,14 @@ Read `docs/CONNECTIONS.md` for credentials, endpoints, and service details.
 
 ## Session Lifecycle
 
-**Starting**: Read MEMORY.md. It is the complete current state of the project. If anything
-in memory, a primer, or chat contradicts the repo, the repo wins. Flag it before proceeding.
+**Starting**: Read MEMORY.md, then LEARNED.md. MEMORY.md is current project state.
+LEARNED.md is the correction logbook — every entry is a mistake made before. Read all of it.
+If anything in memory, a primer, or chat contradicts the repo, the repo wins. Flag it before
+proceeding.
 **Ending**: Update MEMORY.md in place. Append one CHANGELOG entry tagged [sport][component].
 str_replace any README section that changed. Add an ADR for any non-obvious decision.
+If Austin corrected a mistake mid-session, append an entry to LEARNED.md immediately —
+do not wait until end of session.
 
 ## How I Work
 
