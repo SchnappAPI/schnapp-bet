@@ -3,8 +3,8 @@ name: workflow
 description: Workflow orchestration, planning, verification, and task management. Use
   when starting a non-trivial task, when asked how to approach a problem, or when a
   task has 3 or more steps.
-usage: "plan this, how should I approach, what's the order of operations, help me
-  organize, where do I start"
+when_to_use: "plan this, how should I approach, what's the order of operations, help
+  me organize, where do I start"
 ---
 
 ## Plan
@@ -33,7 +33,6 @@ usage: "plan this, how should I approach, what's the order of operations, help m
 - For non-trivial changes: ask "is there a more elegant way?" before presenting.
 - If a fix feels hacky: implement the clean solution instead.
 - Skip for simple obvious fixes. Do not over-engineer.
-- Challenge your own work before presenting it.
 
 ## Task Tracking
 1. Write checkable items before touching code.
