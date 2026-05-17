@@ -1,7 +1,12 @@
 ---
-globs: "etl/**/*.py, .github/workflows/nba-*.yml, .github/workflows/mlb-*.yml,
-  .github/workflows/nfl-*.yml, .github/workflows/odds-*.yml,
-  .github/workflows/compute-*.yml, .github/workflows/backfill-*.yml"
+paths:
+  - "etl/**/*.py"
+  - ".github/workflows/nba-*.yml"
+  - ".github/workflows/mlb-*.yml"
+  - ".github/workflows/nfl-*.yml"
+  - ".github/workflows/odds-*.yml"
+  - ".github/workflows/compute-*.yml"
+  - ".github/workflows/backfill-*.yml"
 ---
 
 - Import `get_engine` from `shared.db`. Never define a local engine factory.
