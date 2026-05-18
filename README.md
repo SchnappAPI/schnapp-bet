@@ -18,3 +18,13 @@ Player prop research platform for NBA, MLB, and NFL. Consumer site at `schnapp.b
 - `/docs/CONNECTIONS.md` — single source of truth for external systems and secrets.
 
 This repo is the clean rebuild of the live product. The reference codebase (sports-modeling) stays at `/Users/schnapp/sports-modeling` for intent.
+
+## Setup (fresh clone)
+
+Run once per clone to activate the version-controlled git hooks (auto-push on commit, etc.):
+
+```
+git config --local core.hooksPath .githooks
+```
+
+Claude Code sessions handle this automatically via `.claude/bootstrap-plugins.sh` on SessionStart. Non-Claude-Code clones (mac-runner-1, one-off shells) need the command above. Workflows that commit and push must set the same config inline — see `.claude/rules/workflows.md`.
