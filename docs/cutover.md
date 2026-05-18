@@ -62,16 +62,22 @@ launchctl unload ~/Library/LaunchAgents/bet.schnapp.flask.plist
 launchctl unload ~/Library/LaunchAgents/bet.schnapp.web-prod.plist
 # Cancel any in-flight workflows via the GitHub UI first.
 
-# 2. Rename. Adjust SQLCMD for your environment:
-SQLCMD=$(command -v sqlcmd || echo "docker exec sql-server /opt/mssql-tools18/bin/sqlcmd")
-op run --env-file=.env.template -- bash -c "
-  $SQLCMD -S localhost,1433 -U sa -P \"\$MSSQL_SA_PASSWORD\" -C -Q \"
+# 2. Rename. Use whichever of these matches your environment.
+#
+# If `sqlcmd` is in your PATH (typical on Schnapps-MBP):
+op run --env-file=.env.template -- bash -c '
+  sqlcmd -S localhost,1433 -U sa -P "$MSSQL_SA_PASSWORD" -C -Q "
     USE master;
     ALTER DATABASE [sports-modeling] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
     ALTER DATABASE [sports-modeling] MODIFY NAME = [schnapp-bet];
     ALTER DATABASE [schnapp-bet] SET MULTI_USER;
-  \"
-"
+  "
+'
+#
+# Or, if sqlcmd is only inside the Docker container (replace `mssql` with `docker ps` name):
+# op run --env-file=.env.template -- bash -c '
+#   docker exec mssql /opt/mssql-tools18/bin/sqlcmd -S localhost,1433 -U sa -P "$MSSQL_SA_PASSWORD" -C -Q "USE master; ALTER DATABASE [sports-modeling] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; ALTER DATABASE [sports-modeling] MODIFY NAME = [schnapp-bet]; ALTER DATABASE [schnapp-bet] SET MULTI_USER;"
+# '
 ```
 
 3. In 1Password (web UI), edit:
@@ -88,7 +94,7 @@ launchctl load ~/Library/LaunchAgents/bet.schnapp.web-prod.plist
 Verify:
 
 ```
-op run --env-file=.env.template -- bash -c '$SQLCMD -S localhost,1433 -U sa -P "$MSSQL_SA_PASSWORD" -C -Q "SELECT name FROM sys.databases;"'
+op run --env-file=.env.template -- bash -c 'sqlcmd -S localhost,1433 -U sa -P "$MSSQL_SA_PASSWORD" -C -Q "SELECT name FROM sys.databases;"'
 ```
 
 Expected: `schnapp-bet` appears, `sports-modeling` does not.
