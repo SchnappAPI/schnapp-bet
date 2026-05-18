@@ -87,9 +87,10 @@ _BINARY_PLAYER_MARKETS_SQL = "(" + ",".join(
 #
 # Opt-in enforcement means tables not listed here pass through.
 #
-# Per-sport split deferred: in sports-modeling this catalog was NBA-heavy
-# (8 NBA tables, 7 odds tables, 5 common tables). Splitting into per-sport
-# modules is a follow-up that lands with the NBA pipeline port.
+# Per-sport split deferred until a 2nd sport ports. Catalog is currently
+# NBA-heavy (8 nba tables, 7 odds tables, 6 common tables). Designing the
+# partition before MLB/NFL contracts are known would be speculative; the
+# refactor lands when shape is forced by a 2nd sport's entries.
 CRITICAL_FIELDS: Dict[str, Dict[str, Any]] = {
 
     # =================================================================
