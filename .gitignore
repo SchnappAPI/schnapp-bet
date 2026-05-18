@@ -1,0 +1,39 @@
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/out/
+web/*.log
+web/.env*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Flask / services
+services/flask/*.log
+
+# Generated health report (per ADR-20260517-2 D5: gitignored, regenerated on demand)
+docs/HEALTH.md
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+
+# Claude per-machine artifacts (whitelist shared config below)
+.claude/*
+!.claude/settings.json
+!.claude/bootstrap-plugins.sh
+!.claude/commands/
+!.claude/hooks/
+!.claude/rules/
+!.claude/skills/
+
+# Local SQL credentials / scratch
+sql-server.env
+*.local.env
