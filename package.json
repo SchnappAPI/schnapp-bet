@@ -1,6 +1,0 @@
-{
-  "name": "schnapp-bet",
-  "private": true,
-  "workspaces": ["web"],
-  "engines": { "node": ">=20" }
-}
