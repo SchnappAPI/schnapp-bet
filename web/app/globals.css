@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+
+    /* Surfaces — fixed elevation ladder */
+    --canvas: #08090A;
+    --raised: #0F1011;
+    --surface: #16181B;
+    --surface-hover: #1C1E22;
+    --inset: #050506;
+
+    /* Borders — separation by hairline */
+    --border-subtle: #1F2126;
+    --border: #2A2C31;
+    --border-strong: #3A3C42;
+
+    /* Foreground — bumped one step lighter across the muted/subtle ladder
+       after first-pass review found the dim greys hard to read on real
+       displays. Keeping the four-step contrast structure intact. */
+    --fg: #F4F5F6;
+    --fg-muted: #C8CBD1;
+    --fg-subtle: #9094A0;
+    --fg-disabled: #5A5D62;
+
+    /* Brand — Linear violet (focus / primary CTA / active nav only) */
+    --brand: #5E6AD2;
+    --brand-hover: #6F7AE0;
+    --brand-muted: rgba(94, 106, 210, 0.14);
+
+    /* Outcome semantics */
+    --pos: #2EBD85;        --pos-muted: rgba(46, 189, 133, 0.12);
+    --neg: #E5484D;        --neg-muted: rgba(229, 72, 77, 0.12);
+    --warn: #F5A623;       --warn-muted: rgba(245, 166, 35, 0.12);
+    --info: #4493F8;       --info-muted: rgba(68, 147, 248, 0.12);
+
+    /* Sport identity */
+    --sport-nba: #C9A84C;
+    --sport-mlb: #4C8FC9;
+    --sport-nfl: #B85C57;
+    --sport-lol: #A78BFA;
+  }
+
+  html, body {
+    @apply bg-canvas text-fg font-sans antialiased;
+    font-feature-settings: "ss01" 1, "cv11" 1;
+  }
+
+  /* Tabular numerals everywhere data appears */
+  .font-mono, code, kbd, pre, .tabular-nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "ss01" 1, "zero" 1;
+  }
+
+  /* Scrollbars: thin, low-contrast, ever-present */
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+  *::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+  /* One focus ring style for the entire app */
+  *:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px var(--canvas), 0 0 0 3px var(--brand);
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--brand);
+    color: var(--fg);
+  }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Density variants — set on <body data-density>, tables read --row-h */
+  body { --row-h: 28px; }
+  body[data-density="compact"] { --row-h: 28px; }
+  body[data-density="comfortable"] { --row-h: 36px; }
+}

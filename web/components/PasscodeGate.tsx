@@ -1,0 +1,172 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import { AuthContext, type DemoDates } from '@/lib/auth-context';
+
+const TOKEN_KEY      = 'schnapp_auth_token';
+const MODE_KEY       = 'schnapp_auth_mode';
+const DEMO_DATES_KEY = 'schnapp_demo_dates';
+
+// BYPASS: set to true to skip auth entirely. Set back to false to re-enable.
+const BYPASS = true;
+
+function readCachedDemoDates(): DemoDates {
+  try {
+    const raw = localStorage.getItem(DEMO_DATES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export default function PasscodeGate({ children }: { children: React.ReactNode }) {
+  const [status, setStatus]         = useState<'loading' | 'authed' | 'gate'>(BYPASS ? 'authed' : 'loading');
+  const [mode, setMode]             = useState<'live' | 'demo'>('live');
+  const [demoDates, setDemoDates]   = useState<DemoDates>({});
+  const [isAdmin, setIsAdmin]       = useState(false);
+  const [code, setCode]             = useState('');
+  const [error, setError]           = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  // Derive isAdmin from localStorage.schnapp_admin_token presence. The admin
+  // login flow at /admin sets this key after a successful ADMIN_PASSCODE
+  // exchange; we just observe its presence to decide whether to surface the
+  // Admin sidebar link. This is a UX hint, not a gate — /admin enforces its
+  // own server-side check regardless. Listen for `storage` events so logging
+  // in via /admin in another tab updates this tab without a manual refresh.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const compute = () => setIsAdmin(!!localStorage.getItem('schnapp_admin_token'));
+    compute();
+    window.addEventListener('storage', compute);
+    return () => window.removeEventListener('storage', compute);
+  }, []);
+
+  const verify = useCallback(async () => {
+    if (BYPASS) return;
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) { setStatus('gate'); return; }
+    try {
+      const res = await fetch('/api/auth/check', {
+        headers: { 'x-auth-token': token },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const m: 'live' | 'demo' = data.mode === 'demo' ? 'demo' : 'live';
+        const dd: DemoDates = data.demoDates ?? {};
+        localStorage.setItem(MODE_KEY, m);
+        localStorage.setItem(DEMO_DATES_KEY, JSON.stringify(dd));
+        setMode(m);
+        setDemoDates(dd);
+        setStatus('authed');
+      } else {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(MODE_KEY);
+        localStorage.removeItem(DEMO_DATES_KEY);
+        setStatus('gate');
+      }
+    } catch {
+      // Network error — trust cached values so the PWA still works offline.
+      const cachedMode = localStorage.getItem(MODE_KEY);
+      setMode(cachedMode === 'demo' ? 'demo' : 'live');
+      setDemoDates(readCachedDemoDates());
+      setStatus('authed');
+    }
+  }, []);
+
+  useEffect(() => { verify(); }, [verify]);
+
+  async function handleSubmit() {
+    if (!code.trim()) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.token) {
+        const m: 'live' | 'demo' = data.mode === 'demo' ? 'demo' : 'live';
+        const dd: DemoDates = data.demoDates ?? {};
+        localStorage.setItem(TOKEN_KEY, data.token);
+        localStorage.setItem(MODE_KEY, m);
+        localStorage.setItem(DEMO_DATES_KEY, JSON.stringify(dd));
+        setMode(m);
+        setDemoDates(dd);
+        setStatus('authed');
+      } else {
+        setError(data.error ?? 'Invalid code.');
+      }
+    } catch {
+      setError('Connection error. Try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(MODE_KEY);
+    localStorage.removeItem(DEMO_DATES_KEY);
+    setStatus('gate');
+    setCode('');
+    setError('');
+  }
+
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="w-5 h-5 border-2 border-gray-600 border-t-gray-300 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (status === 'authed') {
+    return (
+      <AuthContext.Provider value={{ mode, demoDates, isAdmin, logout }}>
+        {children}
+      </AuthContext.Provider>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center px-6">
+      <div className="w-full max-w-sm">
+        <div className="mb-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-gray-800 flex items-center justify-center mx-auto mb-4">
+            <span className="text-3xl font-bold text-white">S</span>
+          </div>
+          <h1 className="text-xl font-semibold text-white">Schnapp</h1>
+          <p className="text-sm text-gray-500 mt-1">Enter your access code to continue</p>
+        </div>
+
+        <div className="space-y-3">
+          <input
+            type="text"
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+            placeholder="ENTER-CODE-HERE"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            autoComplete="off"
+            spellCheck={false}
+            className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white text-center text-lg font-mono tracking-widest placeholder-gray-600 focus:outline-none focus:border-gray-500"
+          />
+          {error && (
+            <p className="text-sm text-red-400 text-center">{error}</p>
+          )}
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || !code.trim()}
+            className="w-full bg-white text-gray-950 rounded-xl py-3 font-semibold text-sm disabled:opacity-40 active:scale-95 transition-transform"
+          >
+            {submitting ? 'Checking...' : 'Enter'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

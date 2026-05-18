@@ -1,0 +1,489 @@
+'use client';
+
+import { useEffect, useState, useMemo } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+
+interface BoxRow {
+  playerId: number;
+  playerName: string;
+  teamId: number;
+  period: string;
+  starterStatus: string | null;
+  pts: number | null;
+  reb: number | null;
+  ast: number | null;
+  stl: number | null;
+  blk: number | null;
+  tov: number | null;
+  min: number | null;
+  fg3m: number | null;
+  fg3a: number | null;
+  fgm: number | null;
+  fga: number | null;
+  ftm: number | null;
+  fta: number | null;
+}
+
+interface PlayerSlot {
+  playerId: number;
+  playerName: string;
+  teamId: number;
+  starterStatus: string | null;
+  appearedInGame: boolean;
+}
+
+interface PlayerTotals {
+  pts: number;
+  reb: number;
+  ast: number;
+  stl: number;
+  blk: number;
+  tov: number;
+  min: number;
+  fg3m: number;
+  fg3a: number;
+  fgm: number;
+  fga: number;
+  ftm: number;
+  fta: number;
+}
+
+interface GradeEntry {
+  playerId: number;
+  marketKey: string;
+  lineValue: number;
+}
+
+type PropMap = Map<number, Map<string, number>>;
+
+const ALL_PERIODS = ['1Q', '2Q', '3Q', '4Q', 'OT'] as const;
+type QuarterKey = typeof ALL_PERIODS[number];
+
+const MARKET_TO_STAT: Record<string, keyof PlayerTotals> = {
+  player_points:             'pts',
+  player_points_alternate:   'pts',
+  player_rebounds:           'reb',
+  player_rebounds_alternate: 'reb',
+  player_assists:            'ast',
+  player_assists_alternate:  'ast',
+  player_steals:             'stl',
+  player_steals_alternate:   'stl',
+  player_blocks:             'blk',
+  player_blocks_alternate:   'blk',
+  player_turnovers:          'tov',
+  player_threes:             'fg3m',
+  player_threes_alternate:   'fg3m',
+};
+
+const COMBO_MARKETS: Record<string, string[]> = {
+  pra: ['player_points_rebounds_assists', 'player_points_rebounds_assists_alternate'],
+  pr:  ['player_points_rebounds',  'player_points_rebounds_alternate'],
+  pa:  ['player_points_assists',   'player_points_assists_alternate'],
+  ra:  ['player_rebounds_assists', 'player_rebounds_assists_alternate'],
+};
+
+function sumRows(rows: BoxRow[], key: keyof BoxRow): number {
+  return rows.reduce((acc, r) => acc + ((r[key] as number) ?? 0), 0);
+}
+
+const ZERO_TOTALS: PlayerTotals = {
+  pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0,
+  min: 0, fg3m: 0, fg3a: 0, fgm: 0, fga: 0, ftm: 0, fta: 0,
+};
+
+function buildTotals(rows: BoxRow[]): PlayerTotals {
+  if (rows.length === 0) return { ...ZERO_TOTALS };
+  return {
+    pts:  sumRows(rows, 'pts'),
+    reb:  sumRows(rows, 'reb'),
+    ast:  sumRows(rows, 'ast'),
+    stl:  sumRows(rows, 'stl'),
+    blk:  sumRows(rows, 'blk'),
+    tov:  sumRows(rows, 'tov'),
+    min:  sumRows(rows, 'min'),
+    fg3m: sumRows(rows, 'fg3m'),
+    fg3a: sumRows(rows, 'fg3a'),
+    fgm:  sumRows(rows, 'fgm'),
+    fga:  sumRows(rows, 'fga'),
+    ftm:  sumRows(rows, 'ftm'),
+    fta:  sumRows(rows, 'fta'),
+  };
+}
+
+function fmtMin(min: number): string {
+  if (min === 0) return '-';
+  const m = Math.floor(min);
+  const s = Math.round((min - m) * 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function getLine(propMap: PropMap, playerId: number, statKey: keyof PlayerTotals): number | null {
+  const playerMap = propMap.get(playerId);
+  if (!playerMap) return null;
+  for (const [market, statCol] of Object.entries(MARKET_TO_STAT)) {
+    if (statCol === statKey) {
+      const line = playerMap.get(market);
+      if (line != null) return line;
+    }
+  }
+  return null;
+}
+
+function getComboLine(propMap: PropMap, playerId: number, markets: string[]): number | null {
+  const playerMap = propMap.get(playerId);
+  if (!playerMap) return null;
+  for (const market of markets) {
+    const line = playerMap.get(market);
+    if (line != null) return line;
+  }
+  return null;
+}
+
+function statCls(value: number, line: number | null): string {
+  if (line == null) return 'text-fg-muted';
+  return value > line ? 'text-pos font-medium' : 'text-neg';
+}
+
+function StatsToggle({ showAll, onToggle }: { showAll: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      className={[
+        'px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap',
+        showAll ? 'bg-surface-hover text-fg' : 'bg-surface-hover text-fg-subtle hover:bg-surface-hover',
+      ].join(' ')}
+    >
+      {showAll ? 'Compact' : 'All Stats'}
+    </button>
+  );
+}
+
+function TeamBox({
+  slots,
+  filteredTotals,
+  hasLineup,
+  propMap,
+  showColors,
+  showAllStats,
+  gameId,
+  selectedDate,
+}: {
+  slots: PlayerSlot[];
+  filteredTotals: Map<number, PlayerTotals>;
+  hasLineup: boolean;
+  propMap: PropMap;
+  showColors: boolean;
+  showAllStats: boolean;
+  gameId: string;
+  selectedDate: string;
+}) {
+  const searchParams = useSearchParams();
+
+  const renderRow = (slot: PlayerSlot) => {
+    const t = filteredTotals.get(slot.playerId) ?? { ...ZERO_TOTALS };
+    const inactive = slot.appearedInGame && t.min === 0;
+    const line = (sk: keyof PlayerTotals) =>
+      showColors && !inactive ? getLine(propMap, slot.playerId, sk) : null;
+    const comboLine = (markets: string[]) =>
+      showColors && !inactive ? getComboLine(propMap, slot.playerId, markets) : null;
+
+    const pra = t.pts + t.reb + t.ast;
+    const pr  = t.pts + t.reb;
+    const pa  = t.pts + t.ast;
+    const ra  = t.reb + t.ast;
+
+    const playerHref =
+      `/nba/player/${slot.playerId}?gameId=${gameId}&tab=boxscore&date=${selectedDate}`;
+
+    return (
+      <tr
+        key={slot.playerId}
+        className={['border-b border-border', inactive ? 'opacity-40' : ''].join(' ')}
+      >
+        <td className="py-1.5 pr-3 sticky left-0 bg-canvas z-10 whitespace-nowrap min-w-[120px] max-w-[160px]">
+          <Link
+            href={playerHref}
+            className="text-fg hover:text-brand transition-colors text-xs"
+          >
+            {slot.playerName}
+          </Link>
+        </td>
+        <td className="py-1.5 px-2 text-right text-fg-muted whitespace-nowrap">{fmtMin(t.min)}</td>
+        <td className={`py-1.5 px-2 text-right whitespace-nowrap ${statCls(t.pts, line('pts'))}`}>{t.pts}</td>
+        {showAllStats ? (
+          <>
+            <td className="py-1.5 px-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{t.fgm}</td>
+            <td className="py-1.5 px-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{t.fga}</td>
+            <td className={`py-1.5 px-2 text-right whitespace-nowrap tabular-nums ${statCls(t.fg3m, line('fg3m'))}`}>{t.fg3m}</td>
+            <td className="py-1.5 px-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{t.fg3a}</td>
+            <td className="py-1.5 px-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{t.ftm}</td>
+            <td className="py-1.5 px-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{t.fta}</td>
+          </>
+        ) : (
+          <td className={`py-1.5 px-2 text-right whitespace-nowrap tabular-nums ${statCls(t.fg3m, line('fg3m'))}`}>{t.fg3m}</td>
+        )}
+        <td className={`py-1.5 px-2 text-right whitespace-nowrap ${statCls(t.reb, line('reb'))}`}>{t.reb}</td>
+        <td className={`py-1.5 px-2 text-right whitespace-nowrap ${statCls(t.ast, line('ast'))}`}>{t.ast}</td>
+        <td className={`py-1.5 px-2 text-right whitespace-nowrap ${statCls(pra, comboLine(COMBO_MARKETS.pra))}`}>{pra}</td>
+        <td className={`py-1.5 px-2 text-right whitespace-nowrap ${statCls(pr,  comboLine(COMBO_MARKETS.pr))}`}>{pr}</td>
+        <td className={`py-1.5 px-2 text-right whitespace-nowrap ${statCls(pa,  comboLine(COMBO_MARKETS.pa))}`}>{pa}</td>
+        <td className={`py-1.5 px-2 text-right whitespace-nowrap ${statCls(ra,  comboLine(COMBO_MARKETS.ra))}`}>{ra}</td>
+        {showAllStats && (
+          <>
+            <td className={`py-1.5 px-2 text-right whitespace-nowrap ${statCls(t.stl, line('stl'))}`}>{t.stl}</td>
+            <td className={`py-1.5 px-2 text-right whitespace-nowrap ${statCls(t.blk, line('blk'))}`}>{t.blk}</td>
+            <td className="py-1.5 pl-2 text-right text-fg-muted whitespace-nowrap">{t.tov}</td>
+          </>
+        )}
+      </tr>
+    );
+  };
+
+  const sectionHeader = (label: string, colSpan: number) => (
+    <tr>
+      <td
+        colSpan={colSpan}
+        className="pt-3 pb-1 text-xs text-fg-disabled font-semibold uppercase tracking-wider sticky left-0 bg-canvas"
+      >
+        {label}
+      </td>
+    </tr>
+  );
+
+  // compact:   Player MIN PTS 3PM REB AST PRA PR PA RA = 11 cols
+  // all-stats: Player MIN PTS FGM FGA 3PM 3PA FTM FTA REB AST PRA PR PA RA STL BLK TOV = 19 cols
+  const colSpanTotal = showAllStats ? 19 : 11;
+
+  const starters = slots.filter((s) => s.starterStatus === 'Starter');
+  const bench    = slots.filter(
+    (s) => s.starterStatus === 'Bench' || (hasLineup && s.starterStatus == null && s.appearedInGame)
+  );
+  const dnp      = hasLineup ? slots.filter((s) => !s.appearedInGame) : [];
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-xs text-fg-subtle border-b border-border">
+            <th className="text-left py-1.5 pr-3 font-medium sticky left-0 bg-canvas z-20 whitespace-nowrap">Player</th>
+            <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">MIN</th>
+            <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">PTS</th>
+            {showAllStats ? (
+              <>
+                <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">FGM</th>
+                <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">FGA</th>
+                <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">3PM</th>
+                <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">3PA</th>
+                <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">FTM</th>
+                <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">FTA</th>
+              </>
+            ) : (
+              <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">3PM</th>
+            )}
+            <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">REB</th>
+            <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">AST</th>
+            <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">PRA</th>
+            <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">PR</th>
+            <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">PA</th>
+            <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">RA</th>
+            {showAllStats && (
+              <>
+                <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">STL</th>
+                <th className="text-right py-1.5 px-2 font-medium whitespace-nowrap">BLK</th>
+                <th className="text-right py-1.5 pl-2 font-medium whitespace-nowrap">TOV</th>
+              </>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {hasLineup ? (
+            <>
+              {starters.length > 0 && sectionHeader('Starters', colSpanTotal)}
+              {starters.map(renderRow)}
+              {bench.length > 0 && sectionHeader('Bench', colSpanTotal)}
+              {bench.map(renderRow)}
+              {dnp.length > 0 && sectionHeader('Did Not Play', colSpanTotal)}
+              {dnp.map((s) => (
+                <tr key={s.playerId} className="border-b border-border opacity-40">
+                  <td className="py-1.5 pr-3 sticky left-0 bg-canvas z-10 whitespace-nowrap">
+                    <Link
+                      href={`/nba/player/${s.playerId}?gameId=${gameId}&tab=boxscore&date=${selectedDate}`}
+                      className="text-fg-muted hover:text-brand transition-colors text-xs"
+                    >
+                      {s.playerName}
+                    </Link>
+                  </td>
+                  <td colSpan={colSpanTotal - 1} className="py-1.5 px-2 text-xs text-fg-subtle">DNP</td>
+                </tr>
+              ))}
+            </>
+          ) : (
+            [...slots]
+              .sort((a, b) => {
+                const ma = filteredTotals.get(a.playerId)?.min ?? 0;
+                const mb = filteredTotals.get(b.playerId)?.min ?? 0;
+                return mb - ma;
+              })
+              .map(renderRow)
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function BoxScoreTable({
+  gameId,
+  selectedDate,
+}: {
+  gameId: string;
+  selectedDate: string;
+}) {
+  const [rows, setRows]     = useState<BoxRow[]>([]);
+  const [grades, setGrades] = useState<GradeEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState<string | null>(null);
+  const [selectedPeriods, setSelectedPeriods] = useState<Set<QuarterKey>>(new Set());
+  const [showAllStats, setShowAllStats] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    setSelectedPeriods(new Set());
+    setGrades([]);
+
+    fetch(`/api/boxscore?gameId=${gameId}`)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((boxData) => setRows(boxData.rows ?? []))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+
+    fetch(`/api/game-grades?gameId=${gameId}`)
+      .then((r) => { if (!r.ok) return; return r.json(); })
+      .then((gradeData) => { if (gradeData) setGrades(gradeData.grades ?? []); })
+      .catch(() => { /* grading failure is non-fatal */ });
+  }, [gameId]);
+
+  function togglePeriod(p: QuarterKey) {
+    setSelectedPeriods((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p); else next.add(p);
+      return next;
+    });
+  }
+
+  const propMap = useMemo<PropMap>(() => {
+    const map: PropMap = new Map();
+    for (const g of grades) {
+      if (!map.has(g.playerId)) map.set(g.playerId, new Map());
+      const existing = map.get(g.playerId)!.get(g.marketKey);
+      if (existing == null || g.lineValue < existing) {
+        map.get(g.playerId)!.set(g.marketKey, g.lineValue);
+      }
+    }
+    return map;
+  }, [grades]);
+
+  const showColors = selectedPeriods.size === 0;
+
+  const availablePeriods = useMemo(
+    () => ALL_PERIODS.filter((p) => rows.some((r) => r.period === p)),
+    [rows]
+  );
+
+  const allSlots = useMemo<PlayerSlot[]>(() => {
+    const byPlayer = new Map<number, BoxRow>();
+    for (const r of rows) {
+      if (!byPlayer.has(r.playerId)) byPlayer.set(r.playerId, r);
+    }
+    return Array.from(byPlayer.values()).map((r) => ({
+      playerId:       r.playerId,
+      playerName:     r.playerName,
+      teamId:         r.teamId,
+      starterStatus:  r.starterStatus,
+      appearedInGame: true,
+    }));
+  }, [rows]);
+
+  const filteredTotalsMap = useMemo<Map<number, PlayerTotals>>(() => {
+    const filtered = selectedPeriods.size === 0
+      ? rows
+      : rows.filter((r) => selectedPeriods.has(r.period as QuarterKey));
+    const byPlayer = new Map<number, BoxRow[]>();
+    for (const r of filtered) {
+      if (!byPlayer.has(r.playerId)) byPlayer.set(r.playerId, []);
+      byPlayer.get(r.playerId)!.push(r);
+    }
+    const result = new Map<number, PlayerTotals>();
+    for (const [pid, playerRows] of byPlayer) {
+      result.set(pid, buildTotals(playerRows));
+    }
+    return result;
+  }, [rows, selectedPeriods]);
+
+  const teamIds = useMemo(
+    () => Array.from(new Set(allSlots.map((s) => s.teamId))),
+    [allSlots]
+  );
+
+  if (loading) return <div className="text-sm text-fg-subtle py-4">Loading box score...</div>;
+  if (error)   return <div className="text-sm text-neg py-4">Error: {error}</div>;
+  if (rows.length === 0) return <div className="text-sm text-fg-subtle py-4">No box score data available.</div>;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <span className="text-xs text-fg-disabled">All</span>
+        {availablePeriods.map((p) => (
+          <button
+            key={p}
+            onClick={() => togglePeriod(p)}
+            className={[
+              'px-3 py-1 text-xs font-medium rounded transition-colors',
+              selectedPeriods.has(p)
+                ? 'bg-brand text-fg'
+                : 'bg-surface-hover text-fg-subtle hover:bg-surface-hover',
+            ].join(' ')}
+          >
+            {p}
+          </button>
+        ))}
+        {selectedPeriods.size > 0 && (
+          <button
+            onClick={() => setSelectedPeriods(new Set())}
+            className="text-xs text-fg-disabled hover:text-fg-subtle ml-1"
+          >
+            Clear
+          </button>
+        )}
+        {!showColors && grades.length > 0 && (
+          <span className="text-xs text-fg-disabled ml-2">Prop coloring off (full game only)</span>
+        )}
+        <div className="ml-auto">
+          <StatsToggle showAll={showAllStats} onToggle={() => setShowAllStats((v) => !v)} />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-6">
+        {teamIds.map((teamId) => {
+          const teamSlots = allSlots.filter((s) => s.teamId === teamId);
+          const hasLineup  = teamSlots.some((s) => s.starterStatus != null);
+          return (
+            <TeamBox
+              key={teamId}
+              slots={teamSlots}
+              filteredTotals={filteredTotalsMap}
+              hasLineup={hasLineup}
+              propMap={propMap}
+              showColors={showColors}
+              showAllStats={showAllStats}
+              gameId={gameId}
+              selectedDate={selectedDate}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
