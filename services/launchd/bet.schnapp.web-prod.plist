@@ -7,7 +7,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/Users/schnapp/code/schnapp-bet/services/launchd/op-wrap.sh</string>
-        <string>web/node_modules/.bin/next</string>
+        <string>node_modules/.bin/next</string>
         <string>start</string>
         <string>-H</string>
         <string>127.0.0.1</string>

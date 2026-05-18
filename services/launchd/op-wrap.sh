@@ -16,8 +16,11 @@
 # The wrapper:
 #   1. Sources OP_SERVICE_ACCOUNT_TOKEN from ~/.zshrc (the single bootstrap
 #      secret per ADR-20260517-5).
-#   2. cd's to the repo root.
-#   3. Exec's `op run --env-file=.env.template -- "$@"`.
+#   2. Exec's `op run --env-file=<abs>/.env.template -- "$@"`.
+#
+# Working directory is left untouched so the plist's WorkingDirectory is
+# respected — Next.js, for example, requires cwd to be the directory that
+# holds its package.json.
 #
 # Failure modes:
 #   - ~/.zshrc missing or no OP_SERVICE_ACCOUNT_TOKEN export → exit 1.
@@ -27,6 +30,7 @@
 set -euo pipefail
 
 REPO_ROOT="/Users/schnapp/code/schnapp-bet"
+ENV_FILE="$REPO_ROOT/.env.template"
 ZSHRC="$HOME/.zshrc"
 
 if [ ! -f "$ZSHRC" ]; then
@@ -47,5 +51,4 @@ if ! command -v op >/dev/null 2>&1; then
   exit 1
 fi
 
-cd "$REPO_ROOT"
-exec op run --env-file=.env.template -- "$@"
+exec op run --env-file="$ENV_FILE" -- "$@"
