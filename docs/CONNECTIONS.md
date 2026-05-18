@@ -20,9 +20,9 @@ The local container does not auto-pause. If not running, `docker start mssql` on
 
 `https://schnapp.bet` and `https://www.schnapp.bet` are served by launchd user agent `bet.schnapp.web-prod`, plist at `~/Library/LaunchAgents/bet.schnapp.web-prod.plist`. Runs `next start -H 127.0.0.1 -p 3001` from `/Users/schnapp/code/schnapp-bet/web/` against the existing `web/.next/` build. `RunAtLoad=true`, `KeepAlive=true`. Also reachable as `https://prod.schnapp.bet` (pre-cutover staging hostname alias).
 
-A second launchd agent `bet.schnapp.web` runs the same code on port 3000 against the local SQL container; reachable as `https://dev.schnapp.bet`. Both agents share the `web/.next/` build directory.
+Dev mode is not auto-managed — run `op run --env-file=../.env.template -- npm run dev` from `web/` interactively when needed. The retired `bet.schnapp.web` launchd agent is no longer installed.
 
-Plist env vars. Both plists carry the same 8 keys; only `RUNNER_URL` differs (prod → `mac-flask.schnapp.bet`, dev → `127.0.0.1:5000`).
+Plist env vars (resolved at process-start by `op-wrap.sh` per ADR-20260517-5):
 
 - `SQL_CONNECTION_STRING` — `Server=localhost,1433;Database=schnapp-bet;User Id=sa;Password=<SA password from /Users/schnapp/sql-server.env>;Encrypt=true;TrustServerCertificate=true;`
 - `ADMIN_PASSCODE` — gates `/admin` and authorizes the `x-admin-token` path on workflow-dispatching routes
@@ -82,13 +82,13 @@ Recovery: 1) tunnel — `sudo launchctl kickstart -k system/com.cloudflare.cloud
 
 ## Cloudflare
 
-| Subdomain                        | Backend                                    | Proxy  | Status |
-| -------------------------------- | ------------------------------------------ | ------ | ------ |
-| `schnapp.bet`, `www.schnapp.bet` | Mac Next.js prod `:3001` via `schnapp-mac` | Orange | live   |
-| `prod.schnapp.bet`               | Same as above (alias)                      | Orange | live   |
-| `dev.schnapp.bet`                | Mac Next.js dev `:3000` via `schnapp-mac`  | Orange | live   |
-| `mac-flask.schnapp.bet`          | Mac Flask `:5000` via `schnapp-mac`        | Orange | live   |
-| `mac-mcp.schnapp.bet`            | Mac MCP `:8765` via `schnapp-mac`          | Orange | live   |
+| Subdomain                        | Backend                                    | Proxy  | Status                                                                                          |
+| -------------------------------- | ------------------------------------------ | ------ | ----------------------------------------------------------------------------------------------- |
+| `schnapp.bet`, `www.schnapp.bet` | Mac Next.js prod `:3001` via `schnapp-mac` | Orange | live                                                                                            |
+| `prod.schnapp.bet`               | Same as above (alias)                      | Orange | live                                                                                            |
+| `dev.schnapp.bet`                | Mac Next.js dev `:3000` via `schnapp-mac`  | Orange | route still live; backend only when `next dev` is running interactively (no auto-managed agent) |
+| `mac-flask.schnapp.bet`          | Mac Flask `:5000` via `schnapp-mac`        | Orange | live                                                                                            |
+| `mac-mcp.schnapp.bet`            | Mac MCP `:8765` via `schnapp-mac`          | Orange | live                                                                                            |
 
 All Schnapp subdomains are Cloudflare-proxied (orange cloud). Do not flip any to DNS-only.
 
@@ -121,7 +121,7 @@ All Schnapp subdomains are Cloudflare-proxied (orange cloud). Do not flip any to
 
 ## Local development
 
-- **Schnapps-MBP**: primary host. Python 3.12 venv at `/Users/schnapp/venv`. ODBC Driver 18 + unixODBC. SQL credentials at `/Users/schnapp/sql-server.env`. Hosts mac-runner-1. Production web `:3001`, dev `:3000`, Flask `:5000`, Mac MCP `:8765`.
+- **Schnapps-MBP**: primary host. Python 3.12 venv at `/Users/schnapp/venv`. ODBC Driver 18 + unixODBC. SQL credentials at `/Users/schnapp/sql-server.env`. Hosts mac-runner-1. Production web `:3001`, Flask `:5000`, Mac MCP `:8765`. Dev mode `:3000` is interactive-only, not auto-managed.
 
 ## Claude Code on Mac
 

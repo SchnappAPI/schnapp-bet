@@ -1,6 +1,6 @@
 # Runbook: Deploy the Web Tier
 
-The web tier is two launchd agents (`bet.schnapp.web` on `:3000` for dev, `bet.schnapp.web-prod` on `:3001` for prod) sharing the `web/.next/` build directory under `/Users/schnapp/code/schnapp-bet/web/`. Both target the local SQL Server container.
+The web tier is one launchd agent (`bet.schnapp.web-prod` on `:3001`) serving the `web/.next/` build directory under `/Users/schnapp/code/schnapp-bet/web/`. It targets the local SQL Server container. Dev mode (`next dev` on `:3000`) is not auto-managed — run it interactively via `op run --env-file=../.env.template -- npm run dev` from `web/` when needed.
 
 Manual deploy is triggered via the `deploy-web.yml` GitHub Actions workflow (workflow_dispatch on mac-runner). There is no CI deploy on push to `main`.
 
@@ -30,6 +30,4 @@ The deploy is in-place; the prior `web/.next/` is overwritten. To roll back:
 
 ## Plist-level changes
 
-Editing `~/Library/LaunchAgents/bet.schnapp.web-prod.plist` (env vars, paths) requires bootout/bootstrap, not kickstart. `launchctl kickstart -k` does not re-read the plist.
-
-The dev plist (`bet.schnapp.web`) follows the same pattern but on port 3000. Both must stay in sync on any new env var (e.g., a new API key) because they share the same web code.
+Editing `~/Library/LaunchAgents/bet.schnapp.web-prod.plist` (env vars, paths) requires bootout/bootstrap, not kickstart. `launchctl kickstart -k` does not re-read the plist. The canonical copy lives in the repo at `services/launchd/bet.schnapp.web-prod.plist` — edit there, `cp` to `~/Library/LaunchAgents/`, then bootout/bootstrap.

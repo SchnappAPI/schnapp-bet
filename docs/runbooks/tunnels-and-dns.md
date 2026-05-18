@@ -4,13 +4,13 @@ The `schnapp-mac` Cloudflare tunnel (ID `844a3714-9bd3-409e-a672-a6840c94e68e`) 
 
 ## Public subdomains
 
-| Subdomain | Backend on Mac | Purpose |
-|---|---|---|
-| `schnapp.bet`, `www.schnapp.bet` | Next.js prod `127.0.0.1:3001` | Production web |
-| `prod.schnapp.bet` | Next.js prod `127.0.0.1:3001` | Alias (pre-cutover staging hostname, kept) |
-| `dev.schnapp.bet` | Next.js dev `127.0.0.1:3000` | Dev / staging |
-| `mac-flask.schnapp.bet` | Flask `127.0.0.1:5000` | Web app live-data routes |
-| `mac-mcp.schnapp.bet` | Mac MCP `127.0.0.1:8765` | Claude MCP connector |
+| Subdomain                        | Backend on Mac                                                                                     | Purpose                                    |
+| -------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `schnapp.bet`, `www.schnapp.bet` | Next.js prod `127.0.0.1:3001`                                                                      | Production web                             |
+| `prod.schnapp.bet`               | Next.js prod `127.0.0.1:3001`                                                                      | Alias (pre-cutover staging hostname, kept) |
+| `dev.schnapp.bet`                | Next.js dev `127.0.0.1:3000` (interactive only — `npm run dev` from `web/`, no auto-managed agent) | Dev / staging                              |
+| `mac-flask.schnapp.bet`          | Flask `127.0.0.1:5000`                                                                             | Web app live-data routes                   |
+| `mac-mcp.schnapp.bet`            | Mac MCP `127.0.0.1:8765`                                                                           | Claude MCP connector                       |
 
 All are Cloudflare-proxied (orange cloud). Do not flip any to DNS-only.
 

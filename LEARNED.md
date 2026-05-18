@@ -8,6 +8,11 @@ Format: YYYY-MM-DD: description of the mistake and the correct behavior.
 
 ---
 
+2026-05-18: When you notice something stale or wrong in passing (untracked-but-not-gitignored file,
+doc that references a retired component, missed cleanup), fix it in the next commit rather than
+queue it. The user has stated they will likely never circle back to follow-ups. This applies to
+incidental fix-ups, not scope-creeping a stated task.
+
 2026-05-17: When the user says "simple over complex" + "as efficiently as possible", treat it as
 override for any prior recommendation to split / refactor / abstract before porting. Port-as-is.
 The earlier MEMORY.md note to "plan a per-concern split before porting grade_props.py" was

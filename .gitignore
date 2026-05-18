@@ -4,6 +4,7 @@ web/.next/
 web/out/
 web/*.log
 web/.env*
+web/*.tsbuildinfo
 
 # Python
 __pycache__/
