@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>bet.schnapp.web-prod</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/schnapp/code/schnapp-bet/services/launchd/op-wrap.sh</string>
+        <string>web/node_modules/.bin/next</string>
+        <string>start</string>
+        <string>-H</string>
+        <string>127.0.0.1</string>
+        <string>-p</string>
+        <string>3001</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/schnapp/code/schnapp-bet/web</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>PORT</key>
+        <string>3001</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>StandardOutPath</key>
+    <string>/Users/schnapp/code/schnapp-bet/web/web-prod.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/schnapp/code/schnapp-bet/web/web-prod.err.log</string>
+</dict>
+</plist>

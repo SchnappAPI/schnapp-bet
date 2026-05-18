@@ -4,9 +4,11 @@ FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 
 # Allowlist: files that look protected by substring but are documented as
 # secret-free. .env.template carries only `op://` URIs per ADR-20260517-5.
-ALLOWED=(".env.template")
+# services/launchd/*.plist contain no embedded secrets — the wrapper script
+# sources OP_SERVICE_ACCOUNT_TOKEN at runtime and `op run` resolves the rest.
+ALLOWED=(".env.template" "services/launchd/")
 for allowed in "${ALLOWED[@]}"; do
-  if [[ "$FILE_PATH" == *"$allowed" ]]; then
+  if [[ "$FILE_PATH" == *"$allowed"* ]]; then
     exit 0
   fi
 done

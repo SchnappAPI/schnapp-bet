@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>bet.schnapp.flask</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/schnapp/code/schnapp-bet/services/launchd/op-wrap.sh</string>
+        <string>/Users/schnapp/venv/bin/python</string>
+        <string>services/flask/runner.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/schnapp/code/schnapp-bet</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/schnapp/code/schnapp-bet/services/flask/flask.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/schnapp/code/schnapp-bet/services/flask/flask.err.log</string>
+</dict>
+</plist>
