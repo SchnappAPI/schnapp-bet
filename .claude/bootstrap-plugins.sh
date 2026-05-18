@@ -1,7 +1,14 @@
 #!/bin/bash
-# Installs the plugins declared in .claude/settings.json if missing.
-# Intended for fresh sandbox/agent sessions; idempotent on the Mac.
+# Installs the plugins declared in .claude/settings.json if missing, and
+# activates the repo's version-controlled git hooks (`.githooks/`) in this
+# clone. Both steps are idempotent.
 # Note: a plugin newly installed by this hook may not register until the next session start.
+
+# Activate version-controlled git hooks (auto-push on commit, etc.).
+# Silent no-op if already set or if not run inside the repo's worktree.
+if [ -n "${CLAUDE_PROJECT_DIR}" ] && [ -d "${CLAUDE_PROJECT_DIR}/.githooks" ]; then
+  git -C "${CLAUDE_PROJECT_DIR}" config --local core.hooksPath .githooks 2>/dev/null || true
+fi
 
 command -v claude >/dev/null 2>&1 || exit 0
 
