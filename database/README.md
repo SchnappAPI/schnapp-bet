@@ -1,30 +1,32 @@
-# database/
+# Database
 
-Schema definitions for the local SQL Server 2022 container (`localhost,1433`, database `sports-modeling`).
+Area router for the `sports-modeling` schema. The canonical database is the **local SQL Server 2022 Docker container** at `localhost,1433` on Schnapps-MBP — target for all ETL and the production web tier. Connection details in `/docs/CONNECTIONS.md`.
 
-## Layout
+## Schemas
 
-- `_shared/` — `common` and `odds` schemas (cross-sport: grades, teams, integrity framework, workflow runs, odds lines). [Empty until bootstrap.sql lands in the next milestone.]
-- `migrations/` — numbered, idempotent `IF NOT EXISTS` migrations for `common.*` changes. See `docs/decisions/ADR-20260517-1-bootstrap-strategy.md`. [Empty until first migration lands.]
-- `nba/` — `nba` schema. See `nba/README.md`.
-- `mlb/` — `mlb` schema. See `mlb/README.md`.
-- `nfl/` — `nfl` schema. See `nfl/README.md`.
+- `nba` - NBA tables. STATUS: live. See `/database/nba/README.md`.
+- `mlb` - MLB tables. STATUS: in development (7 nightly + 1 on-demand + 2 derived; 3 ADR-0004 entities remain). See `/database/mlb/README.md`.
+- `nfl` - NFL tables. STATUS: idle (7 tables from nflreadpy; first run 2026-04-21; not in active use). See `/database/nfl/README.md`.
+- `odds` - cross-sport odds tables. See `/database/_shared/README.md`.
+- `common` - cross-sport utility tables (user codes, demo config, teams, patterns). See `/database/_shared/README.md`.
 
-## bootstrap.sql vs migrations
+## Files
 
-Per ADR-20260517-1 hybrid strategy:
+DDL currently lives inside Python ETL migration scripts under `/etl/` (for example, table-create logic inside `nba_etl.py` and `mlb_etl.py`, plus `db_inventory.py` which lists schemas and tables). Whether to introduce dedicated `.sql` DDL files per schema alongside the Python ETL is an open question (see Open Questions below); today, Python ETL is the source of truth for DDL.
 
-- **Sport schemas** regenerate-on-demand from the live container. `database/<sport>/bootstrap.sql` is a generated artifact intended to recreate the schema against an empty database. Not idempotent; not designed to be.
-- **`common.*`** uses numbered migrations under `database/migrations/NNNN_*.sql`. Append-only, idempotent.
+## Key Concepts
 
-Procedure for either lives in `.claude/skills/regenerate-bootstrap-sql/SKILL.md` (`/skill regenerate-bootstrap-sql`).
+Naming: schemas are lowercase (`nba`, `mlb`). Table and column names are snake_case. Primary keys are usually surrogate integers with a unique constraint on business keys.
 
-## Connection
+## Invariants
 
-- Container `mssql`, port `localhost,1433`, database `sports-modeling`.
-- Credentials: SA password in `/Users/schnapp/sql-server.env` (sourced by mac-runner workflows).
-- See `docs/CONNECTIONS.md` for the full connection contract.
+- One database, five schemas.
+- Schemas match sport names. Cross-sport data lives in `common` or `odds`.
 
-## Rules
+## Recent Changes
 
-See `.claude/rules/database.md` — auto-loaded when editing files under `database/`.
+See `/docs/CHANGELOG.md` filtered by `[database]`.
+
+## Open Questions
+
+Whether to introduce dedicated `.sql` DDL files per schema alongside the Python ETL, or continue with DDL-in-Python.
