@@ -11,3 +11,4 @@ paths:
 - One-shot migrations (`grades-migrate`, `mlb-migrate`, etc.) belong only as long as they have a purpose. Delete after they ship.
 - `manual` `workflow_dispatch` is the default trigger for any cost-bearing or destructive run. Add a schedule only when the cadence is well understood and idempotent.
 - Python runs on mac-runner only.
+- Workflows that commit and push must set `git config --local core.hooksPath .githooks` before the first git operation, so the auto-push post-commit hook fires the same way it does in Claude Code sessions. Without it, commits land locally on the runner and never reach origin.
