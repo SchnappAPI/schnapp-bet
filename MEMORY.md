@@ -2,7 +2,15 @@
 
 ## Current Focus
 
-Full code port complete. schnapp-bet now mirrors sports-modeling: ETL (NBA/MLB/NFL/odds + utilities + backfill), grading, web (Next.js), database bootstrap DDL, services (Flask runner), `.github/workflows/` (27 workflows, all adapted to load secrets via 1Password), launchd plists with `op-wrap.sh`. 1Password vault `web-variables` is the single source of truth for runtime secrets (ADR-20260517-5). The repo is shaped for ship. **Remaining work is verification + manual integration**, not porting.
+**Cutover complete (2026-05-18).** Full code port plus first-run integration done. End-to-end smoke verified by running `nba-etl.yml` on the new mac-runner-1: 1Password load-secrets-action resolved, Python ETL connected to SQL Server via the Webshare proxy, 30 teams + 1320 schedule rows + 1306 games + 160 usage-stat rows upserted. Two HTTP 503s on `boxscoreadvancedv3` were transient stats.nba.com noise handled by the runner's retry logic.
+
+Live agents on Schnapps-MBP (post-cutover):
+
+- `bet.schnapp.flask` — Flask runner on port 5000, started via `services/launchd/op-wrap.sh`.
+- `bet.schnapp.web-prod` — Next.js prod on port 3001, served from `web/.next/`, started via op-wrap.
+- `actions.runner.SchnappAPI-schnapp-bet.mac-runner-1` — self-hosted GH Actions runner.
+
+Optional cleanup tasks remain (stale `bet.schnapp.web` dev agent, DB rename `sports-modeling` → `schnapp-bet`, OP token rotation), but nothing blocks the platform from running.
 
 ## Active Conventions (current state — read before committing)
 
@@ -69,9 +77,9 @@ All ported as-is from sports-modeling (`/Users/schnapp/sports-modeling/`). Pytho
 - `.githooks/post-commit` (auto-push), `.githooks/commit-msg` (subject format enforcement).
 - `.claude/hooks/protect-files.sh` — substring-blocks `.env`, `.plist`, `package-lock.json`, `sql-server.env`, `.git/`. Allowlist: `.env.template`, `services/launchd/`.
 
-## Manual actions required (you must do these — Claude cannot)
+## Manual actions (completed 2026-05-18 — see `docs/cutover.md` for the scripts)
 
-These cannot be done from inside Claude Code. Do them after this session, or before the first end-to-end test.
+Steps 1–4 are DONE. Steps 5–6 are optional and outstanding.
 
 1. **Set the GitHub repo secret.** Workflows will fail until this is set:
 
