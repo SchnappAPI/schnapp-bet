@@ -37,3 +37,9 @@ docs/HEALTH.md
 # Local SQL credentials / scratch
 sql-server.env
 *.local.env
+
+# Root-level env files: block everything except .env.template (URI mapping
+# only — no secrets). See ADR-20260517-5.
+/.env
+/.env.*
+!/.env.template
