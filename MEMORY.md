@@ -10,7 +10,17 @@ Live agents on Schnapps-MBP (post-cutover):
 - `bet.schnapp.web-prod` — Next.js prod on port 3001, served from `web/.next/`, started via op-wrap.
 - `actions.runner.SchnappAPI-schnapp-bet.mac-runner-1` — self-hosted GH Actions runner.
 
-Optional cleanup tasks remain (stale `bet.schnapp.web` dev agent, DB rename `sports-modeling` → `schnapp-bet`, OP token rotation), but nothing blocks the platform from running.
+Post-cutover housekeeping (2026-05-18 afternoon) is also done:
+
+- Retired `bet.schnapp.web` dev agent + plist. Dev mode is now interactive-only (`npm run dev`).
+- Deleted `.pre-1password` and `.pre-phase4.bak` plist backups (no more plaintext secrets on disk except `~/.zshrc`).
+- Renamed every in-repo `sports-modeling` reference that pointed at the DB or repo. The live SQL Server database was already named `schnapp-bet` (rename happened during the Azure→Mac migration months ago); no ALTER DATABASE was needed.
+- Dropped the `sports-modeling-azure-20260427` backup DB. BACPAC files at `/Users/schnapp/azure-sql-backups/` retained per the new invariant in `.claude/rules/database.md`.
+- Fixed three `web/app/api/refresh-*.ts` routes that hardcoded `sports-modeling` as the GitHub repo.
+- Deleted `infrastructure/README.md` (its content fully duplicated `docs/CONNECTIONS.md` + the runbooks). BACPAC invariant moved to `.claude/rules/database.md`.
+- Pruned stale dev-agent references from `docs/runbooks/deploy-web.md`, `docs/runbooks/tunnels-and-dns.md`, and `docs/CONNECTIONS.md`.
+
+**Only outstanding item:** rotate `OP_SERVICE_ACCOUNT_TOKEN` (and ideally `ADMIN_PASSCODE`) per `docs/cutover.md`.
 
 ## Active Conventions (current state — read before committing)
 
