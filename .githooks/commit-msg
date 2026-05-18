@@ -1,0 +1,59 @@
+#!/bin/bash
+# commit-msg hook — enforce commit subject format per ADR-20260517-4.
+# Activated via .githooks/ + core.hooksPath; see .claude/bootstrap-plugins.sh.
+#
+# Required subject format:
+#   <type>: [scope1][scope2] short description — ADR-YYYYMMDD-N (optional)
+#
+# Where:
+#   <type>  ∈ feat | fix | refactor | docs | chore | perf | test | style | revert
+#   [scope] ∈ tag taxonomy (at least one required). See CLAUDE.md.
+
+MSG_FILE="$1"
+SUBJECT=$(head -n1 "$MSG_FILE")
+
+# Pass-through for merge commits — git generates the subject automatically.
+if [ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
+  exit 0
+fi
+
+# Pass-through for git-generated revert commits.
+if [[ "$SUBJECT" =~ ^Revert\  ]]; then
+  exit 0
+fi
+
+# Pass-through for autosquash markers — they get reflowed during rebase.
+if [[ "$SUBJECT" =~ ^(fixup!|squash!|amend!)\  ]]; then
+  exit 0
+fi
+
+# Validate. Type token, ": ", at least one [scope] bracket, then a description.
+PATTERN='^(feat|fix|refactor|docs|chore|perf|test|style|revert): (\[[a-z]+\])+ .+'
+if [[ ! "$SUBJECT" =~ $PATTERN ]]; then
+  cat >&2 <<EOF
+[commit-msg] Subject does not match the required format (ADR-20260517-4).
+
+Got:
+  $SUBJECT
+
+Expected:
+  <type>: [scope1][scope2] short description — ADR-YYYYMMDD-N (optional)
+
+Where:
+  <type>   ∈ feat, fix, refactor, docs, chore, perf, test, style, revert
+  [scope]  ∈ [nba] [mlb] [nfl] [shared] [etl] [grading] [web]
+             [database] [odds] [services] [infra] [docs] [meta] [all]
+
+Examples:
+  feat: [infra] add post-commit auto-push hook
+  refactor: [meta][docs] git log is the changelog — ADR-20260517-4
+  fix: [grading][nba] correct opp_df unpacking in calibration
+  docs: [database] expand bootstrap.sql regeneration notes
+
+Edit the message and try again. Bypassing this hook requires \`--no-verify\`,
+which CLAUDE.md Non-Negotiables forbid without explicit user confirmation.
+EOF
+  exit 1
+fi
+
+exit 0
