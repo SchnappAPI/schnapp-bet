@@ -15,4 +15,6 @@ paths:
 - Incremental ingestion: query destination to find what is loaded, compute delta in Python, then call the API. Never truncate and reload unless explicitly rebuilding.
 - When loading multiple related tables in one run, check existing keys against the most granular table only. Treat all related tables as complete or incomplete together for that partition.
 - Unmapped Odds API players are not an error. Log and continue. Escalate to GitHub Issue only at retry_count >= 3.
-- Workflow env block must include PYTHONPATH, SQL_SERVER, SQL_DATABASE, SQL_USERNAME, SQL_PASSWORD, SQL_TRUST_CERT.
+- Workflow env block must include PYTHONPATH, SQL_SERVER, SQL_DATABASE, SQL_USERNAME, SQL_PASSWORD, SQL_TRUST_CERT. PYTHONPATH=/Users/schnapp/code/schnapp-bet.
+- Odds API: FanDuel only. Every Odds API call must set `bookmakers=fanduel`. Multi-bookmaker support deferred.
+- Python runs in GitHub Actions on mac-runner or via Mac MCP `shell_exec` only.
