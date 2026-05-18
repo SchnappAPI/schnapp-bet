@@ -11,4 +11,5 @@ paths:
 - `common.ingest_quarantine` rows are cleared by `validate_and_filter` on the next successful write pass. Do not manually delete quarantine rows.
 - Never DROP TABLE without explicit confirmation. Prefer ADD COLUMN with a default or an idempotent ALTER.
 - Bookmaker invariant: `bookmaker_key = 'fanduel'` on every odds-schema write. Multi-bookmaker support is deferred (ADR-0007 lineage).
-- Schemas target the local SQL Server 2022 container at `localhost,1433` on Schnapps-MBP. SA credentials in `/Users/schnapp/sql-server.env`.
+- Schemas target the local SQL Server 2022 container at `localhost,1433` on Schnapps-MBP. SA credentials in `/Users/schnapp/sql-server.env`. Database name: `schnapp-bet`.
+- BACPAC backups of the pre-migration Azure SQL `sports-modeling` database are retained at `/Users/schnapp/azure-sql-backups/` as portable restore points. Do not delete that directory.
