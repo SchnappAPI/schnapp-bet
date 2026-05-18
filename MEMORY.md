@@ -2,9 +2,9 @@
 
 ## Current Focus
 
-schnapp-bet meta layer is locked. Policy and tooling work shipped today: auto-push enforcement, commit-msg format hook, deletion of the CHANGELOG file (`git log` is now the changelog), 1Password vault `web-variables` as single secrets source. ADR chain so far: ADR-20260517-1 through -5. NBA pipeline ported as-is from sports-modeling: `nba_etl.py`, `nba_live.py`, `lineup_poll.py`. Remaining sport pipelines (MLB, NFL), workflows, and the grading engine port are next — all will consume secrets through `op run` / `1password/load-secrets-action`.
+Full code port complete. schnapp-bet now mirrors sports-modeling: ETL (NBA/MLB/NFL/odds + utilities + backfill), grading, web (Next.js), database bootstrap DDL, services (Flask runner), `.github/workflows/` (27 workflows, all adapted to load secrets via 1Password), launchd plists with `op-wrap.sh`. 1Password vault `web-variables` is the single source of truth for runtime secrets (ADR-20260517-5). The repo is shaped for ship. **Remaining work is verification + manual integration**, not porting.
 
-## Active Conventions (new this session — read before committing)
+## Active Conventions (current state — read before committing)
 
 - **Commit subject format is mandatory and enforced** (ADR-20260517-4):
   ```
@@ -12,46 +12,104 @@ schnapp-bet meta layer is locked. Policy and tooling work shipped today: auto-pu
   ```
   `.githooks/commit-msg` rejects malformed subjects before the commit lands. Types: `feat | fix | refactor | docs | chore | perf | test | style | revert`. Tags: `[nba] [mlb] [nfl] [shared] [etl] [grading] [web] [database] [odds] [services] [infra] [docs] [meta] [all]`.
 - **One logical change per commit**, not one file (ADR-20260517-3). The commit subject IS the changelog entry.
-- **Auto-push is active.** Every successful commit pushes to `origin/main` via `.githooks/post-commit`. Stop hook is a safety net for missed pushes.
-- **No CHANGELOG file.** `git log` is the changelog. Filter with `git log --grep='\[scope\]'`. Pre-policy commits used `type(scope):` style — cover both with `git log --grep='\[meta\]\|(meta)'`.
-- **No per-directory CLAUDE.md pointers.** Path-scoped rules under `.claude/rules/` auto-load when editing matching paths.
-- **Session lifecycle scales by task size** (ADR-20260517-3):
-  - Trivial → commit only.
-  - Routine → commit + MEMORY.md.
-  - Milestone → commit + MEMORY.md + ADR.
-  - Mid-session correction → LEARNED.md immediately.
-- **Per-clone setup**: `git config --local core.hooksPath .githooks` activates both hooks. SessionStart bootstrap (`.claude/bootstrap-plugins.sh`) sets this automatically in Claude Code. mac-runner workflows must set it inline before any git operation (`.claude/rules/workflows.md`).
-- **1Password is the secrets source** (ADR-20260517-5). Vault `web-variables` holds every runtime secret. The mapping of env-var → `op://` URI is `.env.template` at repo root. Local: `op run --env-file=.env.template -- <cmd>`. Workflows: `1password/load-secrets-action@v2`. Bootstrap token: `OP_SERVICE_ACCOUNT_TOKEN` (in `~/.zshrc` locally; only repo-level GH secret in CI).
-
-## Active Items
-
-- Repo at `/Users/schnapp/code/schnapp-bet`. PYTHONPATH for workflows is `/Users/schnapp/code/schnapp-bet`.
-- 17 plugins declared in `.claude/settings.json`; bootstrap runs on SessionStart, installs missing plugins, and activates `core.hooksPath`.
-- `.githooks/` contains: `post-commit` (auto-push), `commit-msg` (subject format enforcement).
-- `docs/HEALTH.md` is gitignored — regenerate locally via `/skill regenerate-health` when needed.
-- Bootstrap-vs-migrations: hybrid per ADR-20260517-1.
-- All work pushed to `origin/main` — zero unpushed commits at session end.
+- **Auto-push is active.** Every successful commit pushes to `origin/main` via `.githooks/post-commit`.
+- **No CHANGELOG file.** `git log` is the changelog. Filter with `git log --grep='\[scope\]'`.
+- **No per-directory CLAUDE.md pointers.** Path-scoped rules under `.claude/rules/` auto-load.
+- **Session lifecycle scales by task size** (ADR-20260517-3): Trivial → commit only. Routine → commit + MEMORY.md. Milestone → commit + MEMORY.md + ADR. Mid-session correction → LEARNED.md immediately.
+- **1Password is the secrets source** (ADR-20260517-5). Vault `web-variables`. Mapping at `.env.template`. Local: `op run --env-file=.env.template -- <cmd>`. Workflows: `1password/load-secrets-action@v2`. Bootstrap token: `OP_SERVICE_ACCOUNT_TOKEN` in `~/.zshrc` (local), only repo-level GH secret in CI. launchd: invoke via `services/launchd/op-wrap.sh`.
 
 ## Code state
 
-Ported as-is from sports-modeling, all passing `python3 -c "import ast; ast.parse(...)"`:
+All ported as-is from sports-modeling (`/Users/schnapp/sports-modeling/`). Python files pass `ast.parse`.
 
-- `shared/db.py` (126 lines) — engine, retry, upsert helpers.
-- `shared/integrity.py` (1175 lines) — three-layer integrity framework (ADR-20260424-2).
-- `services/flask/runner.py` (189 lines) — NBA CDN proxy on port 5000.
-- `etl/odds_etl.py` (2009 lines) — FanDuel-only invariant preserved at `BOOKMAKERS = "fanduel"`.
-- `etl/nba_etl.py` (1357 lines) — `stats.nba.com` endpoints, Webshare proxy via `NBA_PROXY_URL`.
-- `etl/nba_live.py` (201 lines) — `cdn.nba.com/static/json/liveData/` scoreboard + boxscore.
-- `etl/lineup_poll.py` (384 lines) — `stats.nba.com/js/data/leaders/00_daily_lineups_*` + boxscorepreviewv3.
+**ETL** (`etl/`):
 
-Not yet ported:
+- `odds_etl.py` (2009 lines) — FanDuel-only invariant at `BOOKMAKERS = "fanduel"`.
+- `nba_etl.py` (1357), `nba_live.py` (201), `lineup_poll.py` (384) — NBA pipeline.
+- `mlb_etl.py` (776), `mlb_play_by_play.py` (1817) — MLB pipeline (statsapi.mlb.com).
+- `nfl_etl.py` (388) — NFL pipeline (nflreadpy).
+- `cleanup_stale_odds_and_grades.py`, `compute_patterns.py`, `game_day_gate.py`, `gate_check.py`, `migrate_common_teams.py`, `nba_clear.py`, `seed_user_codes.py`, `requirements.txt`.
+- `backfill/` — 7 historical loaders + 2 storage helpers.
 
-- `etl/mlb_*.py` — MLB pipeline (`mlb_etl.py` 33758 B, `mlb_play_by_play.py` 84930 B).
-- `etl/nfl_*.py` — NFL pipeline (`nfl_etl.py` 13910 B).
-- `grading/grade_props.py` (~140 KB), `grading/mlb_grade_props.py` — grading engine.
-- `web/` — Next.js app, not yet scaffolded.
+**Grading** (`grading/`):
 
-## Decision chain (today)
+- `grade_props.py` (3112), `mlb_grade_props.py` (1055), `weekly_calibration.py` (857), `generate_supplemental.py` (552), plus calibration/migration/backfill/verify utilities. `requirements.txt`.
+- Per-concern split DEFERRED — port-as-is. (Per "simple over complex" directive.)
+
+**Shared** (`shared/`):
+
+- `db.py` (126) — engine, retry, upsert.
+- `integrity.py` (1175+) — three-layer integrity framework (ADR-20260424-2). Per-sport split deferred until 2nd sport's contracts show up.
+
+**Web** (`web/`):
+
+- Full Next.js 15 tree from sports-modeling. 130 files. `package.json` renamed to `schnapp-bet-web`. Top-level `package.json` workspace renamed to `schnapp-bet`.
+
+**Workflows** (`.github/workflows/`):
+
+- All 27 workflows ported. `secrets.SQL_*`, `secrets.NBA_PROXY_URL`, `secrets.ODDS_API_KEY`, `secrets.ANTHROPIC_API_KEY`, `secrets.CLAUDE_CODE_OAUTH_TOKEN` replaced with `1password/load-secrets-action@v2` steps using `op://web-variables/...` URIs.
+- `OP_SERVICE_ACCOUNT_TOKEN` is the only repo-level GitHub secret each workflow expects.
+- `PYTHONPATH` updated to `/Users/schnapp/code/schnapp-bet`.
+- `deploy-web.yml`: clone URL → `SchnappAPI/schnapp-bet.git`; live-dir swap target → `$BASE/schnapp-bet`.
+
+**Services** (`services/`):
+
+- `flask/runner.py` (189) — NBA CDN proxy on port 5000.
+- `launchd/op-wrap.sh` — sources `OP_SERVICE_ACCOUNT_TOKEN` from `~/.zshrc`, exec's `op run --env-file=.env.template -- "$@"`. Smoke-tested.
+- `launchd/bet.schnapp.flask.plist`, `launchd/bet.schnapp.web-prod.plist` — plists with no embedded secrets.
+
+**Database** (`database/`):
+
+- `_shared/bootstrap.sql` (566 lines), `nba/bootstrap.sql` (161), `mlb/bootstrap.sql` (412), `nfl/bootstrap.sql` (833). Sport schemas regenerate-on-empty per ADR-20260517-1.
+
+**Docs and policy**:
+
+- 5 ADRs for today: ADR-20260517-1 through -5.
+- `.env.template` (root) — canonical env-var → `op://` URI mapping. ~20 vars.
+- `.githooks/post-commit` (auto-push), `.githooks/commit-msg` (subject format enforcement).
+- `.claude/hooks/protect-files.sh` — substring-blocks `.env`, `.plist`, `package-lock.json`, `sql-server.env`, `.git/`. Allowlist: `.env.template`, `services/launchd/`.
+
+## Manual actions required (you must do these — Claude cannot)
+
+These cannot be done from inside Claude Code. Do them after this session, or before the first end-to-end test.
+
+1. **Set the GitHub repo secret.** Workflows will fail until this is set:
+
+   ```bash
+   gh secret set OP_SERVICE_ACCOUNT_TOKEN --repo SchnappAPI/schnapp-bet
+   # Paste the same value that's in ~/.zshrc:10 when prompted.
+   ```
+
+2. **Re-register the self-hosted mac-runner.** It currently points to `SchnappAPI/sports-modeling`. Two options:
+   - Add a runner under `SchnappAPI/schnapp-bet` repo settings, install a new agent on Schnapps-MBP. (Easier to keep two repos running in parallel.)
+   - Or unregister from sports-modeling, re-register against schnapp-bet, replace the launchd plist (`actions.runner.SchnappAPI-sports-modeling.mac-runner-1.plist`).
+
+3. **Install the new launchd plists** (replaces the old `~/Library/LaunchAgents/bet.schnapp.flask.plist` and `bet.schnapp.web-prod.plist` that point at `/Users/schnapp/sports-modeling/` and carry plaintext secrets):
+
+   ```bash
+   launchctl unload ~/Library/LaunchAgents/bet.schnapp.flask.plist
+   launchctl unload ~/Library/LaunchAgents/bet.schnapp.web-prod.plist
+   cp services/launchd/bet.schnapp.flask.plist     ~/Library/LaunchAgents/
+   cp services/launchd/bet.schnapp.web-prod.plist  ~/Library/LaunchAgents/
+   launchctl load   ~/Library/LaunchAgents/bet.schnapp.flask.plist
+   launchctl load   ~/Library/LaunchAgents/bet.schnapp.web-prod.plist
+   ```
+
+4. **Build web for prod** (the live dir `/Users/schnapp/schnapp-bet/` referenced by `bet.schnapp.web-prod.plist` doesn't exist yet):
+
+   ```bash
+   cd web && op run --env-file=../.env.template -- npm ci && op run --env-file=../.env.template -- npm run build
+   # Then create or symlink /Users/schnapp/schnapp-bet/ to point at this repo's web/ dir.
+   ```
+
+5. **SQL Server container / database name.** 1Password's `Database/database` field still says `sports-modeling`. Either:
+   - Rename the database in the live SQL Server container to `schnapp-bet` and update the vault field. (Requires a brief downtime.)
+   - Or leave the database name as `sports-modeling` indefinitely (the name is internal — only 1Password and connection strings reference it).
+   - Same decision applies to `SQL_CONNECTION_STRING` in 1Password — its `Database=sports-modeling;` substring.
+
+6. **(Optional) Rotate `OP_SERVICE_ACCOUNT_TOKEN`** if you suspect it's leaked. Today's events: it appeared in this session's transcript (when grepping `~/.zshrc`). If shoulder-surfing or transcript exfiltration is a real concern, rotate the service account.
+
+## Decision chain (this & prior sessions)
 
 `docs/decisions/ADR-20260517-1` → `-2` → `-3` → `-4` → `-5`. Read in order for the full reasoning behind the meta layer:
 
@@ -61,43 +119,32 @@ Not yet ported:
 4. **ADR-20260517-4** — `git log` is the changelog; drop `docs/changelog/`.
 5. **ADR-20260517-5** — 1Password vault `web-variables` is the single source of truth for runtime secrets.
 
+## Decisions resolved this session
+
+- **Port everything as-is.** Grading split deferred. Per-sport `CRITICAL_FIELDS` split deferred. `web/`, `grading/`, `workflows/`, `services/`, `database/` all carried verbatim (or with mechanical 1Password adaptation). Simpler now; refactor when there's a concrete reason.
+- **launchd plists never carry secrets.** `services/launchd/op-wrap.sh` reads `OP_SERVICE_ACCOUNT_TOKEN` from `~/.zshrc` at process start and `exec`s `op run --env-file=.env.template -- "$@"`. Plists hold zero secret values.
+- **Per-sport integrity split STILL DEFERRED.** Comment at `shared/integrity.py:90-93` records the rationale. Re-decide when MLB and NFL ETLs actually run.
+
 ## Next Up
 
 In priority order:
 
-1. **MLB pipeline port** — `etl/mlb_etl.py` (33.7 KB) + `etl/mlb_play_by_play.py` (84.9 KB) from sports-modeling. Same port-as-is pattern. When this lands, the integrity split decision gets forced (see "Decisions resolved" below).
-2. **NFL pipeline port** — `etl/nfl_etl.py` (13.9 KB) from sports-modeling. Smaller; can pair with MLB or stand alone.
-3. **Web scaffold** — `package.json`, `next.config.mjs`, `tailwind.config.ts`, `app/layout.tsx`, `lib/db.ts`, `middleware.ts`. Independent of sport pipelines; can be a parallel session.
-4. **Grading engine port** — `grading/grade_props.py` (~140 KB in sports-modeling). Plan a per-concern split before porting; do not port as a single file.
-5. **Workflows port** — alongside the code they trigger. `.claude/rules/workflows.md` is in place. Don't forget the inline `core.hooksPath` setup line _and_ the `1password/load-secrets-action@v2` block with `op://` URIs (per ADR-20260517-5). Add `OP_SERVICE_ACCOUNT_TOKEN` as the only repo-level GitHub secret before running the first workflow.
-
-## Decisions resolved this session
-
-- **1Password is the secrets source** (ADR-20260517-5). Vault `web-variables` is populated with every secret schnapp-bet needs. Mapping committed at `.env.template`. CLAUDE.md, `.claude/rules/shared.md`, `.claude/rules/workflows.md` all updated. `op run` verified locally — all 9 env vars resolve. **Wiring not yet implemented**: workflows still don't exist, services aren't yet started via `op run`. The ADR is the contract; consumers land later.
-- **Per-sport `CRITICAL_FIELDS` / `RELATIONAL_CHECKS` split: deferred** until a 2nd sport ports. Designing the partition before MLB/NFL contracts are known is speculative. Rationale recorded inline at `shared/integrity.py:90-93`. When MLB lands, decide the split shape based on what mlb tables actually need.
-- **Pointer-file sweep finished.** `etl/CLAUDE.md`, `grading/CLAUDE.md`, `web/CLAUDE.md`, `shared/CLAUDE.md` all removed. Only the root `CLAUDE.md` remains. ADR-20260517-3 cleanup is now complete.
+1. **Execute the manual actions above** — until GitHub secret is set + runner is re-registered + launchd plists are installed, nothing actually runs.
+2. **End-to-end smoke**: trigger `nba-etl.yml` via `gh workflow run nba-etl.yml`. Watch the run. The "Load secrets from 1Password" step should succeed; the Python ETL should reach SQL Server.
+3. **Web prod smoke**: load `http://127.0.0.1:3001` after the launchd plists are installed. Confirm SQL connection works (a `/api/games/today` response is a quick check).
+4. **Cosmetic cleanup**: `infrastructure/README.md` and `grading-v2/` are docs-only; decide whether to keep or delete. `grading-v2/` is an in-progress redesign that may or may not be your current direction.
+5. **Per-sport integrity split** when MLB and NFL ETLs both run successfully and you can see what `mlb.*` / `nfl.*` tables need vs. what's shared.
 
 ## How to continue (next session)
 
-1. Read MEMORY.md (this file), then LEARNED.md. If the repo contradicts memory, the repo wins.
-2. The commit-msg hook will reject malformed subjects on the first commit — SessionStart bootstrap activates `core.hooksPath` automatically, no manual setup needed.
-3. Start the MLB pipeline port. Files live in `/Users/schnapp/sports-modeling/etl/`:
-   ```
-   wc -l /Users/schnapp/sports-modeling/etl/mlb_etl.py /Users/schnapp/sports-modeling/etl/mlb_play_by_play.py
-   ```
-4. Follow the established port-as-is pattern (used for `odds_etl.py` and the 3 NBA files):
-   - `cp` from sports-modeling.
-   - `python3 -c "import ast; ast.parse(open('etl/mlb_etl.py').read())"` to verify.
-   - `diff -q` + `md5` to confirm byte-identical copy.
-   - Spot-check sport-specific invariants (MLB stats API endpoints, stat columns).
-   - Commit subject: `feat: [etl][mlb] port mlb_etl.py from sports-modeling as-is`.
-5. When MLB lands, **decide the integrity split shape** — by that point you'll see what `mlb.*` tables need vs. what `nba.*` tables share.
-6. Update MEMORY.md "Code state" section once at end of batch (Routine ceremony), not per file.
+1. Read MEMORY.md, then LEARNED.md.
+2. The first thing to verify is whether the manual actions above were done. `gh secret list --repo SchnappAPI/schnapp-bet` should show `OP_SERVICE_ACCOUNT_TOKEN`. If not, that's the blocker.
+3. Once secrets are wired and the runner registered, trigger `nba-etl.yml` and walk the failure modes — workflows often surface env / path issues that are invisible during a paper port.
 
 ## Blockers
 
-None.
+None for porting. The runtime blockers are the manual actions above.
 
 ## Recommendation
 
-Start fresh. NBA pipeline files are large and the per-sport `CRITICAL_FIELDS` split decision benefits from clean context.
+This session shipped a lot. Next session should be small: kick off one workflow, fix the first thing that breaks, repeat. Don't combine integration debugging with new ports.
