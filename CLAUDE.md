@@ -65,6 +65,14 @@ Cross-cutting rules only. Path-specific invariants live in `.claude/rules/*.md` 
 - Python runs in GitHub Actions on mac-runner or via Mac MCP `shell_exec` only.
 - Never hardcode credentials, hostnames, or IPs.
 
+### Secrets
+
+- **1Password vault `web-variables` is the single source of truth** for runtime secrets (per ADR-20260517-5). The mapping of env var → `op://` URI lives in `.env.template` at repo root.
+- **Bootstrap secret**: `OP_SERVICE_ACCOUNT_TOKEN`. On Schnapps-MBP it is in `~/.zshrc`. On GitHub Actions it is the _only_ repository secret.
+- **Local dev**: invoke commands via `op run --env-file=.env.template -- <command>`. Never resolve URIs to a plaintext file on disk.
+- **GitHub Actions**: use `1password/load-secrets-action@v2`. Each workflow declares the URIs it needs in the action's `env:` block.
+- **Adding a new env var** is a coupled three-part change: vault item/field, `.env.template` line, and the code that reads `os.environ[...]`. A PR with only the code side is incomplete.
+
 ### Commits & history
 
 - **One logical change per commit** — not one file. A logical change is the smallest self-consistent unit; coupled files are committed together. (Per ADR-20260517-3.)
