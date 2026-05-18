@@ -20,7 +20,9 @@ Post-cutover housekeeping (2026-05-18 afternoon) is also done:
 - Deleted `infrastructure/README.md` (its content fully duplicated `docs/CONNECTIONS.md` + the runbooks). BACPAC invariant moved to `.claude/rules/database.md`.
 - Pruned stale dev-agent references from `docs/runbooks/deploy-web.md`, `docs/runbooks/tunnels-and-dns.md`, and `docs/CONNECTIONS.md`.
 
-**Only outstanding item:** rotate `OP_SERVICE_ACCOUNT_TOKEN` (and ideally `ADMIN_PASSCODE`) per `docs/cutover.md`.
+Rotation complete: `OP_SERVICE_ACCOUNT_TOKEN` (regenerated in 1Password, propagated to `~/.zshrc` + GitHub repo secret + both launchd agents) and `ADMIN_PASSCODE` (new value in vault, picked up via `op run` on web-prod restart). End-to-end smoke verified via `daily-health-report.yml` workflow — the `Load secrets from 1Password` step succeeded with the new token. The workflow's final "commit HEALTH.md" step failed because `docs/HEALTH.md` is gitignored per ADR-20260517-2 D5 and the workflow's logic was carried over from sports-modeling where it wasn't; deleted the workflow since `/skill regenerate-health` is the replacement.
+
+**No outstanding cutover work.** Platform is fully ported, wired through 1Password end-to-end, with no plaintext secrets on disk beyond `OP_SERVICE_ACCOUNT_TOKEN` in `~/.zshrc`.
 
 ## Active Conventions (current state — read before committing)
 

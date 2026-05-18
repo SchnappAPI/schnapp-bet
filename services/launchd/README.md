@@ -11,6 +11,7 @@ launchd does not source `~/.zshrc`, so `OP_SERVICE_ACCOUNT_TOKEN` is not in a pl
 - `op-wrap.sh` — bootstrap wrapper (sources `OP_SERVICE_ACCOUNT_TOKEN`, runs `op run`).
 - `bet.schnapp.flask.plist` — Flask runner (`services/flask/runner.py`) on port 5000.
 - `bet.schnapp.web-prod.plist` — Next.js production server on port 3001.
+- `rotate-op-token.sh` — rotate `OP_SERVICE_ACCOUNT_TOKEN` end-to-end. Copy the new token from 1Password (UI → service-account regenerate), then run `bash services/launchd/rotate-op-token.sh`. It reads the token from `pbpaste`, updates `~/.zshrc` and the GitHub repo secret, cycles both launchd agents (which picks up any other vault changes like a new `admin_passcode`), and verifies. Safe to re-run.
 
 ## Install / refresh
 
