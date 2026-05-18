@@ -16,7 +16,12 @@ Repo path: `/Users/schnapp/code/schnapp-bet`. Primary host: Schnapps-MBP. Python
 ## Session Lifecycle
 
 - **Starting** — Read MEMORY.md, then LEARNED.md. If memory contradicts the repo, the repo wins. Flag it before proceeding.
-- **Ending** — Update MEMORY.md with current state. Append a CHANGELOG entry tagged `[sport][component]` in `docs/changelog/2026.md`. `str_replace` any README section that changed. Add an ADR in `docs/decisions/ADR-YYYYMMDD-N-slug.md` for any non-obvious decision. Append to LEARNED.md immediately if corrected mid-session.
+- **Ending — scale ceremony by task size (per ADR-20260517-3):**
+  - **Trivial** (typo, comment, single-line fix) — CHANGELOG entry only.
+  - **Routine** (port, feature, refactor) — CHANGELOG entry + MEMORY.md state update.
+  - **Milestone** (non-obvious decision, new convention, architectural shift) — CHANGELOG entry + MEMORY.md + ADR in `docs/decisions/ADR-YYYYMMDD-N-slug.md`.
+  - **Mid-session correction** — append to LEARNED.md immediately, regardless of task size.
+  - **Documentation drift** — `str_replace` the affected README section in the same commit as the code change.
 - **Context** — At ~50% usage, update MEMORY.md and recommend a new session if the task is long.
 - **Compaction** — After `/compact`, re-read MEMORY.md and LEARNED.md. They are not automatically re-injected.
 
@@ -28,17 +33,18 @@ Claude.ai chat is the fallback when the Mac is unreachable. Every file edit ther
 
 ## Non-Negotiables
 
+Cross-cutting rules only. Path-specific invariants live in `.claude/rules/*.md` and auto-load when editing matching files.
+
 ### Repo & host
 
 - Python runs in GitHub Actions on mac-runner or via Mac MCP `shell_exec` only.
 - Never hardcode credentials, hostnames, or IPs.
-- Workflows importing from `shared/` must set `PYTHONPATH=/Users/schnapp/code/schnapp-bet` in their env block.
 
 ### Commits & history
 
-- One commit per file. Never bundle multiple file changes into a single commit.
+- **One logical change per commit** — not one file. A logical change is the smallest self-consistent unit (a feature, a bugfix, a refactor); coupled files are committed together. The CHANGELOG entry rides in the same commit as the change. (See ADR-20260517-3.)
 - Never commit without a CHANGELOG entry in `docs/changelog/YYYY.md`.
-- Every commit pushes to `origin` immediately via the `.githooks/post-commit` hook. The SessionStart bootstrap activates the hookspath on every Claude Code session. Never bypass with `--no-verify`.
+- Every commit pushes to `origin` immediately via the `.githooks/post-commit` hook. The SessionStart bootstrap activates `core.hooksPath` on every Claude Code session. Never bypass with `--no-verify`.
 - Never run `DROP TABLE`, `git reset --hard`, or `rm -rf` without explicit confirmation.
 
 ### GitHub MCP
@@ -46,14 +52,9 @@ Claude.ai chat is the fallback when the Mac is unreachable. Every file edit ther
 - Never use `push_files` for `.py` files or `.tsx` with non-ASCII Unicode. Use `create_or_update_file`. `push_files` is safe only for strict-ASCII TS/JSON/YAML.
 - Fetch a fresh SHA via `get_file` immediately before any `create_or_update_file` on an existing file. Stale SHAs cause 409 conflicts.
 
-### Workflows
+### Workflow status
 
-- Every workflow writing data the UI displays must call `record_workflow_run()` last.
 - Live workflow status: use `list_workflow_runs`. `workflow_status` returns stale data.
-
-### Database engine
-
-- `fast_executemany=False` on grading engine connections only. ETL uses the default (True).
 
 ## Commands
 
