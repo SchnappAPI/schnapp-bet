@@ -9,17 +9,29 @@ Schnapp (schnapp.bet) — NBA, MLB, NFL prop betting research platform.
 **MCP:** FastMCP, launchd on Schnapps-MBP (port 8765), mac-mcp.schnapp.bet, 10 tools.
 **Shared:** shared/db.py and shared/integrity.py, imported by etl/ and grading/.
 
+Repo path: `/Users/schnapp/code/schnapp-bet`. Primary host: Schnapps-MBP. Run
+Python via the Mac MCP `shell_exec` tool or in GitHub Actions on mac-runner.
+
 ## Session Lifecycle
 
 **Starting**: Read MEMORY.md, then LEARNED.md. If anything in memory, a primer, or
 chat contradicts the repo, the repo wins. Flag it before proceeding.
 **Ending**: Update MEMORY.md with current state. Append one CHANGELOG entry tagged
-[sport][component]. str_replace any README section that changed. Add an ADR for any
-non-obvious decision. If corrected mid-session, append to LEARNED.md immediately.
+[sport][component] in `docs/changelog/2026.md`. str_replace any README section that
+changed. Add an ADR in `docs/decisions/ADR-YYYYMMDD-N-slug.md` for any non-obvious
+decision. If corrected mid-session, append to LEARNED.md immediately.
 **Context**: At ~50% usage, stop and update MEMORY.md. Recommend a new session if
 the task is long.
 **Compaction**: After /compact, re-read MEMORY.md and LEARNED.md — they are not
 automatically re-injected.
+
+## Where to run this work
+
+Claude Code on the Mac is the primary surface. Direct local file edits + multi-file
+commits + inline build checks are free here.
+Claude.ai chat is the fallback when the Mac is unreachable. Every file edit there is
+a full-file upload via GitHub MCP — acceptable for one-off doc edits, not for code
+or multi-file changes. End such a session with a paste-ready Claude Code prompt.
 
 ## Non-Negotiables
 
@@ -29,7 +41,7 @@ automatically re-injected.
 - Never hardcode credentials, hostnames, or IPs.
 - Never run DROP TABLE, git reset --hard, or rm -rf without explicit confirmation.
 - Every new workflow importing from shared/ must set
-  PYTHONPATH=/Users/schnapp/schnapp-bet in its env block.
+  PYTHONPATH=/Users/schnapp/code/schnapp-bet in its env block.
 - Every workflow writing data the UI displays must call record_workflow_run() last.
 - Live workflow status: use list_workflow_runs. workflow_status returns stale data.
 - Never use push_files for .py files or TSX with non-ASCII Unicode. Use
@@ -44,7 +56,12 @@ automatically re-injected.
 - `/grade` — trigger grading workflow
 - `/etl` — trigger ETL workflow
 - `/status` — stack health check
+- `/adr` — create today's ADR with the next counter
 - `/skill workflow` — planning and task management
+- `/skill regenerate-bootstrap-sql` — re-sync schema docs from the live DB
+- `/skill regenerate-health` — re-run the health report locally
+- `/skill new-sport-onboarding` — add a 4th sport checklist
+- `/skill changelog-rotate` — year-rotate `docs/changelog/`
 
 ## Rules (auto-load on matching files)
 
@@ -52,3 +69,9 @@ automatically re-injected.
 - Grading: `.claude/rules/grading.md`
 - Web: `.claude/rules/web.md`
 - Shared: `.claude/rules/shared.md`
+- Database: `.claude/rules/database.md`
+- Flask: `.claude/rules/flask.md`
+- Workflows: `.claude/rules/workflows.md`
+- Docs: `.claude/rules/docs.md`
+
+See `/docs/README.md` for the documentation router.
