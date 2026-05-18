@@ -1,0 +1,242 @@
+name: Retry Incomplete Data
+
+# Re-attempts fetching data for rows flagged in common.data_completeness_log
+# where resolved_at IS NULL and attempt_count < 3. Runs at 14:00 UTC daily
+# (after daily-health-report at 13:00). Escalates to a GitHub Issue
+# (label: data-integrity:incomplete) after 3 failed attempts.
+# See ADR-20260424-2.
+#
+# NOTE: nba.schedule and nba.player_box_score_stats handlers import
+# fetch_scoreboard_games and fetch_boxscore from etl.nba_etl. These
+# targeted per-game-id functions are not yet implemented (Phase 7).
+# Until then the handlers catch ImportError and the rows are logged as
+# SKIP / "no retry handler".
+
+on:
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run — no upstream calls, no DB writes, no issue creation'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      table_filter:
+        description: 'Limit to one table (e.g. nba.schedule); empty = all tables'
+        required: false
+        default: ''
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  retry:
+    runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          ODDS_API_KEY: op://web-variables/Web App/odds_api_key
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate venv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Retry incomplete rows
+        env:
+          DRY_RUN:      ${{ github.event.inputs.dry_run || 'false' }}
+          TABLE_FILTER: ${{ github.event.inputs.table_filter || '' }}
+          GH_REPO:      ${{ github.repository }}
+          GH_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 << 'PYEOF'
+          import json, os, urllib.request
+          from sqlalchemy import text
+          from shared.db import get_engine
+          from shared.integrity import validate_and_filter
+
+          dry_run      = os.environ.get('DRY_RUN', 'false').lower() == 'true'
+          table_filter = os.environ.get('TABLE_FILTER', '').strip()
+          gh_repo      = os.environ.get('GH_REPO', '')
+          gh_token     = os.environ.get('GH_TOKEN', '')
+          engine       = get_engine()
+
+          # ------------------------------------------------------------------
+          # Per-row-key retry handlers. Each is a callable(game_id, engine)
+          # that returns a single row dict or None. ImportError means the
+          # targeted fetch function does not exist yet (Phase 7 deliverable).
+          # ------------------------------------------------------------------
+          def _retry_nba_schedule(game_id, eng):
+              try:
+                  from etl.nba_etl import fetch_scoreboard_games
+                  return fetch_scoreboard_games(game_id, eng)
+              except ImportError:
+                  return None
+
+          def _retry_nba_boxscore(game_id, eng):
+              try:
+                  from etl.nba_etl import fetch_boxscore
+                  return fetch_boxscore(game_id, eng)
+              except ImportError:
+                  return None
+
+          RETRY_DISPATCH = {
+              'nba.schedule':              _retry_nba_schedule,
+              'nba.player_box_score_stats': _retry_nba_boxscore,
+          }
+
+          def parse_row_key(row_key):
+              # col=val|col=val format — extract value for first 'game_id' token
+              for part in row_key.split('|'):
+                  k, _, v = part.partition('=')
+                  if k.strip() == 'game_id':
+                      return v.strip()
+              return None
+
+          def open_issue(title, body, label):
+              payload = json.dumps({
+                  'title': title,
+                  'body': body,
+                  'labels': [label],
+              }).encode()
+              req = urllib.request.Request(
+                  f'https://api.github.com/repos/{gh_repo}/issues',
+                  data=payload,
+                  headers={
+                      'Authorization': f'Bearer {gh_token}',
+                      'Content-Type': 'application/json',
+                      'Accept': 'application/vnd.github+json',
+                  },
+                  method='POST',
+              )
+              with urllib.request.urlopen(req) as resp:
+                  return json.loads(resp.read()).get('number')
+
+          # ------------------------------------------------------------------
+          # Load eligible rows and group by (table_name, row_key)
+          # ------------------------------------------------------------------
+          filter_clause = ''
+          bind_params = {}
+          if table_filter:
+              filter_clause = 'AND table_name = :tbl'
+              bind_params['tbl'] = table_filter
+
+          with engine.connect() as conn:
+              rows = conn.execute(text(f'''
+                  SELECT table_name, row_key, column_name,
+                         attempt_count, first_detected_at
+                  FROM common.data_completeness_log
+                  WHERE resolved_at IS NULL
+                    AND attempt_count < 3
+                    {filter_clause}
+                  ORDER BY attempt_count ASC, first_detected_at ASC
+              '''), bind_params).fetchall()
+
+          # Group by (table_name, row_key)
+          groups = {}
+          for r in rows:
+              key = (r.table_name, r.row_key)
+              if key not in groups:
+                  groups[key] = {'attempt_count': r.attempt_count,
+                                 'first_detected_at': r.first_detected_at,
+                                 'missing_columns': []}
+              groups[key]['missing_columns'].append(r.column_name)
+
+          retried_count  = 0
+          resolved_count = 0
+          escalated_count = 0
+          skipped_count  = 0
+
+          for (table_name, row_key), meta in groups.items():
+              attempt = meta['attempt_count']
+              missing = meta['missing_columns']
+              handler = RETRY_DISPATCH.get(table_name)
+
+              if handler is None:
+                  print(f'SKIP {table_name}:{row_key} (no retry handler)')
+                  skipped_count += 1
+                  if not dry_run:
+                      with engine.begin() as conn:
+                          conn.execute(text('''
+                              UPDATE common.data_completeness_log
+                              SET attempt_count   = attempt_count + 1,
+                                  last_attempt_at = GETUTCDATE(),
+                                  notes           = COALESCE(notes + ' | ', '') + 'no retry handler'
+                              WHERE table_name = :tbl AND row_key = :rk
+                                AND resolved_at IS NULL
+                          '''), {'tbl': table_name, 'rk': row_key})
+                  continue
+
+              print(f'RETRY {table_name}:{row_key} (attempt {attempt + 1})')
+              retried_count += 1
+
+              if dry_run:
+                  continue
+
+              game_id = parse_row_key(row_key)
+              result  = handler(game_id, engine)
+
+              if result is not None:
+                  valid = validate_and_filter(
+                      result if isinstance(result, list) else [result],
+                      table_name, engine,
+                      source_workflow='retry-incomplete.yml'
+                  )
+                  if valid:
+                      print(f'  RESOLVED {table_name}:{row_key}')
+                      resolved_count += 1
+                      continue
+
+              # Not resolved — bump attempt count
+              with engine.begin() as conn:
+                  conn.execute(text('''
+                      UPDATE common.data_completeness_log
+                      SET attempt_count   = attempt_count + 1,
+                          last_attempt_at = GETUTCDATE()
+                      WHERE table_name = :tbl AND row_key = :rk
+                        AND resolved_at IS NULL
+                  '''), {'tbl': table_name, 'rk': row_key})
+
+              new_attempt = attempt + 1
+              if new_attempt >= 3:
+                  title = f'[data-integrity:incomplete] {table_name}: {row_key}'
+                  body = (
+                      f'**table_name:** {table_name}\n'
+                      f'**row_key:** {row_key}\n'
+                      f'**missing_columns:** {", ".join(missing)}\n'
+                      f'**attempt_count:** {new_attempt}\n'
+                      f'**first_detected_at:** {meta["first_detected_at"]}\n\n'
+                      f'### Notes\n\n'
+                      f'Three retry attempts have failed for this row. At this point the root cause '
+                      f'is likely a mapping gap or a parsing bug rather than upstream publication lag. '
+                      f'Retrying further is unlikely to resolve it without a code or mapping fix.\n\n'
+                      f'This issue auto-closes when Layer-1 validation clears this row key '
+                      f'(i.e., a subsequent successful write for `({table_name}, {row_key})` '
+                      f'will set `resolved_at` in `common.data_completeness_log`).\n'
+                  )
+                  try:
+                      issue_num = open_issue(title, body, 'data-integrity:incomplete')
+                      print(f'  ESCALATE {table_name}:{row_key} -> issue #{issue_num}')
+                  except Exception as e:
+                      print(f'  warn: failed to open issue for {table_name}:{row_key}: {e}')
+                  escalated_count += 1
+
+          print(f'retried={retried_count} resolved={resolved_count} escalated={escalated_count} skipped={skipped_count} dry_run={dry_run}')
+          PYEOF

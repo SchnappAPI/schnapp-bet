@@ -1,0 +1,39 @@
+name: Refresh Lines
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 17 * * *'   # 12:00 PM ET — midday line check
+    - cron: '0 20 * * *'   # 03:00 PM ET — afternoon line drop
+    - cron: '0 23 * * *'   # 06:00 PM ET — final pre-game refresh
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  refresh:
+    runs-on: [self-hosted, mac-runner]
+    steps:
+      - uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          ODDS_API_KEY: op://web-variables/Web App/odds_api_key
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate virtualenv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Fetch latest props
+        run: python etl/odds_etl.py --mode upcoming --sport nba --days-ahead 1
+
+      - name: Re-grade against latest lines
+        run: python grading/grade_props.py --mode upcoming

@@ -1,0 +1,62 @@
+name: NBA Nightly ETL
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Number of game dates to process per table"
+        required: false
+        default: "10"
+      load_rosters:
+        description: "Force player roster reload (true/false)"
+        required: false
+        default: "false"
+      skip_pt_stats:
+        description: "Skip passing and rebounding stats (true/false)"
+        required: false
+        default: "false"
+      skip_lineups:
+        description: "Skip daily lineups (true/false)"
+        required: false
+        default: "false"
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  nba-etl:
+    runs-on: [self-hosted, mac-runner]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          NBA_PROXY_URL: op://web-variables/Webshare Proxy/proxy_url
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate virtualenv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Build CLI flags
+        id: flags
+        run: |
+          FLAGS="--days ${{ github.event.inputs.days || '10' }}"
+          [ "${{ github.event.inputs.load_rosters }}" = "true" ] && FLAGS="$FLAGS --load-rosters"
+          [ "${{ github.event.inputs.skip_pt_stats }}" = "true" ] && FLAGS="$FLAGS --skip-pt-stats"
+          [ "${{ github.event.inputs.skip_lineups }}"  = "true" ] && FLAGS="$FLAGS --skip-lineups"
+          echo "flags=$FLAGS" >> $GITHUB_OUTPUT
+
+      - name: Run NBA ETL
+        run: python etl/nba_etl.py ${{ steps.flags.outputs.flags }}

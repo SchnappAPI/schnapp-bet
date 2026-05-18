@@ -1,0 +1,79 @@
+name: Odds Backfill (Weekly)
+# Runs every Monday at 11:00 UTC. Discovers new events from the past week
+# then backfills their historical odds. Covers late regular season and
+# playoff games that fall outside the daily upcoming window.
+# Budget: 5000 credits covers ~12 games at ~400 credits/game.
+
+on:
+  schedule:
+    - cron: '0 11 * * 1'
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "Season year. Leave blank for auto-detect."
+        required: false
+        default: ""
+      snapshots:
+        description: "Discover: max calendar dates to walk."
+        required: false
+        default: "10"
+      games:
+        description: "Backfill: max events to process."
+        required: false
+        default: "15"
+      budget:
+        description: "Max credits to spend. 0 = unlimited."
+        required: false
+        default: "0"
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  weekly-backfill:
+    runs-on: [self-hosted, mac-runner]
+    steps:
+      - uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          ODDS_API_KEY: op://web-variables/Web App/odds_api_key
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate virtualenv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Discover new events
+        run: |
+          SEASON="${{ github.event.inputs.season }}"
+          SNAPSHOTS="${{ github.event.inputs.snapshots || '10' }}"
+          for SPORT in nba mlb; do
+            FLAGS="--mode discover --sport $SPORT --snapshots $SNAPSHOTS"
+            [ -n "$SEASON" ] && FLAGS="$FLAGS --season $SEASON"
+            python etl/odds_etl.py $FLAGS
+          done
+
+      - name: Backfill odds for new events
+        run: |
+          SEASON="${{ github.event.inputs.season }}"
+          GAMES="${{ github.event.inputs.games || '15' }}"
+          BUDGET="${{ github.event.inputs.budget || '5000' }}"
+          for SPORT in nba mlb; do
+            FLAGS="--mode backfill --sport $SPORT --games $GAMES --budget $BUDGET"
+            [ -n "$SEASON" ] && FLAGS="$FLAGS --season $SEASON"
+            python etl/odds_etl.py $FLAGS
+          done
+
+      - name: Run mappings
+        run: |
+          for SPORT in nba mlb; do
+            python etl/odds_etl.py --mode mappings --sport $SPORT
+          done

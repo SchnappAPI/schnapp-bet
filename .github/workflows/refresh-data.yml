@@ -1,0 +1,51 @@
+name: Refresh Data
+
+# Triggered from the web app's Refresh Data button via /api/refresh-data.
+# Runs all five intra-day steps: live box score, odds, grading, lineup poll,
+# supplemental tab generation.
+# Admin-passcode protected at the API route level.
+
+on:
+  workflow_dispatch:
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  refresh:
+    runs-on: [self-hosted, mac-runner]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          ANTHROPIC_API_KEY: op://web-variables/Anthropic/api_key
+          NBA_PROXY_URL: op://web-variables/Webshare Proxy/proxy_url
+          ODDS_API_KEY: op://web-variables/Web App/odds_api_key
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate virtualenv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Live box score + schedule status
+        run: python etl/nba_live.py
+
+      - name: Odds + intraday grading
+        run: |
+          python etl/odds_etl.py --mode upcoming --sport nba --days-ahead 1
+          python grading/grade_props.py --mode intraday
+
+      - name: Lineup poll
+        run: python etl/lineup_poll.py --hours-ahead 6
+
+      - name: Generate supplemental tab data
+        run: python grading/generate_supplemental.py

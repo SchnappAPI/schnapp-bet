@@ -1,0 +1,117 @@
+name: NBA Game Day
+
+# On-demand intra-day workflow. Triggered by the Refresh Data button in the
+# web app (via refresh-data.yml) for live game hours.
+#
+# This workflow handles scheduled backfill and overnight maintenance.
+# During game hours, all live data updates come from refresh-data.yml
+# triggered by the Refresh Data button.
+#
+# Scheduled runs:
+#   - Daily 09:30 UTC (5:30 AM ET): backfill for overnight final games
+#   - Every 30 min 00:00-06:00 UTC: late-game backfill + status sync
+#
+# Manual dispatch:
+#   - skip_gate=true forces all steps regardless of game state
+
+on:
+  schedule:
+    - cron: '30 9 * * *'        # UTC 09:30 daily — overnight backfill
+    - cron: '*/15 0-6 * * *'    # UTC 00:00-06:00 — late-game backfill
+    - cron: '*/15 22-23 * * *'
+  workflow_dispatch:
+    inputs:
+      skip_gate:
+        description: "Set to 'true' to bypass gate and run all steps"
+        required: false
+        default: "false"
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  game-day:
+    runs-on: [self-hosted, mac-runner]
+    timeout-minutes: 12
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          NBA_PROXY_URL: op://web-variables/Webshare Proxy/proxy_url
+          ODDS_API_KEY: op://web-variables/Web App/odds_api_key
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate virtualenv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Game day gate
+        id: gate
+        run: python etl/game_day_gate.py
+
+      - name: Schedule status + live box score
+        if: |
+          steps.gate.outputs.has_pregame == 'true' ||
+          steps.gate.outputs.has_live == 'true' ||
+          github.event.inputs.skip_gate == 'true'
+        run: python etl/nba_live.py
+
+      - name: Odds upcoming + intraday grading + lineup poll
+        if: |
+          (
+            steps.gate.outputs.any_active == 'true' ||
+            github.event.inputs.skip_gate == 'true'
+          ) && (
+            github.event_name == 'workflow_dispatch' ||
+            steps.gate.outputs.run_odds_grading == 'true'
+          )
+        run: |
+          python etl/odds_etl.py --mode upcoming --sport nba --days-ahead 1
+          python grading/grade_props.py --mode intraday
+          python etl/lineup_poll.py --hours-ahead 6
+
+      - name: Resolve overnight outcomes
+        if: |
+          github.event.schedule == '30 9 * * *' ||
+          github.event.inputs.skip_gate == 'true'
+        run: python grading/grade_props.py --mode outcomes
+
+      - name: Dispatch backfill for newly-final games
+        # Uses curl + the auto-provided GITHUB_TOKEN (with actions:write at the
+        # job level above) instead of `gh workflow run` because the gh CLI is
+        # not installed on the mac-runner. Same pattern as grading.yml's
+        # redispatch step.
+        if: steps.gate.outputs.has_final == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE="${{ steps.gate.outputs.final_date }}"
+          if [ -n "$DATE" ]; then
+            PAYLOAD=$(printf '{"ref":"main","inputs":{"date":"%s"}}' "$DATE")
+            HTTP_CODE=$(curl -s -o /tmp/backfill_resp.txt -w "%{http_code}" \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/nba-backfill.yml/dispatches" \
+              -d "$PAYLOAD")
+            echo "Backfill dispatch HTTP $HTTP_CODE for date=$DATE"
+            cat /tmp/backfill_resp.txt 2>/dev/null || true
+            [ "$HTTP_CODE" = "204" ] || exit 1
+          fi
+
+      - name: Record workflow run timestamp
+        if: always()
+        run: python -c "from shared.db import record_workflow_run; record_workflow_run('nba-game-day')"

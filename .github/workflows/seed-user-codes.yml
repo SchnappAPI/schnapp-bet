@@ -1,0 +1,35 @@
+name: Seed User Codes
+
+# Run once to create common.user_codes and populate the initial funny codes.
+# Safe to re-run -- already-existing codes are skipped.
+
+on:
+  workflow_dispatch:
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  seed:
+    runs-on: [self-hosted, mac-runner]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate virtualenv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Seed user codes
+        run: python etl/seed_user_codes.py

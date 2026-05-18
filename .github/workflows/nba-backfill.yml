@@ -1,0 +1,60 @@
+name: NBA Backfill
+
+# Triggered automatically by nba-game-day.yml when a game flips to Final
+# with no existing grade rows. Also available for manual dispatch.
+# Runs independently so it does not compete with live score updates.
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "ET game date to backfill (YYYY-MM-DD)"
+        required: false
+        default: ""
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  backfill:
+    runs-on: [self-hosted, mac-runner]
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          ODDS_API_KEY: op://web-variables/Web App/odds_api_key
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate virtualenv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Backfill odds + mappings + grades
+        run: |
+          DATE="${{ github.event.inputs.date }}"
+          python etl/odds_etl.py --mode backfill --sport nba --games 5
+          python etl/odds_etl.py --mode mappings --sport nba
+          if [ -n "$DATE" ]; then
+            python grading/grade_props.py --mode backfill --date "$DATE"
+          else
+            python grading/grade_props.py --mode backfill --batch 5
+          fi
+
+      - name: Compute outcomes for newly-graded games
+        run: |
+          DATE="${{ github.event.inputs.date }}"
+          if [ -n "$DATE" ]; then
+            python grading/grade_props.py --mode outcomes --date "$DATE"
+          else
+            python grading/grade_props.py --mode outcomes
+          fi

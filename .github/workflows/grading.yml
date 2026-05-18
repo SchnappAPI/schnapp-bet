@@ -1,0 +1,162 @@
+name: NBA Grading
+
+# Two triggers:
+#   1. schedule: runs daily at 11:00 UTC, one hour after odds-etl (10:00 UTC).
+#      Replaced the previous workflow_run trigger which was unreliable --
+#      it silently skipped days when odds-etl had recently failed, even after
+#      odds-etl recovered (GitHub does not retroactively fire workflow_run for
+#      previously-failed upstream runs).
+#   2. workflow_dispatch: manual runs and backfill.
+
+on:
+  schedule:
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'upcoming = grade today lines, backfill = process historical dates, outcomes = resolve Won/Lost on resolved games'
+        required: false
+        default: 'upcoming'
+      date:
+        description: 'Backfill mode only: grade a specific date (YYYY-MM-DD). Leave blank for auto.'
+        required: false
+        default: ''
+      batch:
+        description: 'Backfill mode only: max dates per Python call.'
+        required: false
+        default: '10'
+      time_limit_minutes:
+        description: 'Backfill mode only: minutes before exiting and re-dispatching. Max 330.'
+        required: false
+        default: '300'
+      force:
+        description: 'Backfill mode only: regrade dates already in daily_grades (existing rows UPDATE via MERGE, snapshots archived).'
+        required: false
+        default: 'false'
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  grade:
+    if: always()
+    runs-on: [self-hosted, mac-runner]
+    timeout-minutes: 350
+    outputs:
+      done: ${{ steps.run.outputs.done }}
+      mode: ${{ steps.run.outputs.mode }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate virtualenv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Run grading
+        id: run
+        env:
+          MODE:               ${{ github.event.inputs.mode               || 'upcoming' }}
+          DATE_INPUT:         ${{ github.event.inputs.date               || '' }}
+          BATCH:              ${{ github.event.inputs.batch              || '10' }}
+          TIME_LIMIT_MINUTES: ${{ github.event.inputs.time_limit_minutes || '300' }}
+          FORCE:              ${{ github.event.inputs.force              || 'false' }}
+        run: |
+          set -euo pipefail
+
+          echo "mode=$MODE" >> $GITHUB_OUTPUT
+
+          if [ "$MODE" = "outcomes" ]; then
+            ARGS="--mode outcomes"
+            [ -n "$DATE_INPUT" ] && ARGS="$ARGS --date $DATE_INPUT"
+            python grading/grade_props.py $ARGS
+            echo "done=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [ "$MODE" != "backfill" ]; then
+            ARGS="--mode upcoming"
+            [ -n "$DATE_INPUT" ] && ARGS="$ARGS --date $DATE_INPUT"
+            python grading/grade_props.py $ARGS
+            echo "done=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          START_SECONDS=$SECONDS
+          TIME_LIMIT_SECONDS=$(( TIME_LIMIT_MINUTES * 60 ))
+          DONE="false"
+          echo "Backfill mode. Batch=$BATCH  Limit=${TIME_LIMIT_MINUTES}min"
+
+          while true; do
+            ELAPSED=$(( SECONDS - START_SECONDS ))
+            REMAINING=$(( TIME_LIMIT_SECONDS - ELAPSED ))
+            [ $REMAINING -le 60 ] && { echo "Approaching time limit. Exiting."; break; }
+
+            ARGS="--mode backfill --batch $BATCH"
+            [ -n "$DATE_INPUT" ] && ARGS="$ARGS --date $DATE_INPUT"
+            [ "$FORCE" = "true" ] && ARGS="$ARGS --force"
+
+            OUTPUT=$(python grading/grade_props.py $ARGS 2>&1) || { echo "$OUTPUT"; exit 1; }
+            echo "$OUTPUT"
+
+            if echo "$OUTPUT" | grep -q "Backfill: nothing to do."; then
+              echo "Backfill complete."
+              DONE="true"
+              break
+            fi
+          done
+
+          echo "done=$DONE" >> $GITHUB_OUTPUT
+
+      - name: Record workflow run timestamp
+        # Only record on upcoming/scheduled runs — backfill and outcomes runs
+        # are not relevant to today's displayed data.
+        if: always() && steps.run.outputs.mode != 'backfill' && steps.run.outputs.mode != 'outcomes'
+        run: python -c "from shared.db import record_workflow_run; record_workflow_run('nba-grading')"
+
+  redispatch:
+    needs: grade
+    runs-on: [self-hosted, mac-runner]
+    if: always() && github.event.inputs.mode == 'backfill'
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Re-dispatch if backfill incomplete
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DONE:               ${{ needs.grade.outputs.done }}
+          BATCH:              ${{ github.event.inputs.batch              || '10' }}
+          TIME_LIMIT_MINUTES: ${{ github.event.inputs.time_limit_minutes || '300' }}
+          DATE_INPUT:         ${{ github.event.inputs.date              || '' }}
+          FORCE:              ${{ github.event.inputs.force              || 'false' }}
+        run: |
+          [ "${{ needs.grade.result }}" = "cancelled" ] && exit 0
+          [ "${{ needs.grade.result }}" = "failure" ]   && exit 0
+          [ "$DONE" = "true" ] && exit 0
+          # Use curl against the dispatches endpoint instead of `gh`, which is
+          # not installed on the self-hosted runner. Requires permissions:
+          # actions: write at the job level (set above).
+          PAYLOAD=$(printf '{"ref":"%s","inputs":{"mode":"backfill","date":"%s","batch":"%s","time_limit_minutes":"%s","force":"%s"}}' \
+            "${{ github.ref_name }}" "$DATE_INPUT" "$BATCH" "$TIME_LIMIT_MINUTES" "$FORCE")
+          HTTP_CODE=$(curl -s -o /tmp/redispatch_resp.txt -w "%{http_code}" \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/grading.yml/dispatches" \
+            -d "$PAYLOAD")
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/redispatch_resp.txt 2>/dev/null || true
+          [ "$HTTP_CODE" = "204" ] || exit 1

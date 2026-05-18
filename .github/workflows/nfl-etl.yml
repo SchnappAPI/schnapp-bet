@@ -1,0 +1,46 @@
+name: NFL ETL
+
+on:
+  schedule:
+    - cron: '0 9 * * 2'   # Tuesday 09:00 UTC, after MNF + nflverse update
+  workflow_dispatch:
+    inputs:
+      season:
+        description: 'NFL season year (e.g. 2025). Blank = current season.'
+        required: false
+        default: ''
+        type: string
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  etl:
+    runs-on: [self-hosted, mac-runner]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate venv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Run NFL ETL
+        run: |
+          if [ -n "${{ github.event.inputs.season }}" ]; then
+            python etl/nfl_etl.py --season ${{ github.event.inputs.season }}
+          else
+            python etl/nfl_etl.py
+          fi

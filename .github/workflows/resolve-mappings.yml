@@ -1,0 +1,262 @@
+name: Mapping Resolver
+
+# Attempts auto-resolution of rows in common.unmapped_entities where
+# resolved_at IS NULL. Runs at 10:30 UTC (after odds-etl at 10:00).
+# Strategies: exact case-insensitive, last-name+first-initial, Levenshtein<=2.
+# Escalates to a GitHub Issue (label: data-integrity:unmapped) after 3 failures.
+# See ADR-20260424-2.
+
+on:
+  schedule:
+    - cron: '30 10 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run — no DB writes and no issue creation'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  resolve:
+    runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate venv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Resolve unmapped entities
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python -c "
+          import json, os, unicodedata, urllib.request
+          from sqlalchemy import text
+          from shared.db import get_engine
+
+          dry_run = os.environ.get('DRY_RUN', 'false').lower() == 'true'
+          gh_repo = os.environ.get('GH_REPO', '')
+          gh_token = os.environ.get('GH_TOKEN', '')
+          engine = get_engine()
+
+          def normalize(s):
+              if not s:
+                  return ''
+              return unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode().strip().lower()
+
+          def levenshtein(a, b):
+              if a == b:
+                  return 0
+              if not a:
+                  return len(b)
+              if not b:
+                  return len(a)
+              prev = list(range(len(b) + 1))
+              for i, ca in enumerate(a):
+                  curr = [i + 1]
+                  for j, cb in enumerate(b):
+                      curr.append(min(prev[j + 1] + 1, curr[j] + 1,
+                                      prev[j] + (0 if ca == cb else 1)))
+                  prev = curr
+              return prev[len(b)]
+
+          def sport_from_context(ctx_json):
+              if not ctx_json:
+                  return None
+              try:
+                  ctx = json.loads(ctx_json)
+                  sk = ctx.get('sport_key', '')
+              except Exception:
+                  return None
+              if 'basketball_nba' in sk:
+                  return 'nba'
+              if 'baseball_mlb' in sk:
+                  return 'mlb'
+              if 'americanfootball_nfl' in sk:
+                  return 'nfl'
+              return None
+
+          candidate_cache = {}
+
+          def get_candidates(entity_type, sport):
+              key = (entity_type, sport)
+              if key in candidate_cache:
+                  return candidate_cache[key]
+              rows = []
+              try:
+                  with engine.connect() as conn:
+                      if entity_type == 'player' and sport == 'nba':
+                          rows = conn.execute(text('SELECT player_id, player_name AS name FROM nba.players')).fetchall()
+                      elif entity_type == 'player' and sport == 'mlb':
+                          rows = conn.execute(text('SELECT player_id, full_name AS name FROM mlb.players')).fetchall()
+                      elif entity_type == 'player' and sport == 'nfl':
+                          rows = conn.execute(text('SELECT player_id, player_name AS name FROM nfl.players WHERE player_name IS NOT NULL')).fetchall()
+              except Exception as e:
+                  print(f'  warn: could not load candidates for ({entity_type},{sport}): {e}')
+              candidates = [(r.player_id, r.name, normalize(r.name)) for r in rows if r.name]
+              candidate_cache[key] = candidates
+              return candidates
+
+          def open_issue(title, body):
+              payload = json.dumps({
+                  'title': title,
+                  'body': body,
+                  'labels': ['data-integrity:unmapped'],
+              }).encode()
+              req = urllib.request.Request(
+                  f'https://api.github.com/repos/{gh_repo}/issues',
+                  data=payload,
+                  headers={
+                      'Authorization': f'Bearer {gh_token}',
+                      'Content-Type': 'application/json',
+                      'Accept': 'application/vnd.github+json',
+                  },
+                  method='POST',
+              )
+              with urllib.request.urlopen(req) as resp:
+                  return json.loads(resp.read()).get('number')
+
+          with engine.connect() as conn:
+              unresolved = conn.execute(text(
+                  'SELECT * FROM common.unmapped_entities '
+                  'WHERE resolved_at IS NULL '
+                  'ORDER BY retry_count DESC, last_seen_at ASC'
+              )).fetchall()
+
+          resolved_count = 0
+          escalated_count = 0
+
+          for row in unresolved:
+              uid = row.unmapped_id
+              source_key_norm = normalize(row.source_key)
+              sport = sport_from_context(row.source_context)
+              candidates = get_candidates(row.entity_type, sport) if sport else []
+
+              match_id = None
+              match_name = None
+              match_method = None
+              match_confidence = None
+
+              # Strategy 1: exact case-insensitive
+              for pid, name, name_norm in candidates:
+                  if source_key_norm == name_norm:
+                      match_id = pid
+                      match_name = name
+                      match_method = 'exact'
+                      match_confidence = 1.0
+                      break
+
+              # Strategy 2: last-name + first-initial
+              if match_id is None:
+                  src_parts = source_key_norm.split()
+                  if len(src_parts) >= 2:
+                      src_last = src_parts[-1]
+                      src_fi = src_parts[0][0]
+                      for pid, name, name_norm in candidates:
+                          c_parts = name_norm.split()
+                          if len(c_parts) >= 2 and c_parts[-1] == src_last and c_parts[0][0] == src_fi:
+                              match_id = pid
+                              match_name = name
+                              match_method = 'lnfi'
+                              match_confidence = 0.85
+                              break
+
+              # Strategy 3: Levenshtein distance <= 2
+              if match_id is None and candidates:
+                  best_dist = 3
+                  best_pid = None
+                  best_name = None
+                  for pid, name, name_norm in candidates:
+                      d = levenshtein(source_key_norm, name_norm)
+                      if d < best_dist:
+                          best_dist = d
+                          best_pid = pid
+                          best_name = name
+                  if best_dist <= 2:
+                      match_id = best_pid
+                      match_name = best_name
+                      match_method = 'levenshtein'
+                      match_confidence = 0.7
+
+              new_retry = row.retry_count + 1
+
+              if match_id is not None:
+                  print(f'  MATCH [{match_method}] {row.source_key!r} -> {match_name!r} (confidence={match_confidence})')
+                  if not dry_run:
+                      with engine.begin() as conn:
+                          conn.execute(text('''
+                              UPDATE common.unmapped_entities
+                              SET candidate_match      = :match,
+                                  candidate_method     = :method,
+                                  candidate_confidence = :conf,
+                                  resolved_mapping     = :match,
+                                  resolved_at          = GETUTCDATE(),
+                                  resolution_notes     = :notes,
+                                  retry_count          = retry_count + 1
+                              WHERE unmapped_id = :uid
+                          '''), {
+                              'match': match_name,
+                              'method': match_method,
+                              'conf': match_confidence,
+                              'notes': f'auto-resolved via {match_method}; candidate_id={match_id}',
+                              'uid': uid,
+                          })
+                  resolved_count += 1
+              else:
+                  if not dry_run:
+                      with engine.begin() as conn:
+                          conn.execute(text('''
+                              UPDATE common.unmapped_entities
+                              SET retry_count  = retry_count + 1,
+                                  last_seen_at = GETUTCDATE()
+                              WHERE unmapped_id = :uid
+                          '''), {'uid': uid})
+                  if new_retry >= 3 and not dry_run:
+                      title = f'[data-integrity:unmapped] {row.entity_type}: {row.source_key!r} (feed={row.source_feed})'
+                      body = (
+                          f'**source_feed:** {row.source_feed}\n'
+                          f'**entity_type:** {row.entity_type}\n'
+                          f'**source_key:** {row.source_key!r}\n'
+                          f'**retry_count:** {new_retry}\n'
+                          f'**source_context:**\n```json\n{row.source_context or \"null\"}\n```\n\n'
+                          f'### Resolution\n\n'
+                          f'Auto-resolution failed after {new_retry} attempts. To resolve manually:\n\n'
+                          f'1. Add a row to `odds.player_map` mapping `{row.source_key}` to the correct canonical player ID.\n'
+                          f'2. Set `resolved_at = GETUTCDATE()` and `resolution_notes` in `common.unmapped_entities` '
+                          f'where `unmapped_id = {uid}`.\n\n'
+                          f'This issue will auto-close when Layer-1 validation clears the corresponding row key.\n'
+                      )
+                      try:
+                          issue_num = open_issue(title, body)
+                          print(f'  ESCALATE {row.source_key!r} -> issue #{issue_num}')
+                      except Exception as e:
+                          print(f'  warn: failed to open issue for {row.source_key!r}: {e}')
+                      escalated_count += 1
+
+          print(f'resolved={resolved_count} escalated={escalated_count} dry_run={dry_run}')
+          "

@@ -1,0 +1,49 @@
+name: MLB Nightly ETL
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # UTC 09:00 = 03:00 CST / 04:00 CDT
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: 'Include historical seasons (2023-current) for players + box scores'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+jobs:
+  etl:
+    runs-on: [self-hosted, mac-runner]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+      - name: Activate venv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Run MLB ETL
+        run: |
+          if [ "${{ github.event.inputs.backfill }}" = "true" ]; then
+            python etl/mlb_etl.py --backfill
+          else
+            python etl/mlb_etl.py
+          fi
