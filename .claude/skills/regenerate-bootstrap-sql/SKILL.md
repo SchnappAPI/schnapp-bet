@@ -29,7 +29,7 @@ If unsure, the rule of thumb: if the change must apply to existing rows in produ
 
 ```bash
 SQL_PASS=$(grep MSSQL_SA_PASSWORD /Users/schnapp/sql-server.env | cut -d= -f2)
-SQL_SERVER="localhost,1433" SQL_DATABASE="sports-modeling" \
+SQL_SERVER="localhost,1433" SQL_DATABASE="schnapp-bet" \
 SQL_USERNAME="sa" SQL_PASSWORD="$SQL_PASS" \
 SQL_TARGET_SCHEMA="nba" \
 /Users/schnapp/venv/bin/python /tmp/gen_ddl.py --target-empty-db

@@ -20,7 +20,7 @@ description: Locally regenerate docs/HEALTH.md from the live SQL Server containe
 
 ```bash
 SQL_PASS=$(grep MSSQL_SA_PASSWORD /Users/schnapp/sql-server.env | cut -d= -f2)
-SQL_SERVER="localhost,1433" SQL_DATABASE="sports-modeling" \
+SQL_SERVER="localhost,1433" SQL_DATABASE="schnapp-bet" \
 SQL_USERNAME="sa" SQL_PASSWORD="$SQL_PASS" SQL_TRUST_CERT="yes" \
 PYTHONPATH=/Users/schnapp/code/schnapp-bet \
 /Users/schnapp/venv/bin/python -c "from shared.db import get_engine; from shared.integrity import generate_health_report; from datetime import date; print(generate_health_report(get_engine(), date.today()))" \

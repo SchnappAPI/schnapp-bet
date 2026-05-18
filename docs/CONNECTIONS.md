@@ -9,10 +9,10 @@ Last verified: 2026-05-17 (carried forward from sports-modeling; re-verify endpo
 SQL Server 2022 in Docker (Colima) on Schnapps-MBP. Target for all mac-runner workflows and ad-hoc DB queries.
 
 - Container: `mssql`, port `localhost,1433`
-- Database: `sports-modeling`
+- Database: `schnapp-bet`
 - Credentials: SA password in `/Users/schnapp/sql-server.env` (sourced by mac-runner workflows)
 
-Ad-hoc queries from a session: write a Python script to `/tmp/` via Mac MCP `shell_exec`, execute with `/Users/schnapp/venv/bin/python`. Use pyodbc with `server=localhost,1433`, `database=sports-modeling`, `uid=sa`, password from `/Users/schnapp/sql-server.env`, and `TrustServerCertificate=yes`.
+Ad-hoc queries from a session: write a Python script to `/tmp/` via Mac MCP `shell_exec`, execute with `/Users/schnapp/venv/bin/python`. Use pyodbc with `server=localhost,1433`, `database=schnapp-bet`, `uid=sa`, password from `/Users/schnapp/sql-server.env`, and `TrustServerCertificate=yes`.
 
 The local container does not auto-pause. If not running, `docker start mssql` on the Mac (Colima must be running first: `colima start`).
 
@@ -24,7 +24,7 @@ A second launchd agent `bet.schnapp.web` runs the same code on port 3000 against
 
 Plist env vars. Both plists carry the same 8 keys; only `RUNNER_URL` differs (prod → `mac-flask.schnapp.bet`, dev → `127.0.0.1:5000`).
 
-- `SQL_CONNECTION_STRING` — `Server=localhost,1433;Database=sports-modeling;User Id=sa;Password=<SA password from /Users/schnapp/sql-server.env>;Encrypt=true;TrustServerCertificate=true;`
+- `SQL_CONNECTION_STRING` — `Server=localhost,1433;Database=schnapp-bet;User Id=sa;Password=<SA password from /Users/schnapp/sql-server.env>;Encrypt=true;TrustServerCertificate=true;`
 - `ADMIN_PASSCODE` — gates `/admin` and authorizes the `x-admin-token` path on workflow-dispatching routes
 - `AUTH_TOKEN_SECRET` — session token signing
 - `ADMIN_REFRESH_CODE` — alternate auth code for the body-auth path on `/api/refresh-data`
@@ -47,15 +47,15 @@ Deploy: manual `deploy-web.yml` workflow (workflow_dispatch) on mac-runner. Clon
 
 Repository secrets (Settings → Secrets and variables → Actions):
 
-| Secret | Notes |
-|---|---|
-| `SQL_SERVER` | `localhost,1433` on Schnapps-MBP |
-| `SQL_DATABASE` | `sports-modeling` |
-| `SQL_USERNAME` | `sa` |
-| `SQL_PASSWORD` | SA password (same value as `/Users/schnapp/sql-server.env`) |
-| `SQL_TRUST_CERT` | `yes` |
-| `ODDS_API_KEY` | The Odds API key |
-| `NBA_PROXY_URL` | Webshare rotating residential proxy |
+| Secret                 | Notes                                                                              |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| `SQL_SERVER`           | `localhost,1433` on Schnapps-MBP                                                   |
+| `SQL_DATABASE`         | `schnapp-bet`                                                                      |
+| `SQL_USERNAME`         | `sa`                                                                               |
+| `SQL_PASSWORD`         | SA password (same value as `/Users/schnapp/sql-server.env`)                        |
+| `SQL_TRUST_CERT`       | `yes`                                                                              |
+| `ODDS_API_KEY`         | The Odds API key                                                                   |
+| `NBA_PROXY_URL`        | Webshare rotating residential proxy                                                |
 | `secrets.GITHUB_TOKEN` | Auto-provided. Used for `workflow_run` dispatch with `permissions: actions: write` |
 
 PAT (account level at `github.com/settings/tokens`): `GITHUB_PAT` fine-grained, scoped to SchnappAPI/schnapp-bet, Metadata read + Actions read/write. Stored in: Mac web plists' `GITHUB_PAT` env, Mac MCP plist's `GH_PAT` env, `~/.git-credentials`. All locations rotate together.
@@ -82,35 +82,41 @@ Recovery: 1) tunnel — `sudo launchctl kickstart -k system/com.cloudflare.cloud
 
 ## Cloudflare
 
-| Subdomain | Backend | Proxy | Status |
-|---|---|---|---|
-| `schnapp.bet`, `www.schnapp.bet` | Mac Next.js prod `:3001` via `schnapp-mac` | Orange | live |
-| `prod.schnapp.bet` | Same as above (alias) | Orange | live |
-| `dev.schnapp.bet` | Mac Next.js dev `:3000` via `schnapp-mac` | Orange | live |
-| `mac-flask.schnapp.bet` | Mac Flask `:5000` via `schnapp-mac` | Orange | live |
-| `mac-mcp.schnapp.bet` | Mac MCP `:8765` via `schnapp-mac` | Orange | live |
+| Subdomain                        | Backend                                    | Proxy  | Status |
+| -------------------------------- | ------------------------------------------ | ------ | ------ |
+| `schnapp.bet`, `www.schnapp.bet` | Mac Next.js prod `:3001` via `schnapp-mac` | Orange | live   |
+| `prod.schnapp.bet`               | Same as above (alias)                      | Orange | live   |
+| `dev.schnapp.bet`                | Mac Next.js dev `:3000` via `schnapp-mac`  | Orange | live   |
+| `mac-flask.schnapp.bet`          | Mac Flask `:5000` via `schnapp-mac`        | Orange | live   |
+| `mac-mcp.schnapp.bet`            | Mac MCP `:8765` via `schnapp-mac`          | Orange | live   |
 
 All Schnapp subdomains are Cloudflare-proxied (orange cloud). Do not flip any to DNS-only.
 
 ## External APIs
 
 ### NBA Stats API (stats.nba.com)
+
 - Webshare rotating residential proxy required from GitHub Actions IPs (`NBA_PROXY_URL` secret).
 - PT stats (`leaguedashptstats`) do not require proxy.
 
 ### NBA CDN (cdn.nba.com)
+
 - Public. Used for live scoreboard and box scores via Flask `/scoreboard` and `/boxscore`.
 
 ### MLB Stats API (statsapi.mlb.com)
+
 - Public. Main game endpoint: `/api/v1/game/{gameID}/withMetrics`.
 
 ### Baseball Savant (baseballsavant.mlb.com)
+
 - Public. Source for Statcast pitch-level data and career BvP.
 
 ### The Odds API (api.the-odds-api.com)
+
 - `ODDS_API_KEY` secret. FanDuel only (`bookmakers=fanduel`). See `docs/decisions/ADR-20260420-3-fanduel-only.md`.
 
 ### nflverse via nflreadpy (NFL)
+
 - Public, no auth. `nflreadpy` 0.1.5. `update_config(cache_mode='off')` at top of every ETL run (GitHub Actions runners have no persistent filesystem).
 
 ## Local development
@@ -122,6 +128,7 @@ All Schnapp subdomains are Cloudflare-proxied (orange cloud). Do not flip any to
 - Hostname: `Schnapps-MBP`, user: `schnapp`. `claude` CLI 2.1.126 on PATH. `gh` CLI 2.92.0 at `/usr/local/bin/gh`. SSH-authenticated to GitHub.
 
 OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`): minted via `claude setup-token`, 1-year expiry, stored as a GitHub Actions repo secret. Consumed by `.github/workflows/claude.yml` (if/when added) to authenticate `anthropics/claude-code-action@v1`. Rotation:
+
 1. Revoke at `https://console.anthropic.com`.
 2. `claude setup-token` on the Mac; copy new value.
 3. `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repos schnappapi/schnapp-bet`.

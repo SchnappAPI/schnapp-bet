@@ -1,6 +1,6 @@
 # Database
 
-Area router for the `sports-modeling` schema. The canonical database is the **local SQL Server 2022 Docker container** at `localhost,1433` on Schnapps-MBP — target for all ETL and the production web tier. Connection details in `/docs/CONNECTIONS.md`.
+Area router for the schemas inside the `schnapp-bet` database. The canonical database is the **local SQL Server 2022 Docker container** at `localhost,1433` on Schnapps-MBP — target for all ETL and the production web tier. Connection details in `/docs/CONNECTIONS.md`.
 
 ## Schemas
 
