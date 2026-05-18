@@ -1,21 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from "next/server";
 
 function withUnlock(res: NextResponse): NextResponse {
   res.cookies.set({
-    name: 'sb_unlock',
-    value: 'go',
+    name: "sb_unlock",
+    value: "go",
     httpOnly: true,
     secure: true,
-    sameSite: 'lax',
+    sameSite: "lax",
     maxAge: 60 * 60 * 24 * 30,
-    path: '/',
+    path: "/",
   });
   return res;
 }
 
-const OWNER    = 'SchnappAPI';
-const REPO     = 'sports-modeling';
-const WORKFLOW = 'refresh-data.yml';
+const OWNER = "SchnappAPI";
+const REPO = "schnapp-bet";
+const WORKFLOW = "refresh-data.yml";
 
 export async function POST(req: NextRequest) {
   // Two auth paths:
@@ -23,17 +23,22 @@ export async function POST(req: NextRequest) {
   //      Used by the admin Tools tab so you don't need a separate code.
   //   2. Body `{ code: string }` matching ADMIN_REFRESH_CODE.
   //      Used by the legacy in-page Refresh Data button.
-  const adminToken = req.headers.get('x-admin-token') ?? '';
-  const adminPasscode = process.env.ADMIN_PASSCODE ?? '';
+  const adminToken = req.headers.get("x-admin-token") ?? "";
+  const adminPasscode = process.env.ADMIN_PASSCODE ?? "";
   const adminAuthed = !!adminPasscode && adminToken === adminPasscode;
 
   let bodyAuthed = false;
   if (!adminAuthed) {
     const body = await req.json().catch(() => ({}));
-    const adminCode = (body.code ?? '').trim().toUpperCase();
-    const expected  = (process.env.ADMIN_REFRESH_CODE ?? '').trim().toUpperCase();
+    const adminCode = (body.code ?? "").trim().toUpperCase();
+    const expected = (process.env.ADMIN_REFRESH_CODE ?? "")
+      .trim()
+      .toUpperCase();
     if (!expected) {
-      return NextResponse.json({ error: 'ADMIN_REFRESH_CODE not configured' }, { status: 500 });
+      return NextResponse.json(
+        { error: "ADMIN_REFRESH_CODE not configured" },
+        { status: 500 },
+      );
     }
     if (adminCode && adminCode === expected) {
       bodyAuthed = true;
@@ -41,31 +46,37 @@ export async function POST(req: NextRequest) {
   }
 
   if (!adminAuthed && !bodyAuthed) {
-    return NextResponse.json({ error: 'Invalid code.' }, { status: 401 });
+    return NextResponse.json({ error: "Invalid code." }, { status: 401 });
   }
 
   const token = process.env.GITHUB_PAT;
   if (!token) {
-    return NextResponse.json({ error: 'GITHUB_PAT not configured' }, { status: 500 });
+    return NextResponse.json(
+      { error: "GITHUB_PAT not configured" },
+      { status: 500 },
+    );
   }
 
   // Dispatch the workflow
   const dispatchRes = await fetch(
     `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW}/dispatches`,
     {
-      method: 'POST',
+      method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'Content-Type': 'application/json',
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify({ ref: 'main' }),
-    }
+      body: JSON.stringify({ ref: "main" }),
+    },
   );
 
   if (!dispatchRes.ok) {
     const text = await dispatchRes.text();
-    return NextResponse.json({ error: `GitHub dispatch failed: ${text}` }, { status: 500 });
+    return NextResponse.json(
+      { error: `GitHub dispatch failed: ${text}` },
+      { status: 500 },
+    );
   }
 
   // Wait briefly then return the run ID for polling
@@ -76,12 +87,12 @@ export async function POST(req: NextRequest) {
     {
       headers: {
         Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
+        Accept: "application/vnd.github+json",
       },
-    }
+    },
   );
 
-  const data  = runsRes.ok ? await runsRes.json() : {};
+  const data = runsRes.ok ? await runsRes.json() : {};
   const runId = data.workflow_runs?.[0]?.id ?? null;
   return withUnlock(NextResponse.json({ runId }));
 }
