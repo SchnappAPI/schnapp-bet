@@ -12,8 +12,7 @@ Documentation router. Session lifecycle (read/write protocols) lives in root `/C
 - `/docs/CONNECTIONS.md` — single source of truth for external systems and secrets.
 - `/docs/ROADMAP.md` — active priorities. Brief by design.
 - `/docs/HEALTH.md` — git-ignored; regenerate locally with `/skill regenerate-health`.
-- `/docs/changelog/YYYY.md` — append-only CHANGELOG, one file per year. Newest at the top. See `docs/changelog/README.md` for tag taxonomy.
-- `/docs/decisions/ADR-YYYYMMDD-N-slug.md` — ADRs, one per file. See `docs/decisions/README.md` for format.
+- `/docs/decisions/ADR-YYYYMMDD-N-slug.md` — ADRs, one per file. See `docs/decisions/README.md` for format. The commit log is the changelog (ADR-20260517-4); see root `CLAUDE.md` "Commit subject format" for filtering commands.
 - `/docs/features/` — feature methodology specs (not Claude skills). Currently: `playoff-supplemental.md`.
 - `/docs/runbooks/` — operational procedures. `deploy-web.md`, `runner-and-services.md`, `tunnels-and-dns.md`.
 

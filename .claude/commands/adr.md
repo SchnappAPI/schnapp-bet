@@ -35,4 +35,4 @@ ADR-XXXXXXXX-N (one-line reason).}
 
 6. Confirm the file was created. Report the path back to the user.
 
-Do not commit the file as part of this command — leave that to the user's normal session-end flow. The CHANGELOG entry for the change that motivated this ADR should reference the ADR by filename.
+Do not commit the file as part of this command — leave that to the user's normal session-end flow. The commit subject for the change that motivated this ADR should reference the ADR with the `— ADR-YYYYMMDD-N` suffix (per ADR-20260517-4).

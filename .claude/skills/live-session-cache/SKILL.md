@@ -26,13 +26,13 @@ The chat branch is always separate from the work branch. Repo edits proceed on `
 
 The chat log does NOT replace end-of-session updates from root `CLAUDE.md`. All required updates still apply:
 
-- One entry at the top of `docs/changelog/2026.md` tagged `[scope][component]`.
-- str_replace any README section that changed.
+- Properly formatted commit subjects on the work branch (the commit subject IS the changelog entry — ADR-20260517-4). Format: `<type>: [scope][component] description — ADR-YYYYMMDD-N`.
+- `str_replace` any README section that changed.
 - ADR in `docs/decisions/ADR-YYYYMMDD-N-slug.md` if a non-obvious decision was made.
 - MEMORY.md updated with current state.
 - LEARNED.md appended if a correction was made mid-session.
 
-The chat log supplements these by capturing the discussion. The CHANGELOG entry summarizes; the chat log preserves the conversation that produced the summary. Each turn's State Delta references the relevant work-branch commit hashes.
+The chat log supplements these by capturing the discussion. The commit subject summarizes; the chat log preserves the conversation that produced the summary. Each turn's State Delta references the relevant work-branch commit hashes.
 
 ## PR convention
 

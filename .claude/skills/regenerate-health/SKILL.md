@@ -10,7 +10,7 @@ description: Locally regenerate docs/HEALTH.md from the live SQL Server containe
 ## When to use this skill
 
 - Investigating an integrity check failure that surfaced in `common.ingest_quarantine`, `common.unmapped_entities`, or `common.data_completeness_log`.
-- Before shipping a CHANGELOG entry that touches the integrity framework.
+- Before shipping a commit that touches the integrity framework (tag the commit `[shared][grading]`).
 - During on-call response when something looks off in production.
 
 ## Procedure

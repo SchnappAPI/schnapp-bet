@@ -6,18 +6,8 @@ if [ "$(echo "$INPUT" | jq -r '.stop_hook_active')" = "true" ]; then
   exit 0
 fi
 
-# If code files were modified but no docs/changelog/ file was touched, remind.
-CHANGED=$(git -C "${CLAUDE_PROJECT_DIR}" status --short 2>/dev/null \
-  | grep -v 'docs/changelog/' \
-  | grep -v '^\s*$' \
-  | head -1)
-CHANGELOG=$(git -C "${CLAUDE_PROJECT_DIR}" status --short 2>/dev/null \
-  | grep 'docs/changelog/' \
-  | head -1)
-
-if [[ -n "$CHANGED" && -z "$CHANGELOG" ]]; then
-  echo "REMINDER: files changed without an entry in docs/changelog/YYYY.md. Append one before ending the session." >&2
-fi
+# Note: the changelog file no longer exists (ADR-20260517-4). The commit subject IS the
+# changelog entry; format is enforced by discipline + ADR-20260517-4, not by this hook.
 
 # Safety net for the post-commit auto-push hook: if HEAD is ahead of its
 # upstream, push it. Covers post-commit failures (network blip) and clones

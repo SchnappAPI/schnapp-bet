@@ -25,7 +25,7 @@ If unsure, the rule of thumb: if the change must apply to existing rows in produ
 ## Procedure: regenerate a sport bootstrap
 
 1. Ensure the live container has the new schema. Run the relevant ETL or migration against `localhost,1433` first.
-2. Run the generator script. The script lives at `/tmp/gen_ddl.py` (regenerate from `docs/CHANGELOG.md` history if missing).
+2. Run the generator script. The script lives at `/tmp/gen_ddl.py` (regenerate from `git log --grep='\[database\]'` history if missing — see commits tagged `[database]` for prior generator versions).
 
 ```bash
 SQL_PASS=$(grep MSSQL_SA_PASSWORD /Users/schnapp/sql-server.env | cut -d= -f2)
@@ -38,9 +38,9 @@ SQL_TARGET_SCHEMA="nba" \
 The `--target-empty-db` flag asserts the script will emit bare `CREATE TABLE` (not `IF NOT EXISTS`). Running these against a populated DB would fail loudly, which is what we want.
 
 3. Diff the output against the existing `database/<sport>/bootstrap.sql`. Inspect for surprise changes (a column dropped because the ETL stopped writing it, for example).
-4. Commit. Tag the CHANGELOG entry `[database][<sport>]`.
+4. Commit. Subject format: `chore: [database][<sport>] regenerate bootstrap.sql from live container`.
 
-## Procedure: write a new common.* migration
+## Procedure: write a new common.\* migration
 
 1. Determine the next migration number: `ls database/migrations/ | tail -1` and increment.
 2. Create `database/migrations/NNNN_short_slug.sql`. Use `IF NOT EXISTS` guards on every DDL operation. Example:
@@ -53,9 +53,9 @@ BEGIN
 END
 ```
 
-3. Apply against the local container manually first, verify, then commit.
-4. Apply in production via a one-shot workflow or `shell_exec` script. Record the application in the CHANGELOG.
-5. `common.*` changes that affect downstream consumers (web queries, grading scripts) require a CHANGELOG entry listing which consumers were verified.
+3. Apply against the local container manually first, verify, then commit. Subject: `feat: [database][common] <slug> — migration NNNN`.
+4. Apply in production via a one-shot workflow or `shell_exec` script. The production application is its own commit (e.g., `chore: [database][common][infra] apply migration NNNN to prod`).
+5. `common.*` changes that affect downstream consumers (web queries, grading scripts) must list verified callers in the commit body.
 
 ## Anti-patterns
 

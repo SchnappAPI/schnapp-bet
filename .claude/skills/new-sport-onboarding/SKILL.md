@@ -57,7 +57,7 @@ The structure for NBA, MLB, and NFL is already in place. Adding a fourth sport (
 
 ### 8. Final
 
-- [ ] CHANGELOG entry tagged `[<sport>][shared]` documenting the onboarding.
+- [ ] Final commit subject tagged `[<sport>][shared]` documenting the onboarding (the commit subject is the changelog entry — ADR-20260517-4).
 - [ ] ADR documenting any non-obvious decision (e.g., why this sport's grading model differs from NBA's).
 
 ## Anti-patterns
