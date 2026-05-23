@@ -8,7 +8,7 @@ const MODE_KEY       = 'schnapp_auth_mode';
 const DEMO_DATES_KEY = 'schnapp_demo_dates';
 
 // BYPASS: set to true to skip auth entirely. Set back to false to re-enable.
-const BYPASS = true;
+const BYPASS = false;
 
 function readCachedDemoDates(): DemoDates {
   try {
