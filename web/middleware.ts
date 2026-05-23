@@ -109,6 +109,12 @@ const MAINTENANCE_HTML = `<!DOCTYPE html>
 export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
 
+  // /fish is a standalone public page — always let it through regardless
+  // of maintenance mode or any other gate.
+  if (pathname === '/fish' || pathname.startsWith('/fish/')) {
+    return NextResponse.next();
+  }
+
   // Bypass list for paths that must always be reachable, even during
   // maintenance: keep-alive ping, the flags endpoint itself (middleware
   // calls it), and /admin + /api/admin/* so the operator can always
