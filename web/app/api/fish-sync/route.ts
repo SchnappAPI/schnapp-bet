@@ -4,14 +4,7 @@ const OWNER = "SchnappAPI";
 const REPO = "appfolio-quickbase-sync";
 const WORKFLOW = "csv_sync.yml";
 
-export async function POST(req: NextRequest) {
-  const fishSecret = req.headers.get("x-fish-secret") ?? "";
-  const expectedSecret = process.env.FISH_SYNC_SECRET ?? "";
-
-  if (!expectedSecret || fishSecret !== expectedSecret) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
+export async function POST(_req: NextRequest) {
   const token = process.env.GITHUB_PAT;
   if (!token) {
     return NextResponse.json(
