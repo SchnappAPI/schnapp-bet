@@ -5,10 +5,10 @@ const REPO = "appfolio-quickbase-sync";
 const WORKFLOW = "csv_sync.yml";
 
 export async function POST(req: NextRequest) {
-  const adminToken = req.headers.get("x-admin-token") ?? "";
-  const adminPasscode = process.env.ADMIN_PASSCODE ?? "";
+  const fishSecret = req.headers.get("x-fish-secret") ?? "";
+  const expectedSecret = process.env.FISH_SYNC_SECRET ?? "";
 
-  if (!adminPasscode || adminToken !== adminPasscode) {
+  if (!expectedSecret || fishSecret !== expectedSecret) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
@@ -41,7 +41,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Wait briefly then fetch the run ID for the caller to poll or display.
   await new Promise((r) => setTimeout(r, 3000));
 
   const runsRes = await fetch(
