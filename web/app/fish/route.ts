@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server';
 
 export async function GET() {
-  // Embed a server-side secret into the page so the API call is authenticated
-  // without requiring the user to enter a passcode.
-  const secret = process.env.FISH_SYNC_SECRET ?? '';
-
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -115,7 +111,6 @@ export async function GET() {
   <div class="watermark">schnapp.bet/fish</div>
 
   <script>
-    const SECRET = '${secret}';
     let running = false;
 
     async function runSync() {
@@ -135,7 +130,7 @@ export async function GET() {
       try {
         const res = await fetch('/api/fish-sync', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-fish-secret': SECRET },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({}),
         });
         const data = await res.json();
