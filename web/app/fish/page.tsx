@@ -23,9 +23,16 @@ export default function FishPage() {
     }
   }, []);
 
+  function signOut() {
+    localStorage.removeItem(ADMIN_KEY);
+    setSavedPin('');
+    setAuthed(false);
+    setRunState('idle');
+    setRunMsg('');
+  }
+
   async function handleLogin() {
     setPinError('');
-    // Validate the pin against the admin codes endpoint (same gate as admin page).
     const res = await fetch('/api/admin/codes', {
       headers: { 'x-admin-token': pin },
     });
@@ -50,6 +57,10 @@ export default function FishPage() {
         },
         body: JSON.stringify({}),
       });
+      if (res.status === 401) {
+        signOut();
+        return;
+      }
       const data = await res.json();
       if (!res.ok) {
         setRunState('error');
@@ -107,12 +118,12 @@ export default function FishPage() {
       <div className="w-full max-w-sm space-y-4">
         <div className="flex items-center justify-between mb-2">
           <h1 className="text-lg font-semibold text-white">Fish Sync</h1>
-          <a
-            href="/"
+          <button
+            onClick={signOut}
             className="text-xs text-gray-500 border border-gray-700 rounded-lg px-3 py-1.5"
           >
-            Home
-          </a>
+            Sign out
+          </button>
         </div>
 
         <div className="bg-gray-900 rounded-xl p-4 space-y-3">
