@@ -131,13 +131,14 @@ Steps 1–4 are DONE. Steps 5–6 are optional and outstanding.
 
 ## Decision chain (this & prior sessions)
 
-`docs/decisions/ADR-20260517-1` → `-2` → `-3` → `-4` → `-5`. Read in order for the full reasoning behind the meta layer:
+`docs/decisions/ADR-20260517-1` → `-2` → `-3` → `-4` → `-5` → `ADR-20260524-1`. Read in order for the full reasoning behind the meta layer:
 
 1. **ADR-20260517-1** — Hybrid bootstrap strategy: regenerate sport schemas, migrate `common.*`.
 2. **ADR-20260517-2** — Scaffolding milestone disposition.
 3. **ADR-20260517-3** — Atomic logical commits, drop per-directory CLAUDE.md pointers, scale session ceremony.
 4. **ADR-20260517-4** — `git log` is the changelog; drop `docs/changelog/`.
 5. **ADR-20260517-5** — 1Password vault `web-variables` is the single source of truth for runtime secrets.
+6. **ADR-20260524-1** — Mechanize destructive-command non-negotiable as PreToolUse Bash hook with single-use bypass file. Companion automations: ruff PostToolUse hook, adr-writer skill, etl-integrity-reviewer subagent.
 
 ## Decisions resolved this session
 

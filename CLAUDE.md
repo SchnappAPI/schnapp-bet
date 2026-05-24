@@ -78,7 +78,7 @@ Cross-cutting rules only. Path-specific invariants live in `.claude/rules/*.md` 
 - **One logical change per commit** — not one file. A logical change is the smallest self-consistent unit; coupled files are committed together. (Per ADR-20260517-3.)
 - **The commit subject is the changelog entry.** The format above is mandatory and enforced by `.githooks/commit-msg`. Malformed subjects are rejected before the commit lands. (Per ADR-20260517-4.)
 - Every commit pushes to `origin` immediately via the `.githooks/post-commit` hook. The SessionStart bootstrap activates `core.hooksPath` on every Claude Code session. Never bypass with `--no-verify`.
-- Never run `DROP TABLE`, `git reset --hard`, or `rm -rf` without explicit confirmation.
+- Destructive Bash commands are blocked by `.claude/hooks/destructive-guard.sh` (per ADR-20260524-1): `DROP TABLE`, `DROP DATABASE`, `TRUNCATE`, `git reset --hard`, `git push --force`, `git branch -D`, `rm -rf`, `--no-verify`. To proceed, `touch .claude/.allow-destructive` immediately before the command — the bypass is single-use and consumed on first match.
 
 ### GitHub MCP
 

@@ -72,6 +72,15 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/destructive-guard.sh"
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write",
         "hooks": [
           {
@@ -92,6 +101,10 @@
           {
             "type": "command",
             "command": "FILE=$(jq -r '.tool_input.file_path // empty'); if [[ \"$FILE\" == *.ts || \"$FILE\" == *.tsx ]]; then cd \"${CLAUDE_PROJECT_DIR}/web\" && npx --no-install tsc --noEmit -p . 2>&1 || true; fi"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/ruff-lint.sh"
           }
         ]
       }
