@@ -1259,6 +1259,23 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
   const upcomingGameStatusText =
     upcomingData?.upcoming?.game_status_text ?? null;
 
+  // gameId → win lookup for the W/L predicate. /api/player/[id]/log carries
+  // the win field derived from nba.games final scores; we fetch the unfiltered
+  // log once and use it as a side-table on top of the existing GameSummary
+  // flow rather than rewriting the loader.
+  const { data: logData } = useSWR<{
+    rows: { gameId: string; win: boolean | null }[];
+  }>(`/api/player/${playerId}/log`, fetcher, {
+    refreshInterval: 0,
+    revalidateOnFocus: false,
+    dedupingInterval: 60_000,
+  });
+  const winByGameId = useMemo(() => {
+    const m = new Map<string, boolean | null>();
+    for (const r of logData?.rows ?? []) m.set(r.gameId, r.win);
+    return m;
+  }, [logData]);
+
   const isFullGame = selectedPeriods.size === 0;
 
   const playerTeamTricode = useMemo(() => {
@@ -1563,6 +1580,7 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
   const urlHa = searchParams.get("ha");
   const urlStarter = searchParams.get("starter");
   const urlMinGt = searchParams.get("minGt");
+  const urlWl = searchParams.get("wl")?.toLowerCase() ?? null;
   const urlB2b = searchParams.get("b2b") === "1";
   const urlRestCsv = searchParams.get("rest");
   const urlSince = searchParams.get("since");
@@ -1614,6 +1632,12 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
       if (!Number.isNaN(n)) rows = rows.filter((g) => !g.dnp && g.min > n);
     }
 
+    if (urlWl === "w" || urlWl === "win") {
+      rows = rows.filter((g) => winByGameId.get(g.gameId) === true);
+    } else if (urlWl === "l" || urlWl === "loss") {
+      rows = rows.filter((g) => winByGameId.get(g.gameId) === false);
+    }
+
     if (urlB2b) {
       rows = rows.filter((g) => restDaysMap.get(g.gameId) === 0);
     } else if (urlRestCsv) {
@@ -1656,12 +1680,14 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     urlHa,
     urlStarter,
     urlMinGt,
+    urlWl,
     urlB2b,
     urlRestCsv,
     urlSince,
     urlUntil,
     upcomingOppAbbr,
     restDaysMap,
+    winByGameId,
   ]);
 
   const availablePeriods = useMemo(
