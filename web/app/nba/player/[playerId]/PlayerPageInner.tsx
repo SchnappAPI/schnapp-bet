@@ -7,6 +7,7 @@ import useSWR from "swr";
 import MatchupDefense from "@/components/MatchupDefense";
 import PlayerSplitsTable from "@/components/nba/PlayerSplitsTable";
 import PlayerLogFilters from "@/components/nba/PlayerLogFilters";
+import PlayerLogFiltersMobile from "@/components/nba/PlayerLogFiltersMobile";
 import { fetcher } from "@/lib/fetcher";
 import { getTeamPrimary } from "@/lib/teams";
 import {
@@ -1851,11 +1852,20 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
         </span>
       </div>
 
-      <PlayerLogFilters
-        basePath={`/nba/player/${playerId}`}
-        upcomingOppAbbr={upcomingOppAbbr}
-        hasStartedSignal={summaries.some((s) => s.started != null)}
-      />
+      <div className="hidden md:block">
+        <PlayerLogFilters
+          basePath={`/nba/player/${playerId}`}
+          upcomingOppAbbr={upcomingOppAbbr}
+          hasStartedSignal={summaries.some((s) => s.started != null)}
+        />
+      </div>
+      <div className="block md:hidden">
+        <PlayerLogFiltersMobile
+          basePath={`/nba/player/${playerId}`}
+          upcomingOppAbbr={upcomingOppAbbr}
+          hasStartedSignal={summaries.some((s) => s.started != null)}
+        />
+      </div>
 
       {showMatchup && (
         <MatchupDefense
