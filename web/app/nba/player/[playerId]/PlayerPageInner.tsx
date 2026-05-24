@@ -1,12 +1,16 @@
-'use client';
+"use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
-import MatchupDefense from '@/components/MatchupDefense';
-import { getTeamPrimary } from '@/lib/teams';
-import { getPlayerSignals as getSignals, SIGNAL_DEFS, type Signal } from '@/lib/signals';
-import { HelpButton } from '@/components/HelpPanel';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import MatchupDefense from "@/components/MatchupDefense";
+import { getTeamPrimary } from "@/lib/teams";
+import {
+  getPlayerSignals as getSignals,
+  SIGNAL_DEFS,
+  type Signal,
+} from "@/lib/signals";
+import { HelpButton } from "@/components/HelpPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,98 +121,101 @@ interface TodayGame {
 // ---------------------------------------------------------------------------
 
 const MARKET_ABBR: Record<string, string> = {
-  player_points:                           'PTS',
-  player_points_alternate:                 'PTS',
-  player_rebounds:                         'REB',
-  player_rebounds_alternate:               'REB',
-  player_assists:                          'AST',
-  player_assists_alternate:                'AST',
-  player_steals:                           'STL',
-  player_steals_alternate:                 'STL',
-  player_blocks:                           'BLK',
-  player_blocks_alternate:                 'BLK',
-  player_threes:                           '3PM',
-  player_threes_alternate:                 '3PM',
-  player_turnovers:                        'TOV',
-  player_turnovers_alternate:              'TOV',
-  player_points_rebounds_assists:          'PRA',
-  player_points_rebounds_assists_alternate:'PRA',
-  player_points_rebounds:                  'PR',
-  player_points_rebounds_alternate:        'PR',
-  player_points_assists:                   'PA',
-  player_points_assists_alternate:         'PA',
-  player_rebounds_assists:                 'RA',
-  player_rebounds_assists_alternate:       'RA',
+  player_points: "PTS",
+  player_points_alternate: "PTS",
+  player_rebounds: "REB",
+  player_rebounds_alternate: "REB",
+  player_assists: "AST",
+  player_assists_alternate: "AST",
+  player_steals: "STL",
+  player_steals_alternate: "STL",
+  player_blocks: "BLK",
+  player_blocks_alternate: "BLK",
+  player_threes: "3PM",
+  player_threes_alternate: "3PM",
+  player_turnovers: "TOV",
+  player_turnovers_alternate: "TOV",
+  player_points_rebounds_assists: "PRA",
+  player_points_rebounds_assists_alternate: "PRA",
+  player_points_rebounds: "PR",
+  player_points_rebounds_alternate: "PR",
+  player_points_assists: "PA",
+  player_points_assists_alternate: "PA",
+  player_rebounds_assists: "RA",
+  player_rebounds_assists_alternate: "RA",
 };
 
 const PROP_ORDER: string[] = [
-  'player_points',
-  'player_rebounds',
-  'player_assists',
-  'player_threes',
-  'player_points_rebounds_assists',
-  'player_points_rebounds',
-  'player_points_assists',
-  'player_rebounds_assists',
-  'player_steals',
-  'player_blocks',
-  'player_turnovers',
+  "player_points",
+  "player_rebounds",
+  "player_assists",
+  "player_threes",
+  "player_points_rebounds_assists",
+  "player_points_rebounds",
+  "player_points_assists",
+  "player_rebounds_assists",
+  "player_steals",
+  "player_blocks",
+  "player_turnovers",
 ];
 
 // Ordered list of markets shown in the expand panel, matching game log column order.
 const EXPAND_MARKET_ORDER: string[] = [
-  'player_points',
-  'player_threes',
-  'player_rebounds',
-  'player_assists',
-  'player_points_rebounds_assists',
-  'player_points_rebounds',
-  'player_points_assists',
-  'player_rebounds_assists',
-  'player_steals',
-  'player_blocks',
-  'player_turnovers',
+  "player_points",
+  "player_threes",
+  "player_rebounds",
+  "player_assists",
+  "player_points_rebounds_assists",
+  "player_points_rebounds",
+  "player_points_assists",
+  "player_rebounds_assists",
+  "player_steals",
+  "player_blocks",
+  "player_turnovers",
 ];
 
 function marketLabel(key: string): string {
-  return MARKET_ABBR[key] ?? key.replace('player_', '').replace(/_/g, ' ').toUpperCase();
+  return (
+    MARKET_ABBR[key] ??
+    key.replace("player_", "").replace(/_/g, " ").toUpperCase()
+  );
 }
 
 function baseMarket(key: string): string {
-  return key.replace(/_alternate$/, '');
+  return key.replace(/_alternate$/, "");
 }
 
 function isAlternate(key: string): boolean {
-  return key.endsWith('_alternate');
+  return key.endsWith("_alternate");
 }
 
 function fmtOdds(price: number | null): string {
-  if (price == null) return '-';
+  if (price == null) return "-";
   return price >= 0 ? `+${price}` : `${price}`;
 }
 
 function fmtPct(val: number | null): string {
-  if (val == null) return '-';
+  if (val == null) return "-";
   return `${(val * 100).toFixed(0)}%`;
 }
 
 function gradeColor(grade: number | null): string {
-  if (grade == null) return 'text-fg-subtle';
-  if (grade >= 70) return 'text-pos';
-  if (grade >= 55) return 'text-warn';
-  return 'text-fg-subtle';
+  if (grade == null) return "text-fg-subtle";
+  if (grade >= 70) return "text-pos";
+  if (grade >= 55) return "text-warn";
+  return "text-fg-subtle";
 }
 
 function gradeBg(grade: number | null): string {
-  if (grade == null) return 'bg-surface-hover';
-  if (grade >= 70) return 'bg-pos-muted';
-  if (grade >= 55) return 'bg-warn-muted';
-  return 'bg-surface-hover';
+  if (grade == null) return "bg-surface-hover";
+  if (grade >= 70) return "bg-pos-muted";
+  if (grade >= 55) return "bg-warn-muted";
+  return "bg-surface-hover";
 }
 
 function todayLocal(): string {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -225,12 +232,12 @@ function LineupStatusBadge({
   if (!starterStatus) return null;
 
   let label = starterStatus;
-  let cls   = 'text-fg-subtle border-border';
+  let cls = "text-fg-subtle border-border";
 
-  if (starterStatus === 'Inactive') {
-    cls = 'text-neg border-neg';
-  } else if (starterStatus === 'Starter') {
-    cls = 'text-brand border-brand';
+  if (starterStatus === "Inactive") {
+    cls = "text-neg border-neg";
+  } else if (starterStatus === "Starter") {
+    cls = "text-brand border-brand";
   }
 
   if (lineupStatus) {
@@ -238,7 +245,9 @@ function LineupStatusBadge({
   }
 
   return (
-    <span className={`text-xs border rounded px-1.5 py-0.5 leading-none ${cls}`}>
+    <span
+      className={`text-xs border rounded px-1.5 py-0.5 leading-none ${cls}`}
+    >
       {label}
     </span>
   );
@@ -248,7 +257,13 @@ function LineupStatusBadge({
 // Player headshot
 // ---------------------------------------------------------------------------
 
-function PlayerHeadshot({ playerId, size = 36 }: { playerId: string; size?: number }) {
+function PlayerHeadshot({
+  playerId,
+  size = 36,
+}: {
+  playerId: string;
+  size?: number;
+}) {
   const [visible, setVisible] = useState(true);
   if (!visible) return null;
   return (
@@ -256,9 +271,14 @@ function PlayerHeadshot({ playerId, size = 36 }: { playerId: string; size?: numb
       src={`https://cdn.nba.com/headshots/nba/latest/260x190/${playerId}.png`}
       alt=""
       width={size}
-      height={Math.round(size * 190 / 260)}
+      height={Math.round((size * 190) / 260)}
       onError={() => setVisible(false)}
-      style={{ borderRadius: '50%', objectFit: 'cover', objectPosition: 'top', flexShrink: 0 }}
+      style={{
+        borderRadius: "50%",
+        objectFit: "cover",
+        objectPosition: "top",
+        flexShrink: 0,
+      }}
     />
   );
 }
@@ -290,16 +310,16 @@ interface AttemptRange {
 
 function volumeBg(value: number, range: AttemptRange): string {
   const { min, avg, max } = range;
-  if (max === min) return 'transparent';
+  if (max === min) return "transparent";
   const MAX_OPACITY = 0.35;
   if (value >= avg) {
     const span = max - avg;
-    if (span === 0) return 'transparent';
+    if (span === 0) return "transparent";
     const opacity = Math.min((value - avg) / span, 1) * MAX_OPACITY;
     return `rgba(45, 212, 191, ${opacity.toFixed(3)})`;
   } else {
     const span = avg - min;
-    if (span === 0) return 'transparent';
+    if (span === 0) return "transparent";
     const opacity = Math.min((avg - value) / span, 1) * MAX_OPACITY;
     return `rgba(251, 146, 60, ${opacity.toFixed(3)})`;
   }
@@ -309,61 +329,111 @@ function volumeBg(value: number, range: AttemptRange): string {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const ALL_PERIODS = ['1Q', '2Q', '3Q', '4Q', 'OT'] as const;
-type QuarterKey = typeof ALL_PERIODS[number];
+const ALL_PERIODS = ["1Q", "2Q", "3Q", "4Q", "OT"] as const;
+type QuarterKey = (typeof ALL_PERIODS)[number];
 
-type RoleFilter = 'all' | 'started' | 'bench' | 'played';
+type RoleFilter = "all" | "started" | "bench" | "played";
 
 function buildGameSummaries(
   rows: GameLogRow[],
   selectedPeriods: Set<QuarterKey>,
 ): GameSummary[] {
   const gameOrder: string[] = [];
-  const gameMeta = new Map<string, Pick<GameSummary,
-    'gameDate' | 'opponentAbbr' | 'isHome' | 'dnp' | 'started' | 'potentialAst' | 'rebChances'
-  >>();
+  const gameMeta = new Map<
+    string,
+    Pick<
+      GameSummary,
+      | "gameDate"
+      | "opponentAbbr"
+      | "isHome"
+      | "dnp"
+      | "started"
+      | "potentialAst"
+      | "rebChances"
+    >
+  >();
   for (const r of rows) {
     if (!gameMeta.has(r.gameId)) {
       gameOrder.push(r.gameId);
       gameMeta.set(r.gameId, {
-        gameDate:     r.gameDate,
+        gameDate: r.gameDate,
         opponentAbbr: r.opponentAbbr,
-        isHome:       r.isHome,
-        dnp:          r.dnp,
-        started:      r.started != null ? !!r.started : null,
+        isHome: r.isHome,
+        dnp: r.dnp,
+        started: r.started != null ? !!r.started : null,
         potentialAst: r.potentialAst ?? null,
-        rebChances:   r.rebChances   ?? null,
+        rebChances: r.rebChances ?? null,
       });
     }
   }
 
-  const filtered = selectedPeriods.size === 0
-    ? rows
-    : rows.filter((r) => selectedPeriods.has(r.period as QuarterKey));
+  const filtered =
+    selectedPeriods.size === 0
+      ? rows
+      : rows.filter((r) => selectedPeriods.has(r.period as QuarterKey));
 
-  const totals = new Map<string, Omit<GameSummary,
-    'gameId' | 'gameDate' | 'opponentAbbr' | 'isHome' | 'dnp' | 'started' | 'potentialAst' | 'rebChances'
-  >>();
+  const totals = new Map<
+    string,
+    Omit<
+      GameSummary,
+      | "gameId"
+      | "gameDate"
+      | "opponentAbbr"
+      | "isHome"
+      | "dnp"
+      | "started"
+      | "potentialAst"
+      | "rebChances"
+    >
+  >();
   for (const r of filtered) {
     if (r.dnp) continue;
-    const t = totals.get(r.gameId) ?? { pts:0, reb:0, ast:0, stl:0, blk:0, tov:0, min:0, fg3m:0, fg3a:0, fgm:0, fga:0, ftm:0, fta:0 };
-    t.pts  += r.pts  ?? 0;
-    t.reb  += r.reb  ?? 0;
-    t.ast  += r.ast  ?? 0;
-    t.stl  += r.stl  ?? 0;
-    t.blk  += r.blk  ?? 0;
-    t.tov  += r.tov  ?? 0;
-    t.min  += r.min  ?? 0;
+    const t = totals.get(r.gameId) ?? {
+      pts: 0,
+      reb: 0,
+      ast: 0,
+      stl: 0,
+      blk: 0,
+      tov: 0,
+      min: 0,
+      fg3m: 0,
+      fg3a: 0,
+      fgm: 0,
+      fga: 0,
+      ftm: 0,
+      fta: 0,
+    };
+    t.pts += r.pts ?? 0;
+    t.reb += r.reb ?? 0;
+    t.ast += r.ast ?? 0;
+    t.stl += r.stl ?? 0;
+    t.blk += r.blk ?? 0;
+    t.tov += r.tov ?? 0;
+    t.min += r.min ?? 0;
     t.fg3m += r.fg3m ?? 0;
     t.fg3a += r.fg3a ?? 0;
-    t.fgm  += r.fgm  ?? 0;
-    t.fga  += r.fga  ?? 0;
-    t.ftm  += r.ftm  ?? 0;
-    t.fta  += r.fta  ?? 0;
+    t.fgm += r.fgm ?? 0;
+    t.fga += r.fga ?? 0;
+    t.ftm += r.ftm ?? 0;
+    t.fta += r.fta ?? 0;
     totals.set(r.gameId, t);
   }
 
-  const ZERO = { pts:0, reb:0, ast:0, stl:0, blk:0, tov:0, min:0, fg3m:0, fg3a:0, fgm:0, fga:0, ftm:0, fta:0 };
+  const ZERO = {
+    pts: 0,
+    reb: 0,
+    ast: 0,
+    stl: 0,
+    blk: 0,
+    tov: 0,
+    min: 0,
+    fg3m: 0,
+    fg3a: 0,
+    fgm: 0,
+    fga: 0,
+    ftm: 0,
+    fta: 0,
+  };
   return gameOrder.map((gid) => ({
     gameId: gid,
     ...gameMeta.get(gid)!,
@@ -371,102 +441,147 @@ function buildGameSummaries(
   }));
 }
 
-type SplitKey = 'season' | 'l10' | 'starter' | 'bench' | 'opp';
+type SplitKey = "season" | "l10" | "starter" | "bench" | "opp";
 
 interface SplitStats {
   gp: number;
-  pts: number; reb: number; ast: number; stl: number; blk: number; tov: number;
-  min: number; fg3m: number; fg3a: number; fgm: number; fga: number; ftm: number; fta: number;
+  pts: number;
+  reb: number;
+  ast: number;
+  stl: number;
+  blk: number;
+  tov: number;
+  min: number;
+  fg3m: number;
+  fg3a: number;
+  fgm: number;
+  fga: number;
+  ftm: number;
+  fta: number;
 }
 
-function computeSplit(summaries: GameSummary[], opp: string | null): Record<SplitKey, SplitStats> {
-  const zero = (): SplitStats => ({ gp:0, pts:0, reb:0, ast:0, stl:0, blk:0, tov:0, min:0, fg3m:0, fg3a:0, fgm:0, fga:0, ftm:0, fta:0 });
-  const acc  = { season: zero(), l10: zero(), starter: zero(), bench: zero(), opp: zero() };
+function computeSplit(
+  summaries: GameSummary[],
+  opp: string | null,
+): Record<SplitKey, SplitStats> {
+  const zero = (): SplitStats => ({
+    gp: 0,
+    pts: 0,
+    reb: 0,
+    ast: 0,
+    stl: 0,
+    blk: 0,
+    tov: 0,
+    min: 0,
+    fg3m: 0,
+    fg3a: 0,
+    fgm: 0,
+    fga: 0,
+    ftm: 0,
+    fta: 0,
+  });
+  const acc = {
+    season: zero(),
+    l10: zero(),
+    starter: zero(),
+    bench: zero(),
+    opp: zero(),
+  };
 
-  const played  = summaries.filter((g) => !g.dnp);
-  const l10     = played.slice(0, 10);
+  const played = summaries.filter((g) => !g.dnp);
+  const l10 = played.slice(0, 10);
   const started = played.filter((g) => g.started === true);
-  const bench   = played.filter((g) => g.started === false);
-  const vs      = opp ? played.filter((g) => g.opponentAbbr === opp) : [];
+  const bench = played.filter((g) => g.started === false);
+  const vs = opp ? played.filter((g) => g.opponentAbbr === opp) : [];
 
   function add(target: SplitStats, g: GameSummary) {
-    target.gp++;  target.pts += g.pts; target.reb += g.reb; target.ast += g.ast;
-    target.stl += g.stl; target.blk += g.blk; target.tov += g.tov; target.min += g.min;
-    target.fg3m += g.fg3m; target.fg3a += g.fg3a; target.fgm += g.fgm; target.fga += g.fga;
-    target.ftm += g.ftm;  target.fta += g.fta;
+    target.gp++;
+    target.pts += g.pts;
+    target.reb += g.reb;
+    target.ast += g.ast;
+    target.stl += g.stl;
+    target.blk += g.blk;
+    target.tov += g.tov;
+    target.min += g.min;
+    target.fg3m += g.fg3m;
+    target.fg3a += g.fg3a;
+    target.fgm += g.fgm;
+    target.fga += g.fga;
+    target.ftm += g.ftm;
+    target.fta += g.fta;
   }
-  played.forEach((g)   => add(acc.season, g));
-  l10.forEach((g)      => add(acc.l10, g));
-  started.forEach((g)  => add(acc.starter, g));
-  bench.forEach((g)    => add(acc.bench, g));
-  vs.forEach((g)       => add(acc.opp, g));
+  played.forEach((g) => add(acc.season, g));
+  l10.forEach((g) => add(acc.l10, g));
+  started.forEach((g) => add(acc.starter, g));
+  bench.forEach((g) => add(acc.bench, g));
+  vs.forEach((g) => add(acc.opp, g));
   return acc;
 }
 
 function avg(total: number, gp: number, decimals = 1): string {
-  if (gp === 0) return '-';
+  if (gp === 0) return "-";
   return (total / gp).toFixed(decimals);
 }
 
 function fmtMin(min: number, gp: number): string {
-  if (gp === 0) return '-';
+  if (gp === 0) return "-";
   const m = Math.floor(min / gp);
-  const s = Math.round(((min / gp) - m) * 60);
-  return `${m}:${s.toString().padStart(2, '00')}`;
+  const s = Math.round((min / gp - m) * 60);
+  return `${m}:${s.toString().padStart(2, "00")}`;
 }
 
 const MARKET_STAT: Record<string, keyof GameSummary> = {
-  player_points:            'pts',
-  player_points_alternate:  'pts',
-  player_rebounds:          'reb',
-  player_rebounds_alternate:'reb',
-  player_assists:           'ast',
-  player_assists_alternate: 'ast',
-  player_steals:            'stl',
-  player_steals_alternate:  'stl',
-  player_blocks:            'blk',
-  player_blocks_alternate:  'blk',
-  player_threes:            'fg3m',
-  player_threes_alternate:  'fg3m',
-  player_turnovers:         'tov',
+  player_points: "pts",
+  player_points_alternate: "pts",
+  player_rebounds: "reb",
+  player_rebounds_alternate: "reb",
+  player_assists: "ast",
+  player_assists_alternate: "ast",
+  player_steals: "stl",
+  player_steals_alternate: "stl",
+  player_blocks: "blk",
+  player_blocks_alternate: "blk",
+  player_threes: "fg3m",
+  player_threes_alternate: "fg3m",
+  player_turnovers: "tov",
 };
 
 // Compute the stat value for a game summary given a market key.
 // Handles combo markets (PRA, PR, PA, RA) explicitly.
 function statForMarket(g: GameSummary, marketKey: string): number | null {
   switch (marketKey) {
-    case 'player_points':
-    case 'player_points_alternate':
+    case "player_points":
+    case "player_points_alternate":
       return g.pts;
-    case 'player_rebounds':
-    case 'player_rebounds_alternate':
+    case "player_rebounds":
+    case "player_rebounds_alternate":
       return g.reb;
-    case 'player_assists':
-    case 'player_assists_alternate':
+    case "player_assists":
+    case "player_assists_alternate":
       return g.ast;
-    case 'player_steals':
-    case 'player_steals_alternate':
+    case "player_steals":
+    case "player_steals_alternate":
       return g.stl;
-    case 'player_blocks':
-    case 'player_blocks_alternate':
+    case "player_blocks":
+    case "player_blocks_alternate":
       return g.blk;
-    case 'player_threes':
-    case 'player_threes_alternate':
+    case "player_threes":
+    case "player_threes_alternate":
       return g.fg3m;
-    case 'player_turnovers':
-    case 'player_turnovers_alternate':
+    case "player_turnovers":
+    case "player_turnovers_alternate":
       return g.tov;
-    case 'player_points_rebounds_assists':
-    case 'player_points_rebounds_assists_alternate':
+    case "player_points_rebounds_assists":
+    case "player_points_rebounds_assists_alternate":
       return g.pts + g.reb + g.ast;
-    case 'player_points_rebounds':
-    case 'player_points_rebounds_alternate':
+    case "player_points_rebounds":
+    case "player_points_rebounds_alternate":
       return g.pts + g.reb;
-    case 'player_points_assists':
-    case 'player_points_assists_alternate':
+    case "player_points_assists":
+    case "player_points_assists_alternate":
       return g.pts + g.ast;
-    case 'player_rebounds_assists':
-    case 'player_rebounds_assists_alternate':
+    case "player_rebounds_assists":
+    case "player_rebounds_assists_alternate":
       return g.reb + g.ast;
     default:
       return null;
@@ -502,8 +617,8 @@ function postedAltLine(pairs: LinePair[]): LinePair | undefined {
   const withPrice = pairs.filter((p) => p.over?.overPrice != null);
   if (withPrice.length > 0) {
     return withPrice.reduce((best, p) => {
-      const bestDiff = Math.abs((best.over!.overPrice ?? -110) - (-110));
-      const currDiff = Math.abs((p.over!.overPrice ?? -110) - (-110));
+      const bestDiff = Math.abs((best.over!.overPrice ?? -110) - -110);
+      const currDiff = Math.abs((p.over!.overPrice ?? -110) - -110);
       return currDiff < bestDiff ? p : best;
     });
   }
@@ -512,8 +627,8 @@ function postedAltLine(pairs: LinePair[]): LinePair | undefined {
 }
 
 function buildMarketGroups(grades: TodayGradeRow[]): MarketGroup[] {
-  const stdRows  = grades.filter((g) => !isAlternate(g.marketKey));
-  const altRows  = grades.filter((g) =>  isAlternate(g.marketKey));
+  const stdRows = grades.filter((g) => !isAlternate(g.marketKey));
+  const altRows = grades.filter((g) => isAlternate(g.marketKey));
 
   function pairRows(rows: TodayGradeRow[]): Map<string, Map<number, LinePair>> {
     const grouped = new Map<string, Map<number, LinePair>>();
@@ -521,8 +636,12 @@ function buildMarketGroups(grades: TodayGradeRow[]): MarketGroup[] {
       const base = baseMarket(r.marketKey);
       if (!grouped.has(base)) grouped.set(base, new Map());
       const byLine = grouped.get(base)!;
-      const existing = byLine.get(r.lineValue) ?? { lineValue: r.lineValue, over: null, under: null };
-      if (r.outcomeName === 'Over') existing.over = r;
+      const existing = byLine.get(r.lineValue) ?? {
+        lineValue: r.lineValue,
+        over: null,
+        under: null,
+      };
+      if (r.outcomeName === "Over") existing.over = r;
       else existing.under = r;
       byLine.set(r.lineValue, existing);
     }
@@ -547,22 +666,34 @@ function buildMarketGroups(grades: TodayGradeRow[]): MarketGroup[] {
   const sortPairs = (m: Map<number, LinePair> | undefined): LinePair[] =>
     m ? Array.from(m.values()).sort((a, b) => a.lineValue - b.lineValue) : [];
 
-  return order.map((base) => {
-    const standardLines = sortPairs(stdPaired.get(base));
-    const altLines      = sortPairs(altPaired.get(base));
-    const altOnly       = standardLines.length === 0 && altLines.length > 0;
+  return order
+    .map((base) => {
+      const standardLines = sortPairs(stdPaired.get(base));
+      const altLines = sortPairs(altPaired.get(base));
+      const altOnly = standardLines.length === 0 && altLines.length > 0;
 
-    const allOverRows = [
-      ...standardLines.map((p) => p.over),
-      ...altLines.map((p) => p.over),
-    ].filter((r): r is TodayGradeRow => r != null);
-    const bestRow = allOverRows.reduce<TodayGradeRow | null>((best, r) => {
-      if (!best) return r;
-      return (r.compositeGrade ?? -Infinity) > (best.compositeGrade ?? -Infinity) ? r : best;
-    }, null);
+      const allOverRows = [
+        ...standardLines.map((p) => p.over),
+        ...altLines.map((p) => p.over),
+      ].filter((r): r is TodayGradeRow => r != null);
+      const bestRow = allOverRows.reduce<TodayGradeRow | null>((best, r) => {
+        if (!best) return r;
+        return (r.compositeGrade ?? -Infinity) >
+          (best.compositeGrade ?? -Infinity)
+          ? r
+          : best;
+      }, null);
 
-    return { baseKey: base, label: marketLabel(base), standardLines, altLines, altOnly, bestRow };
-  }).filter((g) => g.standardLines.length > 0 || g.altOnly);
+      return {
+        baseKey: base,
+        label: marketLabel(base),
+        standardLines,
+        altLines,
+        altOnly,
+        bestRow,
+      };
+    })
+    .filter((g) => g.standardLines.length > 0 || g.altOnly);
 }
 
 // ---------------------------------------------------------------------------
@@ -572,10 +703,10 @@ function buildMarketGroups(grades: TodayGradeRow[]): MarketGroup[] {
 function PlayerSignalsSection({ groups }: { groups: MarketGroup[] }) {
   const markets = groups
     .map((g) => ({
-      label:   g.label,
+      label: g.label,
       signals: g.bestRow
         ? getSignals({
-            trendGrade:      g.bestRow.trendGrade,
+            trendGrade: g.bestRow.trendGrade,
             regressionGrade: g.bestRow.regressionGrade,
           })
         : [],
@@ -590,7 +721,9 @@ function PlayerSignalsSection({ groups }: { groups: MarketGroup[] }) {
         {markets.map(({ label, signals }) => (
           <div key={label} className="flex items-center gap-1.5">
             <span className="text-xs text-fg-subtle font-medium">{label}</span>
-            {signals.map((s) => <SignalChip key={s.type} signal={s} />)}
+            {signals.map((s) => (
+              <SignalChip key={s.type} signal={s} />
+            ))}
           </div>
         ))}
       </div>
@@ -602,7 +735,7 @@ function PlayerSignalsSection({ groups }: { groups: MarketGroup[] }) {
 // Dot plot — colors each dot vs today's active prop line
 // ---------------------------------------------------------------------------
 
-type DotWindow = 'L10' | 'L30' | 'L50' | 'All';
+type DotWindow = "L10" | "L30" | "L50" | "All";
 
 function StatDotPlot({
   summaries,
@@ -619,15 +752,22 @@ function StatDotPlot({
   if (!statKey) return null;
 
   const played = summaries.filter((g) => !g.dnp);
-  const count  = win === 'L10' ? 10 : win === 'L30' ? 30 : win === 'L50' ? 50 : played.length;
-  const slice  = played.slice(0, count).reverse();
+  const count =
+    win === "L10"
+      ? 10
+      : win === "L30"
+        ? 30
+        : win === "L50"
+          ? 50
+          : played.length;
+  const slice = played.slice(0, count).reverse();
 
   if (slice.length === 0) return null;
 
   const values = slice.map((g) => Number(g[statKey] ?? 0));
   const minVal = Math.min(...values, lineValue);
   const maxVal = Math.max(...values, lineValue);
-  const range  = maxVal - minVal || 1;
+  const range = maxVal - minVal || 1;
 
   const VW = 600;
   const VH = 64;
@@ -638,8 +778,7 @@ function StatDotPlot({
 
   const xPos = (i: number) =>
     PAD_X + (slice.length <= 1 ? plotW / 2 : (i / (slice.length - 1)) * plotW);
-  const yPos = (v: number) =>
-    PAD_Y + plotH - ((v - minVal) / range) * plotH;
+  const yPos = (v: number) => PAD_Y + plotH - ((v - minVal) / range) * plotH;
 
   const lineY = yPos(lineValue);
 
@@ -650,20 +789,39 @@ function StatDotPlot({
       className="w-full"
       style={{ height: VH }}
     >
-      <line x1={PAD_X} y1={lineY} x2={VW - PAD_X} y2={lineY}
-        stroke="#4b5563" strokeWidth="1.5" strokeDasharray="4 4" />
-      <text x={VW - PAD_X - 4} y={lineY - 4} fill="#6b7280" fontSize="9" textAnchor="end"
-        style={{ fontVariantNumeric: 'tabular-nums' }}>
+      <line
+        x1={PAD_X}
+        y1={lineY}
+        x2={VW - PAD_X}
+        y2={lineY}
+        stroke="#4b5563"
+        strokeWidth="1.5"
+        strokeDasharray="4 4"
+      />
+      <text
+        x={VW - PAD_X - 4}
+        y={lineY - 4}
+        fill="#6b7280"
+        fontSize="9"
+        textAnchor="end"
+        style={{ fontVariantNumeric: "tabular-nums" }}
+      >
         {lineValue.toFixed(1)}
       </text>
       {slice.map((g, i) => {
-        const v   = Number(g[statKey] ?? 0);
-        const cx  = xPos(i);
-        const cy  = yPos(v);
+        const v = Number(g[statKey] ?? 0);
+        const cx = xPos(i);
+        const cy = yPos(v);
         const hit = v > lineValue;
         return (
-          <circle key={g.gameId} cx={cx} cy={cy} r={4}
-            fill={hit ? '#4ade80' : '#f87171'} opacity={0.9} />
+          <circle
+            key={g.gameId}
+            cx={cx}
+            cy={cy}
+            r={4}
+            fill={hit ? "#4ade80" : "#f87171"}
+            opacity={0.9}
+          />
         );
       })}
     </svg>
@@ -683,9 +841,10 @@ function MarketPanel({
   summaries: GameSummary[];
   dotWindow: DotWindow;
 }) {
-  const dotLineValue = group.standardLines.length > 0
-    ? group.standardLines[0].lineValue
-    : (postedAltLine(group.altLines)?.lineValue ?? 0);
+  const dotLineValue =
+    group.standardLines.length > 0
+      ? group.standardLines[0].lineValue
+      : (postedAltLine(group.altLines)?.lineValue ?? 0);
 
   const showAltSection = !group.altOnly && group.altLines.length > 0;
 
@@ -705,25 +864,32 @@ function MarketPanel({
           <div className="text-xs text-fg-disabled mb-1.5">Alt lines</div>
           <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1">
             {group.altLines.map((pair) => {
-              const over  = pair.over;
+              const over = pair.over;
               const under = pair.under;
               const grade = over?.compositeGrade ?? null;
-              const hr20  = over?.hitRate20 ?? null;
-              const hr60  = over?.hitRate60 ?? null;
+              const hr20 = over?.hitRate20 ?? null;
+              const hr60 = over?.hitRate60 ?? null;
               return (
                 <div
                   key={pair.lineValue}
                   className={`flex-none px-3 py-2 rounded border border-border ${gradeBg(grade)}`}
-                  style={{ minWidth: '100px' }}
+                  style={{ minWidth: "100px" }}
                 >
                   <div className="flex items-center justify-between gap-2 text-xs tabular-nums">
-                    <span className="font-semibold text-fg-muted">{pair.lineValue.toFixed(1)}</span>
+                    <span className="font-semibold text-fg-muted">
+                      {pair.lineValue.toFixed(1)}
+                    </span>
                     {grade != null && (
-                      <span className={`font-semibold ${gradeColor(grade)}`}>{grade.toFixed(0)}</span>
+                      <span className={`font-semibold ${gradeColor(grade)}`}>
+                        {grade.toFixed(0)}
+                      </span>
                     )}
                   </div>
                   <div className="mt-1 text-xs tabular-nums text-fg-subtle space-y-0.5">
-                    <div>O {fmtOdds(over?.overPrice ?? null)}{under ? `  U ${fmtOdds(under.overPrice)}` : ''}</div>
+                    <div>
+                      O {fmtOdds(over?.overPrice ?? null)}
+                      {under ? `  U ${fmtOdds(under.overPrice)}` : ""}
+                    </div>
                     <div className="text-fg-subtle">
                       {hr20 != null && <span>L20: {fmtPct(hr20)} </span>}
                       {hr60 != null && <span>L60: {fmtPct(hr60)}</span>}
@@ -756,18 +922,18 @@ function TodayPropsSection({
   expanded: boolean;
   onToggleExpanded: () => void;
 }) {
-  const [grades, setGrades]         = useState<TodayGradeRow[]>([]);
-  const [loading, setLoading]       = useState(true);
+  const [grades, setGrades] = useState<TodayGradeRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeBase, setActiveBase] = useState<string | null>(null);
-  const [dotWindow, setDotWindow]   = useState<DotWindow>('L30');
+  const [dotWindow, setDotWindow] = useState<DotWindow>("L30");
 
   useEffect(() => {
     setLoading(true);
     fetch(`/api/grades?date=${gradeDate}`)
-      .then((r) => r.ok ? r.json() : { grades: [] })
+      .then((r) => (r.ok ? r.json() : { grades: [] }))
       .then((data) => {
         const rows: TodayGradeRow[] = (data.grades ?? []).filter(
-          (g: TodayGradeRow) => String(g.playerId) === String(playerId)
+          (g: TodayGradeRow) => String(g.playerId) === String(playerId),
         );
         setGrades(rows);
       })
@@ -783,9 +949,12 @@ function TodayPropsSection({
     }
   }, [groups, activeBase]);
 
-  if (loading) return (
-    <div className="px-4 py-3 border-b border-border text-xs text-fg-disabled">Loading props...</div>
-  );
+  if (loading)
+    return (
+      <div className="px-4 py-3 border-b border-border text-xs text-fg-disabled">
+        Loading props...
+      </div>
+    );
   if (groups.length === 0) return null;
 
   const activeGroup = groups.find((g) => g.baseKey === activeBase) ?? null;
@@ -793,26 +962,31 @@ function TodayPropsSection({
   return (
     <div className="border-b border-border">
       <div className="flex items-center px-4 py-1.5 border-b border-border">
-        <span className="text-xs font-semibold text-fg-subtle uppercase tracking-wider">Today&apos;s Props</span>
+        <span className="text-xs font-semibold text-fg-subtle uppercase tracking-wider">
+          Today&apos;s Props
+        </span>
         <div className="flex gap-1 ml-auto items-center">
-          {expanded && (['L10', 'L30', 'L50', 'All'] as DotWindow[]).map((w) => (
-            <button
-              key={w}
-              onClick={() => setDotWindow(w)}
-              className={[
-                'px-1.5 py-0.5 text-xs rounded transition-colors',
-                dotWindow === w ? 'bg-surface-hover text-fg' : 'text-fg-disabled hover:text-fg-subtle',
-              ].join(' ')}
-            >
-              {w}
-            </button>
-          ))}
+          {expanded &&
+            (["L10", "L30", "L50", "All"] as DotWindow[]).map((w) => (
+              <button
+                key={w}
+                onClick={() => setDotWindow(w)}
+                className={[
+                  "px-1.5 py-0.5 text-xs rounded transition-colors",
+                  dotWindow === w
+                    ? "bg-surface-hover text-fg"
+                    : "text-fg-disabled hover:text-fg-subtle",
+                ].join(" ")}
+              >
+                {w}
+              </button>
+            ))}
           <button
             onClick={onToggleExpanded}
             className="ml-2 text-fg-disabled hover:text-fg-subtle text-xs px-1.5 py-0.5 rounded transition-colors"
-            title={expanded ? 'Collapse chart' : 'Expand chart'}
+            title={expanded ? "Collapse chart" : "Expand chart"}
           >
-            {expanded ? '\u25b2' : '\u25bc'}
+            {expanded ? "\u25b2" : "\u25bc"}
           </button>
         </div>
       </div>
@@ -822,47 +996,66 @@ function TodayPropsSection({
       <div className="overflow-x-auto">
         <div className="flex w-full divide-x divide-border">
           {groups.map((group) => {
-            const displayPair = group.standardLines.length > 0
-              ? group.standardLines[0]
-              : postedAltLine(group.altLines);
-            const grade        = displayPair?.over?.compositeGrade ?? null;
-            const isActive     = group.baseKey === activeBase;
-            const cellSignals  = group.bestRow
+            const displayPair =
+              group.standardLines.length > 0
+                ? group.standardLines[0]
+                : postedAltLine(group.altLines);
+            const grade = displayPair?.over?.compositeGrade ?? null;
+            const isActive = group.baseKey === activeBase;
+            const cellSignals = group.bestRow
               ? getSignals({
-                  trendGrade:      group.bestRow.trendGrade,
+                  trendGrade: group.bestRow.trendGrade,
                   regressionGrade: group.bestRow.regressionGrade,
                 })
               : [];
-            const hasPositive = cellSignals.some((s) => s.type === 'DUE' || s.type === 'STREAK' || s.type === 'HOT');
-            const hasNegative = cellSignals.some((s) => s.type === 'FADE' || s.type === 'SLUMP' || s.type === 'COLD');
+            const hasPositive = cellSignals.some(
+              (s) =>
+                s.type === "DUE" || s.type === "STREAK" || s.type === "HOT",
+            );
+            const hasNegative = cellSignals.some(
+              (s) =>
+                s.type === "FADE" || s.type === "SLUMP" || s.type === "COLD",
+            );
             return (
               <button
                 key={group.baseKey}
                 onClick={() => setActiveBase(isActive ? null : group.baseKey)}
                 className={[
-                  'flex flex-col items-center flex-1 min-w-[52px] py-2 transition-colors text-xs',
-                  isActive && expanded ? 'bg-surface-hover' : 'hover:bg-surface',
-                ].join(' ')}
+                  "flex flex-col items-center flex-1 min-w-[52px] py-2 transition-colors text-xs",
+                  isActive && expanded
+                    ? "bg-surface-hover"
+                    : "hover:bg-surface",
+                ].join(" ")}
               >
-                <span className="font-semibold text-fg-muted leading-none mb-0.5">{group.label}</span>
+                <span className="font-semibold text-fg-muted leading-none mb-0.5">
+                  {group.label}
+                </span>
                 {displayPair && (
                   <span className="tabular-nums text-fg-subtle leading-none mb-0.5">
                     {displayPair.lineValue.toFixed(1)}
                   </span>
                 )}
                 {grade != null ? (
-                  <span className={`font-semibold tabular-nums leading-none ${gradeColor(grade)}`}>
+                  <span
+                    className={`font-semibold tabular-nums leading-none ${gradeColor(grade)}`}
+                  >
                     {grade.toFixed(0)}
                   </span>
                 ) : (
                   <span className="text-fg-disabled leading-none">--</span>
                 )}
                 {cellSignals.length > 0 && (
-                  <span className={`mt-0.5 text-[8px] leading-none ${
-                    hasPositive && !hasNegative ? 'text-pos'
-                    : hasNegative && !hasPositive ? 'text-warn'
-                    : 'text-warn'
-                  }`}>&#9679;</span>
+                  <span
+                    className={`mt-0.5 text-[8px] leading-none ${
+                      hasPositive && !hasNegative
+                        ? "text-pos"
+                        : hasNegative && !hasPositive
+                          ? "text-warn"
+                          : "text-warn"
+                    }`}
+                  >
+                    &#9679;
+                  </span>
                 )}
               </button>
             );
@@ -885,16 +1078,24 @@ function TodayPropsSection({
 // Stats toggle
 // ---------------------------------------------------------------------------
 
-function StatsToggle({ showAll, onToggle }: { showAll: boolean; onToggle: () => void }) {
+function StatsToggle({
+  showAll,
+  onToggle,
+}: {
+  showAll: boolean;
+  onToggle: () => void;
+}) {
   return (
     <button
       onClick={onToggle}
       className={[
-        'px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap',
-        showAll ? 'bg-surface-hover text-fg' : 'bg-surface-hover text-fg-subtle hover:bg-surface-hover',
-      ].join(' ')}
+        "px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap",
+        showAll
+          ? "bg-surface-hover text-fg"
+          : "bg-surface-hover text-fg-subtle hover:bg-surface-hover",
+      ].join(" ")}
     >
-      {showAll ? 'Compact' : 'All Stats'}
+      {showAll ? "Compact" : "All Stats"}
     </button>
   );
 }
@@ -927,10 +1128,10 @@ function GameTeamSelector({
 
   function buildParams(gameId: string): string {
     const p = new URLSearchParams();
-    p.set('gameId', gameId);
-    p.set('tab', tab);
-    p.set('date', date);
-    if (periods) p.set('periods', periods);
+    p.set("gameId", gameId);
+    p.set("tab", tab);
+    p.set("date", date);
+    if (periods) p.set("periods", periods);
     return p.toString();
   }
 
@@ -939,9 +1140,12 @@ function GameTeamSelector({
     try {
       const res = await fetch(`/api/team-players?teamId=${teamId}`);
       const data = await res.json();
-      const players: { playerId: number; playerName: string }[] = data.players ?? [];
+      const players: { playerId: number; playerName: string }[] =
+        data.players ?? [];
       if (players.length > 0) {
-        router.push(`/nba/player/${players[0].playerId}?${buildParams(gameId)}`);
+        router.push(
+          `/nba/player/${players[0].playerId}?${buildParams(gameId)}`,
+        );
       }
     } catch {
       // ignore
@@ -957,7 +1161,9 @@ function GameTeamSelector({
         onChange={(e) => {
           const g = games.find((x) => x.gameId === e.target.value);
           if (!g) return;
-          router.push(`/nba/player/${currentPlayerId}?${buildParams(g.gameId)}`);
+          router.push(
+            `/nba/player/${currentPlayerId}?${buildParams(g.gameId)}`,
+          );
         }}
         className="bg-surface border border-border text-xs text-fg-muted rounded px-2 py-1 outline-none cursor-pointer"
       >
@@ -973,14 +1179,18 @@ function GameTeamSelector({
         disabled={loadingTeam !== null}
         className="px-2.5 py-1 text-xs rounded border border-border text-fg-subtle hover:border-border-strong hover:text-fg-muted transition-colors whitespace-nowrap disabled:opacity-40"
       >
-        {loadingTeam === activeGame.awayTeamId ? '...' : activeGame.awayTeamAbbr}
+        {loadingTeam === activeGame.awayTeamId
+          ? "..."
+          : activeGame.awayTeamAbbr}
       </button>
       <button
         onClick={() => navigateToTeam(activeGame.homeTeamId, activeGame.gameId)}
         disabled={loadingTeam !== null}
         className="px-2.5 py-1 text-xs rounded border border-border text-fg-subtle hover:border-border-strong hover:text-fg-muted transition-colors whitespace-nowrap disabled:opacity-40"
       >
-        {loadingTeam === activeGame.homeTeamId ? '...' : activeGame.homeTeamAbbr}
+        {loadingTeam === activeGame.homeTeamId
+          ? "..."
+          : activeGame.homeTeamAbbr}
       </button>
     </div>
   );
@@ -996,7 +1206,10 @@ function GamePropExpandRow({
   colSpan,
 }: {
   game: GameSummary;
-  gradeMap: Map<string, Map<string, { lineValue: number; outcomeName: string }>>;
+  gradeMap: Map<
+    string,
+    Map<string, { lineValue: number; outcomeName: string }>
+  >;
   colSpan: number;
 }) {
   const gameGrades = gradeMap.get(game.gameId);
@@ -1004,34 +1217,49 @@ function GamePropExpandRow({
   if (!gameGrades || gameGrades.size === 0) {
     return (
       <tr>
-        <td colSpan={colSpan} className="px-4 py-2 bg-surface-hover border-b border-border">
-          <span className="text-xs text-fg-disabled">No props were posted for this game.</span>
+        <td
+          colSpan={colSpan}
+          className="px-4 py-2 bg-surface-hover border-b border-border"
+        >
+          <span className="text-xs text-fg-disabled">
+            No props were posted for this game.
+          </span>
         </td>
       </tr>
     );
   }
 
-  const entries = EXPAND_MARKET_ORDER
-    .filter((mkt) => gameGrades.has(mkt))
-    .map((mkt) => {
+  const entries = EXPAND_MARKET_ORDER.filter((mkt) => gameGrades.has(mkt)).map(
+    (mkt) => {
       const grade = gameGrades.get(mkt)!;
       const statVal = statForMarket(game, mkt);
       const hit = statVal != null ? statVal > grade.lineValue : null;
       return { mkt, grade, statVal, hit };
-    });
+    },
+  );
 
   if (entries.length === 0) return null;
 
   return (
     <tr>
-      <td colSpan={colSpan} className="px-4 py-2 bg-surface-hover border-b border-border">
+      <td
+        colSpan={colSpan}
+        className="px-4 py-2 bg-surface-hover border-b border-border"
+      >
         <div className="flex flex-wrap gap-x-5 gap-y-1">
           {entries.map(({ mkt, grade, statVal, hit }) => (
-            <div key={mkt} className="flex items-center gap-1.5 text-xs tabular-nums">
-              <span className="text-fg-subtle font-medium w-7">{marketLabel(mkt)}</span>
-              <span className="text-fg-subtle">{grade.lineValue.toFixed(1)}</span>
+            <div
+              key={mkt}
+              className="flex items-center gap-1.5 text-xs tabular-nums"
+            >
+              <span className="text-fg-subtle font-medium w-7">
+                {marketLabel(mkt)}
+              </span>
+              <span className="text-fg-subtle">
+                {grade.lineValue.toFixed(1)}
+              </span>
               {statVal != null && hit != null && (
-                <span className={hit ? 'text-pos' : 'text-neg'}>
+                <span className={hit ? "text-pos" : "text-neg"}>
                   ({statVal})
                 </span>
               )}
@@ -1048,39 +1276,51 @@ function GamePropExpandRow({
 // ---------------------------------------------------------------------------
 
 export default function PlayerPageInner({ playerId }: { playerId: string }) {
-  const router       = useRouter();
+  const router = useRouter();
   const searchParams = useSearchParams();
 
-  const backGameId  = searchParams.get('gameId');
-  const backDate    = searchParams.get('date');
-  const oppParam    = searchParams.get('opp');
-  const periodsParam = searchParams.get('periods') ?? undefined;
+  const backGameId = searchParams.get("gameId");
+  const backDate = searchParams.get("date");
+  const oppParam = searchParams.get("opp");
+  const periodsParam = searchParams.get("periods") ?? undefined;
 
   const gradeDate = backDate ?? todayLocal();
 
-  const persistedPeriods       = useRef<Set<QuarterKey>>(new Set());
-  const persistedRole          = useRef<RoleFilter>('all');
+  const persistedPeriods = useRef<Set<QuarterKey>>(new Set());
+  const persistedRole = useRef<RoleFilter>("all");
   const persistedPropsExpanded = useRef<boolean>(true);
-  const prevTeamId             = useRef<number | null>(null);
+  const prevTeamId = useRef<number | null>(null);
 
-  const [log, setLog]               = useState<GameLogRow[]>([]);
-  const [grades, setGrades]         = useState<GradeLine[]>([]);
+  const [log, setLog] = useState<GameLogRow[]>([]);
+  const [grades, setGrades] = useState<GradeLine[]>([]);
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo>({
-    oppTeamId: null, position: null, gameLineupPosition: null,
-    playerName: null, teamId: null,
-    gameLineupStatus: null, gameStarterStatus: null,
+    oppTeamId: null,
+    position: null,
+    gameLineupPosition: null,
+    playerName: null,
+    teamId: null,
+    gameLineupStatus: null,
+    gameStarterStatus: null,
   });
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [selectedPeriods, setSelectedPeriods] = useState<Set<QuarterKey>>(persistedPeriods.current);
-  const [roleFilter, setRoleFilter]           = useState<RoleFilter>(persistedRole.current);
-  const [propsExpanded, setPropsExpanded]     = useState<boolean>(persistedPropsExpanded.current);
-  const [expandedGameId, setExpandedGameId]   = useState<string | null>(null);
+  const [selectedPeriods, setSelectedPeriods] = useState<Set<QuarterKey>>(
+    persistedPeriods.current,
+  );
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>(
+    persistedRole.current,
+  );
+  const [propsExpanded, setPropsExpanded] = useState<boolean>(
+    persistedPropsExpanded.current,
+  );
+  const [expandedGameId, setExpandedGameId] = useState<string | null>(null);
 
-  const [teamPlayers, setTeamPlayers] = useState<{playerId: number; playerName: string}[]>([]);
+  const [teamPlayers, setTeamPlayers] = useState<
+    { playerId: number; playerName: string }[]
+  >([]);
   const [showAllStats, setShowAllStats] = useState(false);
-  const [vsOppOnly, setVsOppOnly]   = useState(false);
+  const [vsOppOnly, setVsOppOnly] = useState(false);
   const [todayGames, setTodayGames] = useState<TodayGame[]>([]);
   const [liveGameRow, setLiveGameRow] = useState<GameSummary | null>(null);
   const liveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1090,27 +1330,62 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
   const playerTeamTricode = useMemo(() => {
     if (!playerInfo.teamId || todayGames.length === 0) return null;
     for (const g of todayGames) {
-      if (g.homeTeamId === playerInfo.teamId) return g.homeTeamAbbr.toLowerCase();
-      if (g.awayTeamId === playerInfo.teamId) return g.awayTeamAbbr.toLowerCase();
+      if (g.homeTeamId === playerInfo.teamId)
+        return g.homeTeamAbbr.toLowerCase();
+      if (g.awayTeamId === playerInfo.teamId)
+        return g.awayTeamAbbr.toLowerCase();
     }
     return null;
   }, [playerInfo.teamId, todayGames]);
 
-  const teamColor = playerTeamTricode ? getTeamPrimary(playerTeamTricode) : null;
+  const teamColor = playerTeamTricode
+    ? getTeamPrimary(playerTeamTricode)
+    : null;
 
   const matchupPosition = playerInfo.gameLineupPosition ?? playerInfo.position;
+
+  // Record this player in the "recent players" localStorage list so the
+  // /nba?tab=players Recent section can surface them. Fires once when the
+  // player's name resolves; idempotent (dedupes by id, keeps newest first,
+  // cap = 8). Per the app-simplification spec, Session 2b.
+  useEffect(() => {
+    if (!playerInfo.playerName) return;
+    try {
+      const key = "schnapp_recent_players";
+      const max = 8;
+      const numericId = Number(playerId);
+      if (!Number.isFinite(numericId)) return;
+      const entry = {
+        id: numericId,
+        name: playerInfo.playerName,
+        teamAbbr: playerTeamTricode
+          ? playerTeamTricode.toUpperCase()
+          : undefined,
+        position: playerInfo.position ?? undefined,
+      };
+      const raw = window.localStorage.getItem(key);
+      const prev: (typeof entry)[] = raw ? JSON.parse(raw) : [];
+      const filtered = Array.isArray(prev)
+        ? prev.filter((p) => p && p.id !== entry.id)
+        : [];
+      const next = [entry, ...filtered].slice(0, max);
+      window.localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      // best-effort; ignore quota / serialization errors
+    }
+  }, [playerId, playerInfo.playerName, playerTeamTricode, playerInfo.position]);
 
   useEffect(() => {
     const today = todayLocal();
     fetch(`/api/games?sport=nba&date=${today}`)
-      .then((r) => r.ok ? r.json() : { games: [] })
+      .then((r) => (r.ok ? r.json() : { games: [] }))
       .then((data) => {
         const games: TodayGame[] = (data.games ?? []).map((g: any) => ({
-          gameId:       g.gameId,
+          gameId: g.gameId,
           homeTeamAbbr: g.homeTeamAbbr,
           awayTeamAbbr: g.awayTeamAbbr,
-          homeTeamId:   g.homeTeamId,
-          awayTeamId:   g.awayTeamId,
+          homeTeamId: g.homeTeamId,
+          awayTeamId: g.awayTeamId,
         }));
         setTodayGames(games);
       })
@@ -1131,23 +1406,43 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
 
     async function fetchLive() {
       try {
-        const sbRes = await fetch('/api/scoreboard');
+        const sbRes = await fetch("/api/scoreboard");
         if (!sbRes.ok) return;
         const sbData = await sbRes.json();
-        const sbGames: { gameId: string; gameStatus: number }[] = sbData.games ?? [];
+        const sbGames: { gameId: string; gameStatus: number }[] =
+          sbData.games ?? [];
 
         const todayGameIds = new Set(todayGames.map((g) => g.gameId));
-        const liveGame = sbGames.find((g) => g.gameStatus === 2 && todayGameIds.has(g.gameId));
+        const liveGame = sbGames.find(
+          (g) => g.gameStatus === 2 && todayGameIds.has(g.gameId),
+        );
 
         if (!liveGame) {
           setLiveGameRow(null);
           return;
         }
 
-        const bsRes = await fetch(`/api/live-boxscore?gameId=${liveGame.gameId}`);
+        const bsRes = await fetch(
+          `/api/live-boxscore?gameId=${liveGame.gameId}`,
+        );
         if (!bsRes.ok) return;
         const bsData = await bsRes.json();
-        const players: { playerId: number; pts: number; reb: number; ast: number; stl: number; blk: number; tov: number; min: number; fg3m: number; fg3a?: number; fgm?: number; fga?: number; ftm?: number; fta?: number }[] = bsData.players ?? [];
+        const players: {
+          playerId: number;
+          pts: number;
+          reb: number;
+          ast: number;
+          stl: number;
+          blk: number;
+          tov: number;
+          min: number;
+          fg3m: number;
+          fg3a?: number;
+          fgm?: number;
+          fga?: number;
+          ftm?: number;
+          fta?: number;
+        }[] = bsData.players ?? [];
 
         const p = players.find((pl) => pl.playerId === numericId);
         if (!p) {
@@ -1158,34 +1453,38 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
         const meta = todayGames.find((g) => g.gameId === liveGame.gameId)!;
         const isHome = meta.homeTeamId === playerInfo.teamId;
         setLiveGameRow({
-          gameId:       liveGame.gameId,
-          gameDate:     todayLocal(),
+          gameId: liveGame.gameId,
+          gameDate: todayLocal(),
           opponentAbbr: isHome ? meta.awayTeamAbbr : meta.homeTeamAbbr,
           isHome,
-          dnp:          false,
-          started:      null,
-          pts:          p.pts,
-          reb:          p.reb,
-          ast:          p.ast,
-          stl:          p.stl,
-          blk:          p.blk,
-          tov:          p.tov,
-          min:          p.min,
-          fg3m:         p.fg3m,
-          fg3a:         p.fg3a  ?? 0,
-          fgm:          p.fgm   ?? 0,
-          fga:          p.fga   ?? 0,
-          ftm:          p.ftm   ?? 0,
-          fta:          p.fta   ?? 0,
+          dnp: false,
+          started: null,
+          pts: p.pts,
+          reb: p.reb,
+          ast: p.ast,
+          stl: p.stl,
+          blk: p.blk,
+          tov: p.tov,
+          min: p.min,
+          fg3m: p.fg3m,
+          fg3a: p.fg3a ?? 0,
+          fgm: p.fgm ?? 0,
+          fga: p.fga ?? 0,
+          ftm: p.ftm ?? 0,
+          fta: p.fta ?? 0,
           potentialAst: null,
-          rebChances:   null,
+          rebChances: null,
         });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     fetchLive();
     liveIntervalRef.current = setInterval(fetchLive, 30_000);
-    return () => { if (liveIntervalRef.current) clearInterval(liveIntervalRef.current); };
+    return () => {
+      if (liveIntervalRef.current) clearInterval(liveIntervalRef.current);
+    };
   }, [playerInfo.teamId, todayGames, playerId]);
 
   useEffect(() => {
@@ -1195,9 +1494,13 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     setGrades([]);
     setExpandedGameId(null);
     setPlayerInfo({
-      oppTeamId: null, position: null, gameLineupPosition: null,
-      playerName: null, teamId: null,
-      gameLineupStatus: null, gameStarterStatus: null,
+      oppTeamId: null,
+      position: null,
+      gameLineupPosition: null,
+      playerName: null,
+      teamId: null,
+      gameLineupStatus: null,
+      gameStarterStatus: null,
     });
     setTeamPlayers([]);
 
@@ -1206,10 +1509,12 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
       : `/api/player?playerId=${playerId}&lastN=9999&sport=nba`;
 
     Promise.all([
-      fetch(playerUrl)
-        .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      fetch(playerUrl).then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }),
       fetch(`/api/player-grades?playerId=${playerId}`)
-        .then((r) => r.ok ? r.json() : { grades: [] })
+        .then((r) => (r.ok ? r.json() : { grades: [] }))
         .catch(() => ({ grades: [] })),
     ])
       .then(([playerData, gradeData]) => {
@@ -1217,17 +1522,20 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
         setGrades(gradeData.grades ?? []);
 
         const info: PlayerInfo = {
-          playerName:         playerData.playerName         ?? null,
-          position:           playerData.position           ?? null,
+          playerName: playerData.playerName ?? null,
+          position: playerData.position ?? null,
           gameLineupPosition: playerData.gameLineupPosition ?? null,
-          oppTeamId:          playerData.lastOppTeamId      ?? null,
-          teamId:             playerData.teamId             ?? null,
-          gameLineupStatus:   playerData.gameLineupStatus   ?? null,
-          gameStarterStatus:  playerData.gameStarterStatus  ?? null,
+          oppTeamId: playerData.lastOppTeamId ?? null,
+          teamId: playerData.teamId ?? null,
+          gameLineupStatus: playerData.gameLineupStatus ?? null,
+          gameStarterStatus: playerData.gameStarterStatus ?? null,
         };
         setPlayerInfo(info);
 
-        if (prevTeamId.current !== null && prevTeamId.current !== playerData.teamId) {
+        if (
+          prevTeamId.current !== null &&
+          prevTeamId.current !== playerData.teamId
+        ) {
           setVsOppOnly(false);
         }
         prevTeamId.current = playerData.teamId ?? null;
@@ -1244,13 +1552,13 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
             .then((r) => r.json())
             .then((d) => {
               const myGrade = (d.grades ?? []).find(
-                (g: any) => String(g.playerId) === String(playerId)
+                (g: any) => String(g.playerId) === String(playerId),
               );
               if (myGrade?.oppTeamId) {
                 setPlayerInfo((prev) => ({
                   ...prev,
                   oppTeamId: myGrade.oppTeamId,
-                  position:  myGrade.position ?? prev.position,
+                  position: myGrade.position ?? prev.position,
                 }));
               }
             })
@@ -1261,16 +1569,28 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
       .finally(() => setLoading(false));
   }, [playerId]);
 
-  useEffect(() => { persistedPeriods.current = selectedPeriods; }, [selectedPeriods]);
-  useEffect(() => { persistedRole.current    = roleFilter; },     [roleFilter]);
-  useEffect(() => { persistedPropsExpanded.current = propsExpanded; }, [propsExpanded]);
+  useEffect(() => {
+    persistedPeriods.current = selectedPeriods;
+  }, [selectedPeriods]);
+  useEffect(() => {
+    persistedRole.current = roleFilter;
+  }, [roleFilter]);
+  useEffect(() => {
+    persistedPropsExpanded.current = propsExpanded;
+  }, [propsExpanded]);
 
   // gradeMap: gameId -> marketKey -> { lineValue, outcomeName }
   const gradeMap = useMemo(() => {
-    const m = new Map<string, Map<string, { lineValue: number; outcomeName: string }>>();
+    const m = new Map<
+      string,
+      Map<string, { lineValue: number; outcomeName: string }>
+    >();
     for (const g of grades) {
       if (!m.has(g.gameId)) m.set(g.gameId, new Map());
-      m.get(g.gameId)!.set(g.marketKey, { lineValue: g.lineValue, outcomeName: g.outcomeName });
+      m.get(g.gameId)!.set(g.marketKey, {
+        lineValue: g.lineValue,
+        outcomeName: g.outcomeName,
+      });
     }
     return m;
   }, [grades]);
@@ -1280,13 +1600,19 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     [log, selectedPeriods],
   );
 
-  const attemptRanges = useMemo((): { fga: AttemptRange; fg3a: AttemptRange; fta: AttemptRange } => {
-    const played = buildGameSummaries(log, new Set<QuarterKey>()).filter((g) => !g.dnp);
+  const attemptRanges = useMemo((): {
+    fga: AttemptRange;
+    fg3a: AttemptRange;
+    fta: AttemptRange;
+  } => {
+    const played = buildGameSummaries(log, new Set<QuarterKey>()).filter(
+      (g) => !g.dnp,
+    );
     const gp = played.length;
     const empty: AttemptRange = { min: 0, avg: 0, max: 0 };
     if (gp === 0) return { fga: empty, fg3a: empty, fta: empty };
 
-    const compute = (key: 'fga' | 'fg3a' | 'fta'): AttemptRange => {
+    const compute = (key: "fga" | "fg3a" | "fta"): AttemptRange => {
       const vals = played.map((g) => g[key]);
       return {
         min: Math.min(...vals),
@@ -1296,20 +1622,20 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     };
 
     return {
-      fga:  compute('fga'),
-      fg3a: compute('fg3a'),
-      fta:  compute('fta'),
+      fga: compute("fga"),
+      fg3a: compute("fg3a"),
+      fta: compute("fta"),
     };
   }, [log]);
 
   const displayedSummaries = useMemo(() => {
     let rows = summaries;
 
-    if (roleFilter === 'started') {
+    if (roleFilter === "started") {
       rows = rows.filter((g) => !g.dnp && g.started === true);
-    } else if (roleFilter === 'bench') {
+    } else if (roleFilter === "bench") {
       rows = rows.filter((g) => !g.dnp && g.started === false);
-    } else if (roleFilter === 'played') {
+    } else if (roleFilter === "played") {
       rows = rows.filter((g) => !g.dnp);
     }
 
@@ -1336,35 +1662,47 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
 
   const showPropColors = isFullGame;
 
-  const teamGameCount = useMemo(() => new Set(summaries.map((s) => s.gameId)).size, [summaries]);
-  const playedCount   = useMemo(() => summaries.filter((s) => !s.dnp).length, [summaries]);
+  const teamGameCount = useMemo(
+    () => new Set(summaries.map((s) => s.gameId)).size,
+    [summaries],
+  );
+  const playedCount = useMemo(
+    () => summaries.filter((s) => !s.dnp).length,
+    [summaries],
+  );
 
   function togglePeriod(p: QuarterKey) {
     setSelectedPeriods((prev) => {
       const next = new Set(prev);
-      if (next.has(p)) next.delete(p); else next.add(p);
+      if (next.has(p)) next.delete(p);
+      else next.add(p);
       return next;
     });
   }
 
   function getLineCls(gameId: string, market: string, value: number): string {
-    if (!showPropColors) return 'text-fg-muted';
+    if (!showPropColors) return "text-fg-muted";
     const gameMap = gradeMap.get(gameId);
-    if (!gameMap) return 'text-fg-muted';
+    if (!gameMap) return "text-fg-muted";
     const entry = gameMap.get(market);
-    if (entry == null) return 'text-fg-muted';
-    return value > entry.lineValue ? 'text-pos' : 'text-neg';
+    if (entry == null) return "text-fg-muted";
+    return value > entry.lineValue ? "text-pos" : "text-neg";
   }
 
-  function getComboLineCls(gameId: string, value: number, markets: string[]): string {
-    if (!showPropColors) return 'text-fg-muted';
+  function getComboLineCls(
+    gameId: string,
+    value: number,
+    markets: string[],
+  ): string {
+    if (!showPropColors) return "text-fg-muted";
     const gameMap = gradeMap.get(gameId);
-    if (!gameMap) return 'text-fg-muted';
+    if (!gameMap) return "text-fg-muted";
     for (const market of markets) {
       const entry = gameMap.get(market);
-      if (entry != null) return value > entry.lineValue ? 'text-pos' : 'text-neg';
+      if (entry != null)
+        return value > entry.lineValue ? "text-pos" : "text-neg";
     }
-    return 'text-fg-muted';
+    return "text-fg-muted";
   }
 
   const displayName = playerInfo.playerName ?? `Player ${playerId}`;
@@ -1377,69 +1715,153 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
 
   const showMatchup = playerInfo.oppTeamId != null && matchupPosition != null;
 
-  if (loading) return <div className="px-4 py-6 text-sm text-fg-subtle">Loading...</div>;
-  if (error)   return <div className="px-4 py-6 text-sm text-neg">Error: {error}</div>;
+  if (loading)
+    return <div className="px-4 py-6 text-sm text-fg-subtle">Loading...</div>;
+  if (error)
+    return <div className="px-4 py-6 text-sm text-neg">Error: {error}</div>;
 
   const splitLabels: { key: SplitKey; label: string }[] = [
-    { key: 'season',  label: 'Season' },
-    { key: 'l10',     label: 'Last 10' },
-    { key: 'starter', label: 'Starter' },
-    { key: 'bench',   label: 'Bench' },
-    ...(oppParam ? [{ key: 'opp' as SplitKey, label: `vs ${oppParam}` }] : []),
+    { key: "season", label: "Season" },
+    { key: "l10", label: "Last 10" },
+    { key: "starter", label: "Starter" },
+    { key: "bench", label: "Bench" },
+    ...(oppParam ? [{ key: "opp" as SplitKey, label: `vs ${oppParam}` }] : []),
   ];
 
-  const compactSplitHeaders  = ['MIN', 'PTS', '3PM', 'REB', 'AST', 'PRA', 'PR', 'PA', 'RA'];
-  const allStatsSplitHeaders = ['MIN', 'PTS', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA', 'REB', 'AST', 'PRA', 'PR', 'PA', 'RA', 'STL', 'BLK', 'TOV'];
-  const splitHeaders = showAllStats ? allStatsSplitHeaders : compactSplitHeaders;
+  const compactSplitHeaders = [
+    "MIN",
+    "PTS",
+    "3PM",
+    "REB",
+    "AST",
+    "PRA",
+    "PR",
+    "PA",
+    "RA",
+  ];
+  const allStatsSplitHeaders = [
+    "MIN",
+    "PTS",
+    "FGM",
+    "FGA",
+    "3PM",
+    "3PA",
+    "FTM",
+    "FTA",
+    "REB",
+    "AST",
+    "PRA",
+    "PR",
+    "PA",
+    "RA",
+    "STL",
+    "BLK",
+    "TOV",
+  ];
+  const splitHeaders = showAllStats
+    ? allStatsSplitHeaders
+    : compactSplitHeaders;
 
   function renderSplitCells(s: SplitStats) {
-    const pra = s.gp === 0 ? '-' : ((s.pts + s.reb + s.ast) / s.gp).toFixed(1);
-    const pr  = s.gp === 0 ? '-' : ((s.pts + s.reb) / s.gp).toFixed(1);
-    const pa  = s.gp === 0 ? '-' : ((s.pts + s.ast) / s.gp).toFixed(1);
-    const ra  = s.gp === 0 ? '-' : ((s.reb + s.ast) / s.gp).toFixed(1);
+    const pra = s.gp === 0 ? "-" : ((s.pts + s.reb + s.ast) / s.gp).toFixed(1);
+    const pr = s.gp === 0 ? "-" : ((s.pts + s.reb) / s.gp).toFixed(1);
+    const pa = s.gp === 0 ? "-" : ((s.pts + s.ast) / s.gp).toFixed(1);
+    const ra = s.gp === 0 ? "-" : ((s.reb + s.ast) / s.gp).toFixed(1);
     if (showAllStats) {
       return (
         <>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{fmtMin(s.min, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{avg(s.pts, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{avg(s.fgm, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{avg(s.fga, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{avg(s.fg3m, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{avg(s.fg3a, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{avg(s.ftm, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{avg(s.fta, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{avg(s.reb, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{avg(s.ast, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{pra}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{pr}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{pa}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{ra}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{avg(s.stl, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{avg(s.blk, s.gp)}</td>
-          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{avg(s.tov, s.gp)}</td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+            {fmtMin(s.min, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+            {avg(s.pts, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">
+            {avg(s.fgm, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">
+            {avg(s.fga, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">
+            {avg(s.fg3m, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">
+            {avg(s.fg3a, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">
+            {avg(s.ftm, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">
+            {avg(s.fta, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+            {avg(s.reb, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+            {avg(s.ast, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+            {pra}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+            {pr}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+            {pa}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+            {ra}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+            {avg(s.stl, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+            {avg(s.blk, s.gp)}
+          </td>
+          <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+            {avg(s.tov, s.gp)}
+          </td>
         </>
       );
     }
     return (
       <>
-        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{fmtMin(s.min, s.gp)}</td>
-        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{avg(s.pts, s.gp)}</td>
-        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">{avg(s.fg3m, s.gp)}</td>
-        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{avg(s.reb, s.gp)}</td>
-        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{avg(s.ast, s.gp)}</td>
-        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{pra}</td>
-        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{pr}</td>
-        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{pa}</td>
-        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{ra}</td>
+        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+          {fmtMin(s.min, s.gp)}
+        </td>
+        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+          {avg(s.pts, s.gp)}
+        </td>
+        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap tabular-nums">
+          {avg(s.fg3m, s.gp)}
+        </td>
+        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+          {avg(s.reb, s.gp)}
+        </td>
+        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+          {avg(s.ast, s.gp)}
+        </td>
+        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+          {pra}
+        </td>
+        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+          {pr}
+        </td>
+        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+          {pa}
+        </td>
+        <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+          {ra}
+        </td>
       </>
     );
   }
 
   const roleButtons: { value: RoleFilter; label: string }[] = [
-    { value: 'all',     label: 'All' },
-    { value: 'played',  label: 'Played' },
-    { value: 'started', label: 'Started' },
-    { value: 'bench',   label: 'Bench' },
+    { value: "all", label: "All" },
+    { value: "played", label: "Played" },
+    { value: "started", label: "Started" },
+    { value: "bench", label: "Bench" },
   ];
 
   const logColCount = showAllStats ? 18 : 12;
@@ -1448,14 +1870,22 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     <div className="flex flex-col min-h-screen">
       <div
         className="px-4 py-3 border-b border-border flex items-center gap-3 flex-wrap"
-        style={teamColor ? { borderLeftWidth: 3, borderLeftColor: teamColor, borderLeftStyle: 'solid' } : undefined}
+        style={
+          teamColor
+            ? {
+                borderLeftWidth: 3,
+                borderLeftColor: teamColor,
+                borderLeftStyle: "solid",
+              }
+            : undefined
+        }
       >
         <button
           onClick={() => {
             if (window.history.length > 1) {
               router.back();
             } else {
-              router.push('/nba');
+              router.push("/nba");
             }
           }}
           className="text-fg-subtle hover:text-fg-muted text-sm flex-none"
@@ -1470,19 +1900,26 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
             value={playerId}
             onChange={(e) => {
               const params = new URLSearchParams(searchParams.toString());
-              router.replace(`/nba/player/${e.target.value}?${params.toString()}`);
+              router.replace(
+                `/nba/player/${e.target.value}?${params.toString()}`,
+              );
             }}
             className="bg-transparent text-sm font-semibold text-fg-muted border-none outline-none cursor-pointer flex-none"
           >
             {teamPlayers.map((p) => (
-              <option key={p.playerId} value={String(p.playerId)}
-                      className="bg-surface text-fg-muted">
+              <option
+                key={p.playerId}
+                value={String(p.playerId)}
+                className="bg-surface text-fg-muted"
+              >
                 {p.playerName}
               </option>
             ))}
           </select>
         ) : (
-          <span className="text-sm font-semibold text-fg-muted flex-none">{displayName}</span>
+          <span className="text-sm font-semibold text-fg-muted flex-none">
+            {displayName}
+          </span>
         )}
 
         {playerInfo.gameStarterStatus && (
@@ -1515,10 +1952,19 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
         <table className="text-xs w-full">
           <thead>
             <tr className="text-fg-subtle">
-              <th className="text-left px-4 py-2 font-medium sticky left-0 bg-canvas z-10">Split</th>
-              <th className="text-right px-2 py-2 font-medium whitespace-nowrap">GP</th>
+              <th className="text-left px-4 py-2 font-medium sticky left-0 bg-canvas z-10">
+                Split
+              </th>
+              <th className="text-right px-2 py-2 font-medium whitespace-nowrap">
+                GP
+              </th>
               {splitHeaders.map((h) => (
-                <th key={h} className="text-right px-2 py-2 font-medium whitespace-nowrap">{h}</th>
+                <th
+                  key={h}
+                  className="text-right px-2 py-2 font-medium whitespace-nowrap"
+                >
+                  {h}
+                </th>
               ))}
             </tr>
           </thead>
@@ -1527,8 +1973,12 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
               const s = splits[key];
               return (
                 <tr key={key} className="border-t border-border">
-                  <td className="px-4 py-2 text-fg-subtle font-medium sticky left-0 bg-canvas z-10 whitespace-nowrap">{label}</td>
-                  <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">{s.gp}</td>
+                  <td className="px-4 py-2 text-fg-subtle font-medium sticky left-0 bg-canvas z-10 whitespace-nowrap">
+                    {label}
+                  </td>
+                  <td className="px-2 py-2 text-right text-fg-muted whitespace-nowrap">
+                    {s.gp}
+                  </td>
                   {renderSplitCells(s)}
                 </tr>
               );
@@ -1561,11 +2011,11 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
             key={p}
             onClick={() => togglePeriod(p)}
             className={[
-              'px-3 py-1 text-xs font-medium rounded transition-colors',
+              "px-3 py-1 text-xs font-medium rounded transition-colors",
               selectedPeriods.has(p)
-                ? 'bg-brand text-fg'
-                : 'bg-surface-hover text-fg-subtle hover:bg-surface-hover',
-            ].join(' ')}
+                ? "bg-brand text-fg"
+                : "bg-surface-hover text-fg-subtle hover:bg-surface-hover",
+            ].join(" ")}
           >
             {p}
           </button>
@@ -1580,7 +2030,9 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
         )}
 
         {!showPropColors && grades.length > 0 && (
-          <span className="text-xs text-fg-disabled ml-2">Prop coloring off (full game only)</span>
+          <span className="text-xs text-fg-disabled ml-2">
+            Prop coloring off (full game only)
+          </span>
         )}
 
         <div className="ml-auto flex items-center gap-2 flex-wrap">
@@ -1590,11 +2042,11 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
                 key={value}
                 onClick={() => setRoleFilter(value)}
                 className={[
-                  'px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap',
+                  "px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap",
                   roleFilter === value
-                    ? 'bg-surface-hover text-fg'
-                    : 'bg-surface text-fg-subtle hover:bg-surface-hover',
-                ].join(' ')}
+                    ? "bg-surface-hover text-fg"
+                    : "bg-surface text-fg-subtle hover:bg-surface-hover",
+                ].join(" ")}
               >
                 {label}
               </button>
@@ -1605,16 +2057,19 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
             <button
               onClick={() => setVsOppOnly((v) => !v)}
               className={[
-                'px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap',
+                "px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap",
                 vsOppOnly
-                  ? 'bg-brand text-fg'
-                  : 'bg-surface-hover text-fg-subtle hover:bg-surface-hover',
-              ].join(' ')}
+                  ? "bg-brand text-fg"
+                  : "bg-surface-hover text-fg-subtle hover:bg-surface-hover",
+              ].join(" ")}
             >
               vs {oppParam}
             </button>
           )}
-          <StatsToggle showAll={showAllStats} onToggle={() => setShowAllStats((v) => !v)} />
+          <StatsToggle
+            showAll={showAllStats}
+            onToggle={() => setShowAllStats((v) => !v)}
+          />
         </div>
       </div>
 
@@ -1623,33 +2078,82 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-20 bg-canvas">
             <tr className="text-xs text-fg-subtle border-b border-border">
-              <th className="text-left px-4 py-1.5 font-medium sticky left-0 bg-canvas z-30 whitespace-nowrap">Date</th>
-              <th className="text-left px-2 py-1.5 font-medium whitespace-nowrap">Opp</th>
-              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap" title="* = Starter">MIN</th>
-              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">PTS</th>
+              <th className="text-left px-4 py-1.5 font-medium sticky left-0 bg-canvas z-30 whitespace-nowrap">
+                Date
+              </th>
+              <th className="text-left px-2 py-1.5 font-medium whitespace-nowrap">
+                Opp
+              </th>
+              <th
+                className="text-right px-2 py-1.5 font-medium whitespace-nowrap"
+                title="* = Starter"
+              >
+                MIN
+              </th>
+              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                PTS
+              </th>
               {showAllStats ? (
                 <>
-                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">FGM</th>
-                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">FGA</th>
-                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">3PM</th>
-                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">3PA</th>
-                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">FTM</th>
-                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">FTA</th>
+                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                    FGM
+                  </th>
+                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                    FGA
+                  </th>
+                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                    3PM
+                  </th>
+                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                    3PA
+                  </th>
+                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                    FTM
+                  </th>
+                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                    FTA
+                  </th>
                 </>
               ) : (
-                <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">3PM</th>
+                <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                  3PM
+                </th>
               )}
-              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap" title="REB / REB Chances">REB</th>
-              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap" title="AST / Potential AST">AST</th>
-              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">PRA</th>
-              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">PR</th>
-              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">PA</th>
-              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">RA</th>
+              <th
+                className="text-right px-2 py-1.5 font-medium whitespace-nowrap"
+                title="REB / REB Chances"
+              >
+                REB
+              </th>
+              <th
+                className="text-right px-2 py-1.5 font-medium whitespace-nowrap"
+                title="AST / Potential AST"
+              >
+                AST
+              </th>
+              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                PRA
+              </th>
+              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                PR
+              </th>
+              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                PA
+              </th>
+              <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                RA
+              </th>
               {showAllStats && (
                 <>
-                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">STL</th>
-                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">BLK</th>
-                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">TOV</th>
+                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                    STL
+                  </th>
+                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                    BLK
+                  </th>
+                  <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                    TOV
+                  </th>
                 </>
               )}
             </tr>
@@ -1659,10 +2163,13 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
               const fmtM = (min: number, started: boolean | null): string => {
                 const m = Math.floor(min);
                 const s = Math.round((min - m) * 60);
-                const t = `${m}:${s.toString().padStart(2, '00')}`;
+                const t = `${m}:${s.toString().padStart(2, "00")}`;
                 return started === true ? `*${t}` : t;
               };
-              const fmtPT = (actual: number, potential: number | null): string => {
+              const fmtPT = (
+                actual: number,
+                potential: number | null,
+              ): string => {
                 if (potential == null) return String(actual);
                 return `${actual}-${Math.round(potential)}`;
               };
@@ -1673,47 +2180,79 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
 
               if (g.dnp) {
                 return (
-                  <tr key={g.gameId} className="border-b border-border opacity-40">
+                  <tr
+                    key={g.gameId}
+                    className="border-b border-border opacity-40"
+                  >
                     <td className="px-4 py-1.5 text-fg-subtle sticky left-0 bg-canvas z-10 whitespace-nowrap">
-                      <Link href={gameHref} className="hover:text-brand transition-colors">{g.gameDate.slice(5)}</Link>
-                    </td>
-                    <td className="px-2 py-1.5 text-fg-subtle whitespace-nowrap">
-                      <Link href={gameHref} className="hover:text-brand transition-colors">
-                        {g.isHome ? '' : '@'}{g.opponentAbbr}
+                      <Link
+                        href={gameHref}
+                        className="hover:text-brand transition-colors"
+                      >
+                        {g.gameDate.slice(5)}
                       </Link>
                     </td>
-                    <td className="px-2 py-1.5 text-right text-fg-disabled text-xs whitespace-nowrap">DNP</td>
+                    <td className="px-2 py-1.5 text-fg-subtle whitespace-nowrap">
+                      <Link
+                        href={gameHref}
+                        className="hover:text-brand transition-colors"
+                      >
+                        {g.isHome ? "" : "@"}
+                        {g.opponentAbbr}
+                      </Link>
+                    </td>
+                    <td className="px-2 py-1.5 text-right text-fg-disabled text-xs whitespace-nowrap">
+                      DNP
+                    </td>
                     <td colSpan={dnpColSpan} />
                   </tr>
                 );
               }
 
-              const ptsLine  = getLineCls(g.gameId, 'player_points', g.pts);
-              const rebLine  = getLineCls(g.gameId, 'player_rebounds', g.reb);
-              const astLine  = getLineCls(g.gameId, 'player_assists', g.ast);
-              const stlLine  = getLineCls(g.gameId, 'player_steals', g.stl);
-              const blkLine  = getLineCls(g.gameId, 'player_blocks', g.blk);
-              const fg3Line  = getLineCls(g.gameId, 'player_threes', g.fg3m);
-              const praLine  = getComboLineCls(g.gameId, g.pts + g.reb + g.ast, ['player_points_rebounds_assists', 'player_points_rebounds_assists_alternate']);
-              const prLine   = getComboLineCls(g.gameId, g.pts + g.reb, ['player_points_rebounds', 'player_points_rebounds_alternate']);
-              const paLine   = getComboLineCls(g.gameId, g.pts + g.ast, ['player_points_assists', 'player_points_assists_alternate']);
-              const raLine   = getComboLineCls(g.gameId, g.reb + g.ast, ['player_rebounds_assists', 'player_rebounds_assists_alternate']);
+              const ptsLine = getLineCls(g.gameId, "player_points", g.pts);
+              const rebLine = getLineCls(g.gameId, "player_rebounds", g.reb);
+              const astLine = getLineCls(g.gameId, "player_assists", g.ast);
+              const stlLine = getLineCls(g.gameId, "player_steals", g.stl);
+              const blkLine = getLineCls(g.gameId, "player_blocks", g.blk);
+              const fg3Line = getLineCls(g.gameId, "player_threes", g.fg3m);
+              const praLine = getComboLineCls(g.gameId, g.pts + g.reb + g.ast, [
+                "player_points_rebounds_assists",
+                "player_points_rebounds_assists_alternate",
+              ]);
+              const prLine = getComboLineCls(g.gameId, g.pts + g.reb, [
+                "player_points_rebounds",
+                "player_points_rebounds_alternate",
+              ]);
+              const paLine = getComboLineCls(g.gameId, g.pts + g.ast, [
+                "player_points_assists",
+                "player_points_assists_alternate",
+              ]);
+              const raLine = getComboLineCls(g.gameId, g.reb + g.ast, [
+                "player_rebounds_assists",
+                "player_rebounds_assists_alternate",
+              ]);
 
-              const rowBorderCls = g.started === true
-                ? 'border-b border-border border-l-2 border-l-brand'
-                : 'border-b border-border';
-              const rowBgCls = isExpanded ? 'bg-surface-hover' : '';
+              const rowBorderCls =
+                g.started === true
+                  ? "border-b border-border border-l-2 border-l-brand"
+                  : "border-b border-border";
+              const rowBgCls = isExpanded ? "bg-surface-hover" : "";
 
               return (
                 <React.Fragment key={g.gameId}>
                   <tr
                     className={`${rowBorderCls} ${rowBgCls} cursor-pointer hover:bg-surface-hover transition-colors`}
-                    onClick={() => setExpandedGameId(isExpanded ? null : g.gameId)}
+                    onClick={() =>
+                      setExpandedGameId(isExpanded ? null : g.gameId)
+                    }
                   >
                     <td className="px-4 py-1.5 text-fg-subtle sticky left-0 bg-canvas z-10 whitespace-nowrap">
                       <span
                         className="hover:text-brand transition-colors"
-                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); router.push(gameHref); }}
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          router.push(gameHref);
+                        }}
                       >
                         {g.gameDate.slice(5)}
                       </span>
@@ -1721,65 +2260,116 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
                     <td className="px-2 py-1.5 text-fg-subtle whitespace-nowrap">
                       <span
                         className="hover:text-brand transition-colors"
-                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); router.push(gameHref); }}
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          router.push(gameHref);
+                        }}
                       >
-                        {g.isHome ? '' : '@'}{g.opponentAbbr}
+                        {g.isHome ? "" : "@"}
+                        {g.opponentAbbr}
                       </span>
                     </td>
                     <td className="px-2 py-1.5 text-right text-fg-muted whitespace-nowrap tabular-nums">
                       {fmtM(g.min, g.started)}
                     </td>
-                    <td className={`px-2 py-1.5 text-right whitespace-nowrap ${ptsLine}`}>{g.pts}</td>
+                    <td
+                      className={`px-2 py-1.5 text-right whitespace-nowrap ${ptsLine}`}
+                    >
+                      {g.pts}
+                    </td>
                     {showAllStats ? (
                       <>
-                        <td className="px-2 py-1.5 text-right text-fg-muted whitespace-nowrap tabular-nums">{g.fgm}</td>
+                        <td className="px-2 py-1.5 text-right text-fg-muted whitespace-nowrap tabular-nums">
+                          {g.fgm}
+                        </td>
                         <td
                           className="px-2 py-1.5 text-right text-fg-muted whitespace-nowrap tabular-nums"
-                          style={{ backgroundColor: volumeBg(g.fga, attemptRanges.fga) }}
+                          style={{
+                            backgroundColor: volumeBg(g.fga, attemptRanges.fga),
+                          }}
                         >
                           {g.fga}
                         </td>
-                        <td className={`px-2 py-1.5 text-right whitespace-nowrap ${fg3Line} tabular-nums`}>{g.fg3m}</td>
+                        <td
+                          className={`px-2 py-1.5 text-right whitespace-nowrap ${fg3Line} tabular-nums`}
+                        >
+                          {g.fg3m}
+                        </td>
                         <td
                           className="px-2 py-1.5 text-right text-fg-muted whitespace-nowrap tabular-nums"
-                          style={{ backgroundColor: volumeBg(g.fg3a, attemptRanges.fg3a) }}
+                          style={{
+                            backgroundColor: volumeBg(
+                              g.fg3a,
+                              attemptRanges.fg3a,
+                            ),
+                          }}
                         >
                           {g.fg3a}
                         </td>
-                        <td className="px-2 py-1.5 text-right text-fg-muted whitespace-nowrap tabular-nums">{g.ftm}</td>
+                        <td className="px-2 py-1.5 text-right text-fg-muted whitespace-nowrap tabular-nums">
+                          {g.ftm}
+                        </td>
                         <td
                           className="px-2 py-1.5 text-right text-fg-muted whitespace-nowrap tabular-nums"
-                          style={{ backgroundColor: volumeBg(g.fta, attemptRanges.fta) }}
+                          style={{
+                            backgroundColor: volumeBg(g.fta, attemptRanges.fta),
+                          }}
                         >
                           {g.fta}
                         </td>
                       </>
                     ) : (
-                      <td className={`px-2 py-1.5 text-right whitespace-nowrap ${fg3Line} tabular-nums`}>{g.fg3m}</td>
+                      <td
+                        className={`px-2 py-1.5 text-right whitespace-nowrap ${fg3Line} tabular-nums`}
+                      >
+                        {g.fg3m}
+                      </td>
                     )}
-                    <td className={`px-2 py-1.5 text-right whitespace-nowrap ${rebLine} tabular-nums`}>
+                    <td
+                      className={`px-2 py-1.5 text-right whitespace-nowrap ${rebLine} tabular-nums`}
+                    >
                       {isFullGame ? fmtPT(g.reb, g.rebChances) : g.reb}
                     </td>
-                    <td className={`px-2 py-1.5 text-right whitespace-nowrap ${astLine} tabular-nums`}>
+                    <td
+                      className={`px-2 py-1.5 text-right whitespace-nowrap ${astLine} tabular-nums`}
+                    >
                       {isFullGame ? fmtPT(g.ast, g.potentialAst) : g.ast}
                     </td>
-                    <td className={`px-2 py-1.5 text-right whitespace-nowrap ${praLine} tabular-nums`}>
+                    <td
+                      className={`px-2 py-1.5 text-right whitespace-nowrap ${praLine} tabular-nums`}
+                    >
                       {g.pts + g.reb + g.ast}
                     </td>
-                    <td className={`px-2 py-1.5 text-right whitespace-nowrap ${prLine} tabular-nums`}>
+                    <td
+                      className={`px-2 py-1.5 text-right whitespace-nowrap ${prLine} tabular-nums`}
+                    >
                       {g.pts + g.reb}
                     </td>
-                    <td className={`px-2 py-1.5 text-right whitespace-nowrap ${paLine} tabular-nums`}>
+                    <td
+                      className={`px-2 py-1.5 text-right whitespace-nowrap ${paLine} tabular-nums`}
+                    >
                       {g.pts + g.ast}
                     </td>
-                    <td className={`px-2 py-1.5 text-right whitespace-nowrap ${raLine} tabular-nums`}>
+                    <td
+                      className={`px-2 py-1.5 text-right whitespace-nowrap ${raLine} tabular-nums`}
+                    >
                       {g.reb + g.ast}
                     </td>
                     {showAllStats && (
                       <>
-                        <td className={`px-2 py-1.5 text-right whitespace-nowrap ${stlLine}`}>{g.stl}</td>
-                        <td className={`px-2 py-1.5 text-right whitespace-nowrap ${blkLine}`}>{g.blk}</td>
-                        <td className="px-2 py-1.5 text-right text-fg-muted whitespace-nowrap">{g.tov}</td>
+                        <td
+                          className={`px-2 py-1.5 text-right whitespace-nowrap ${stlLine}`}
+                        >
+                          {g.stl}
+                        </td>
+                        <td
+                          className={`px-2 py-1.5 text-right whitespace-nowrap ${blkLine}`}
+                        >
+                          {g.blk}
+                        </td>
+                        <td className="px-2 py-1.5 text-right text-fg-muted whitespace-nowrap">
+                          {g.tov}
+                        </td>
                       </>
                     )}
                   </tr>
