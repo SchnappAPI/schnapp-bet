@@ -50,15 +50,16 @@ jobs:
       - name: Smoke test (rollback on failure)
         run: |
           BASE=/Users/schnapp/code
-          sleep 5
+          sleep 12
           if curl -sf http://127.0.0.1:3001 > /dev/null; then
             echo "Smoke test passed"
             rm -rf "$BASE/web-prev"
           else
             echo "Smoke test failed — rolling back"
             launchctl unload "/Users/schnapp/Library/LaunchAgents/bet.schnapp.web-prod.plist"
+            rm -rf "$BASE/web-bad"
             mv "$BASE/schnapp-bet" "$BASE/web-bad"
-            mv "$BASE/web-prev"        "$BASE/schnapp-bet"
+            mv "$BASE/web-prev"    "$BASE/schnapp-bet"
             launchctl load "/Users/schnapp/Library/LaunchAgents/bet.schnapp.web-prod.plist"
             echo "Rollback complete — previous version restored"
             exit 1
