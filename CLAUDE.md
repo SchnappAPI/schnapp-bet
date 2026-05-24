@@ -79,6 +79,8 @@ Cross-cutting rules only. Path-specific invariants live in `.claude/rules/*.md` 
 - **The commit subject is the changelog entry.** The format above is mandatory and enforced by `.githooks/commit-msg`. Malformed subjects are rejected before the commit lands. (Per ADR-20260517-4.)
 - Every commit pushes to `origin` immediately via the `.githooks/post-commit` hook. The SessionStart bootstrap activates `core.hooksPath` on every Claude Code session. Never bypass with `--no-verify`.
 - Destructive Bash commands are blocked by `.claude/hooks/destructive-guard.sh` (per ADR-20260524-1): `DROP TABLE`, `DROP DATABASE`, `TRUNCATE`, `git reset --hard`, `git push --force`, `git branch -D`, `rm -rf`, `--no-verify`. To proceed, `touch .claude/.allow-destructive` immediately before the command — the bypass is single-use and consumed on first match.
+- **Shipped ADRs are append-only.** `.claude/hooks/protect-shipped-adrs.sh` blocks edits to `docs/decisions/ADR-*.md` files already on HEAD. To revise a prior decision, write a new ADR with `Supersedes:`. Typo-grade bypass: `touch .claude/.allow-adr-edit` (single-use).
+- **Workflow YAML linting**: `.claude/hooks/workflow-env-validator.sh` warns (non-blocking) on edits to `.github/workflows/*.yml` that miss required env vars (`PYTHONPATH`, `SQL_*`, `ODDS_API_KEY`, `NBA_PROXY_URL`, `RUNNER_API_KEY`), use `secrets.*` directly instead of `op://` URIs, or run on `ubuntu-latest` while importing from `shared/`.
 
 ### GitHub MCP
 
@@ -108,6 +110,7 @@ Cross-cutting rules only. Path-specific invariants live in `.claude/rules/*.md` 
 ## Subagents
 
 - `etl-integrity-reviewer` — domain reviewer for diffs touching `etl/`, `shared/integrity.py`, `shared/db.py`, or sport workflows. Enforces ADR-20260424-2 invariants (Layer 1/2/3, CRITICAL_FIELDS append-mostly, predicate lockstep). Read-only, severity-tagged output.
+- `secrets-hygiene-reviewer` — diff-level enforcement of ADR-20260517-5. Flags plaintext credentials, hardcoded hosts/IPs, new `os.environ[...]` reads without `.env.template` entries, `secrets.*` references in workflows, and plists with literal env values. Read-only, severity-tagged output.
 
 ## Rules (auto-load on matching files)
 
