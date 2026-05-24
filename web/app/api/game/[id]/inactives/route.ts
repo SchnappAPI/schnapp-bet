@@ -66,7 +66,9 @@ export async function GET(
            dl.lineup_status AS lineupStatus,
            dl.roster_status AS rosterStatus
          FROM nba.daily_lineups dl
-         LEFT JOIN nba.players p ON p.player_name = dl.player_name
+         LEFT JOIN nba.players p
+           ON p.player_name COLLATE Latin1_General_CI_AI
+            = dl.player_name COLLATE Latin1_General_CI_AI
          WHERE dl.game_id = @gameId`,
       );
 
