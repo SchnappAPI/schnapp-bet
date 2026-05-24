@@ -88,7 +88,9 @@ export default function GamePageInner({ gameId }: { gameId: string }) {
         {state !== "pregame" && (
           <Section id="pbp" label="Play-by-play" state={state}>
             <div className="px-4 py-6 text-sm text-fg-disabled">
-              Play-by-play coming soon.
+              {state === "live"
+                ? "Live play-by-play feed not yet wired."
+                : "Play-by-play archive not available for this game."}
             </div>
           </Section>
         )}
