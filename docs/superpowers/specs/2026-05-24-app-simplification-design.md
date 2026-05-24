@@ -57,7 +57,7 @@ Reachable but unlinked (admin cookie bypasses):
 - **No flag change**: do not set `page.fish=false`. Leave the flag as-is so the page responds identically to today.
 - Reachable only by direct URL `schnapp.bet/fish`.
 
-The redesign treats this page as if it doesn't exist.
+`/fish` stays isolated from the rest of the app — no inbound or outbound links, no flag flip, no redesign, no rewire. It does **not** disappear from the maintenance radar: Next.js upgrades, dependency bumps, security patches, secrets rotation, and ETL/database changes that touch its data still apply. The redesign simply does not restructure or relink it.
 
 ## Components
 
