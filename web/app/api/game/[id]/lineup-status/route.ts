@@ -7,14 +7,14 @@ type Status = "confirmed" | "probable" | "locked" | "unknown";
 
 interface DbRow {
   homeAway: string;
-  rowCount: number;
+  lineupRows: number;
   confirmedCount: number;
   probableCount: number;
   latestCreatedAt: string | null;
 }
 
 function deriveStatus(row: DbRow | undefined): Status {
-  if (!row || row.rowCount === 0) return "unknown";
+  if (!row || row.lineupRows === 0) return "unknown";
   if (row.confirmedCount > 0) return "confirmed";
   if (row.probableCount > 0) return "probable";
   return "locked";
@@ -37,7 +37,7 @@ export async function GET(
       .query<DbRow>(
         `SELECT
            dl.home_away AS homeAway,
-           COUNT(*)     AS rowCount,
+           COUNT(*)     AS lineupRows,
            SUM(CASE WHEN LOWER(dl.lineup_status) LIKE '%confirm%' THEN 1 ELSE 0 END) AS confirmedCount,
            SUM(CASE WHEN LOWER(dl.lineup_status) LIKE '%probable%'  THEN 1 ELSE 0 END) AS probableCount,
            CONVERT(VARCHAR(33), MAX(dl.created_at), 126) AS latestCreatedAt
