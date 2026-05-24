@@ -30,6 +30,7 @@ interface PlayerTotals {
   playerName: string;
   teamId: number;
   starter: boolean;
+  firstEntryRank: number;
   pts: number;
   reb: number;
   ast: number;
@@ -44,6 +45,15 @@ interface PlayerTotals {
   ftm: number;
   fta: number;
 }
+
+// Period order for entry-quarter ranking. Lower = entered earlier.
+const PERIOD_RANK: Record<string, number> = {
+  "1Q": 1,
+  "2Q": 2,
+  "3Q": 3,
+  "4Q": 4,
+  OT: 5,
+};
 
 export interface GameBoxScoreProps {
   gameId: string;
@@ -72,6 +82,7 @@ function aggregate(rows: BoxRow[]): PlayerTotals[] {
         playerName: r.playerName,
         teamId: r.teamId,
         starter: r.starterStatus === "Starter",
+        firstEntryRank: 99,
         pts: 0,
         reb: 0,
         ast: 0,
@@ -89,6 +100,11 @@ function aggregate(rows: BoxRow[]): PlayerTotals[] {
       m.set(r.playerId, t);
     }
     if (r.starterStatus === "Starter") t.starter = true;
+    // Earliest period with non-zero minutes = entry quarter for bench order.
+    if ((r.min ?? 0) > 0) {
+      const rank = PERIOD_RANK[r.period] ?? 99;
+      if (rank < t.firstEntryRank) t.firstEntryRank = rank;
+    }
     t.pts += r.pts ?? 0;
     t.reb += r.reb ?? 0;
     t.ast += r.ast ?? 0;
@@ -223,6 +239,7 @@ export default function GameBoxScore({
           onCourtSet={onCourtAway}
           view={view}
           hideUnused={hideUnused}
+          state={state}
         />
         <TeamPanel
           abbr={homeTeamAbbr}
@@ -231,6 +248,7 @@ export default function GameBoxScore({
           onCourtSet={onCourtHome}
           view={view}
           hideUnused={hideUnused}
+          state={state}
         />
       </div>
     </div>
@@ -301,6 +319,7 @@ function TeamPanel({
   onCourtSet,
   view,
   hideUnused,
+  state,
 }: {
   abbr: string;
   players: PlayerTotals[];
@@ -308,6 +327,7 @@ function TeamPanel({
   onCourtSet: Set<number>;
   view: string;
   hideUnused: boolean;
+  state: "pregame" | "live" | "final" | "postponed";
 }) {
   let visible = players;
   if (view === "oncourt" && onCourtSet.size > 0) {
@@ -319,7 +339,17 @@ function TeamPanel({
   const starters = visible
     .filter((p) => p.starter)
     .sort((a, b) => b.min - a.min);
-  const bench = visible.filter((p) => !p.starter).sort((a, b) => b.min - a.min);
+  // Bench order: live/final by first-entry quarter (earlier subs higher),
+  // min desc tiebreak; pregame falls back to min desc.
+  const isLiveOrFinal = state === "live" || state === "final";
+  const bench = visible
+    .filter((p) => !p.starter)
+    .sort((a, b) => {
+      if (isLiveOrFinal && a.firstEntryRank !== b.firstEntryRank) {
+        return a.firstEntryRank - b.firstEntryRank;
+      }
+      return b.min - a.min;
+    });
 
   const teamTotal = players.reduce(
     (acc, p) => ({
@@ -363,6 +393,7 @@ function TeamPanel({
                   key={p.playerId}
                   p={p}
                   onCourt={onCourtSet.has(p.playerId)}
+                  entryNumber={null}
                 />
               ))
             )}
@@ -370,11 +401,12 @@ function TeamPanel({
             {bench.length === 0 ? (
               <EmptyRow label="No bench data" />
             ) : (
-              bench.map((p) => (
+              bench.map((p, idx) => (
                 <PlayerRow
                   key={p.playerId}
                   p={p}
                   onCourt={onCourtSet.has(p.playerId)}
+                  entryNumber={isLiveOrFinal ? idx + 1 : null}
                 />
               ))
             )}
@@ -463,7 +495,15 @@ function EmptyRow({ label }: { label: string }) {
   );
 }
 
-function PlayerRow({ p, onCourt }: { p: PlayerTotals; onCourt: boolean }) {
+function PlayerRow({
+  p,
+  onCourt,
+  entryNumber,
+}: {
+  p: PlayerTotals;
+  onCourt: boolean;
+  entryNumber: number | null;
+}) {
   const pra = p.pts + p.reb + p.ast;
   const pr = p.pts + p.reb;
   const pa = p.pts + p.ast;
@@ -484,6 +524,14 @@ function PlayerRow({ p, onCourt }: { p: PlayerTotals; onCourt: boolean }) {
           </span>
         )}
         {p.starter && <span className="mr-1 text-brand">*</span>}
+        {entryNumber != null && (
+          <span
+            className="mr-1 text-fg-disabled tabular-nums"
+            title="Bench entry order"
+          >
+            {entryNumber}.
+          </span>
+        )}
         <a href={`/nba/player/${p.playerId}`} className="hover:underline">
           {p.playerName}
         </a>
