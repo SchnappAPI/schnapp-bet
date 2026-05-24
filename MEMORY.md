@@ -146,26 +146,17 @@ Steps 1–4 are DONE. Steps 5–6 are optional and outstanding.
 - **launchd plists never carry secrets.** `services/launchd/op-wrap.sh` reads `OP_SERVICE_ACCOUNT_TOKEN` from `~/.zshrc` at process start and `exec`s `op run --env-file=.env.template -- "$@"`. Plists hold zero secret values.
 - **Per-sport integrity split STILL DEFERRED.** Comment at `shared/integrity.py:90-93` records the rationale. Re-decide when MLB and NFL ETLs actually run.
 
-## Next Up
+## Next Up (2026-05-24)
 
-In priority order:
+App-simplification redesign (spec: `docs/superpowers/specs/2026-05-24-app-simplification-design.md`) — Sessions 1–7 complete. **Session 8 = QA + polish + `/deploy`.**
 
-1. **Execute the manual actions above** — until GitHub secret is set + runner is re-registered + launchd plists are installed, nothing actually runs.
-2. **End-to-end smoke**: trigger `nba-etl.yml` via `gh workflow run nba-etl.yml`. Watch the run. The "Load secrets from 1Password" step should succeed; the Python ETL should reach SQL Server.
-3. **Web prod smoke**: load `http://127.0.0.1:3001` after the launchd plists are installed. Confirm SQL connection works (a `/api/games/today` response is a quick check).
-4. **Cosmetic cleanup**: `infrastructure/README.md` and `grading-v2/` are docs-only; decide whether to keep or delete. `grading-v2/` is an in-progress redesign that may or may not be your current direction.
-5. **Per-sport integrity split** when MLB and NFL ETLs both run successfully and you can see what `mlb.*` / `nfl.*` tables need vs. what's shared.
+What shipped in Sessions 1–7:
 
-## How to continue (next session)
+- NBA: HomeHub, Games tab date nav, Players tab + recent, /nba/game/[gameId], /nba/player/[playerId] (log + splits + filters + mobile sheet)
+- MLB: API routes (game/player log/player splits) + full UI parity (/mlb tabs, /mlb/game/[gamePk], /mlb/player/[playerId])
 
-1. Read MEMORY.md, then LEARNED.md.
-2. The first thing to verify is whether the manual actions above were done. `gh secret list --repo SchnappAPI/schnapp-bet` should show `OP_SERVICE_ACCOUNT_TOKEN`. If not, that's the blocker.
-3. Once secrets are wired and the runner registered, trigger `nba-etl.yml` and walk the failure modes — workflows often surface env / path issues that are invisible during a paper port.
+Session 8 checklist (see `memory/project_session8_handoff.md` for details):
 
-## Blockers
-
-None for porting. The runtime blockers are the manual actions above.
-
-## Recommendation
-
-This session shipped a lot. Next session should be small: kick off one workflow, fix the first thing that breaks, repeat. Don't combine integration debugging with new ports.
+- Browser smoke all new MLB routes
+- Verify schnapp_recent_mlb_players localStorage saves on player visit
+- `/deploy`
