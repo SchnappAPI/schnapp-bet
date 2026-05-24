@@ -337,6 +337,7 @@ Captured during brainstorming, deferred to design execution:
 - HomeHub cards may need sport-color accents and a live-game ticker treatment (user feedback: "looks a little bland").
 - Player Log Splits table needs minor row-tinting + spacing adjustments (user feedback: "needs some modifications but works for now").
 - Mobile box score narrow preview in the spec mock truncated rosters for clarity; real implementation lists every player.
+- **Filter bar should also filter the Splits table** (user feedback during Session 5 verification). Currently `PlayerLogFilters` URL params only narrow the game log table; splits remain whole-season. Wire the same predicates (range / vs / ha / starter / minGt / b2b / rest) into the splits route or recompute groups client-side from the filtered row set. Defer until other Session 5 work lands.
 
 ## Open questions
 
