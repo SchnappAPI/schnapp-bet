@@ -65,7 +65,12 @@ export default function GamePageInner({ gameId }: { gameId: string }) {
       <AnchorNav state={state} />
 
       <main className="flex-1 px-4 pb-12">
-        <Section id="box" label="Box score" state={state}>
+        <Section
+          id="box"
+          label="Box score"
+          state={state}
+          extra={<LineupStatusPill gameId={gameId} state={state} />}
+        >
           {state === "live" ? (
             <LiveBoxScore gameId={gameId} selectedDate={game.gameDate} />
           ) : (
@@ -257,11 +262,13 @@ function Section({
   id,
   label,
   state,
+  extra,
   children,
 }: {
   id: string;
   label: string;
   state: GameState;
+  extra?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -271,9 +278,64 @@ function Section({
           {label}
         </h2>
         {id === "box" && <StatePill state={state} />}
+        {extra}
       </div>
       <div className="rounded border border-border bg-canvas">{children}</div>
     </section>
+  );
+}
+
+function LineupStatusPill({
+  gameId,
+  state,
+}: {
+  gameId: string;
+  state: GameState;
+}) {
+  const { data } = useSWR<{
+    overall: "confirmed" | "probable" | "locked" | "unknown";
+    home: "confirmed" | "probable" | "locked" | "unknown";
+    away: "confirmed" | "probable" | "locked" | "unknown";
+    latest_updated_at: string | null;
+  }>(`/api/game/${gameId}/lineup-status`, fetcher, {
+    refreshInterval: state === "pregame" ? 120_000 : 0,
+    revalidateOnFocus: false,
+    dedupingInterval: 60_000,
+  });
+
+  if (state === "live") {
+    return (
+      <span className="rounded border border-neg px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-neg">
+        live · this game
+      </span>
+    );
+  }
+  if (state !== "pregame") return null;
+  if (!data || data.overall === "unknown") return null;
+
+  const label =
+    data.overall === "confirmed"
+      ? "starters confirmed"
+      : data.overall === "probable"
+        ? "starters probable"
+        : "lineups locked";
+
+  const cls =
+    data.overall === "confirmed"
+      ? "text-pos border-pos"
+      : data.overall === "probable"
+        ? "text-warn border-warn"
+        : "text-fg-subtle border-border";
+
+  return (
+    <span
+      className={`rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${cls}`}
+      title={
+        data.latest_updated_at ? `Updated ${data.latest_updated_at}` : undefined
+      }
+    >
+      {label}
+    </span>
   );
 }
 
