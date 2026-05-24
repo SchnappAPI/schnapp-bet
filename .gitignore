@@ -36,6 +36,9 @@ docs/HEALTH.md
 !.claude/skills/
 !.claude/agents/
 
+# Brainstorming visual-companion artifacts
+.superpowers/
+
 # Local SQL credentials / scratch
 sql-server.env
 *.local.env
