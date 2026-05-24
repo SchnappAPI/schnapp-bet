@@ -123,6 +123,10 @@ Cross-cutting rules only. Path-specific invariants live in `.claude/rules/*.md` 
 - Workflows — `.claude/rules/workflows.md`
 - Docs — `.claude/rules/docs.md`
 
+## Verification cadence
+
+- **UI commit stacking limit**: do not stack 3+ UI commits without a browser load on the dev server in between. Even a curl-fetch + grep-for-expected-text counts. The "ship 5 UI commits then verify" pattern surfaced ~12 issues at once in the 2026-05-24 redesign session; tight feedback loops are cheaper.
+
 ## References
 
 See `docs/README.md` for the documentation router.
