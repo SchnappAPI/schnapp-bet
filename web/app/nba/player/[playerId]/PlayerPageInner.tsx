@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import MatchupDefense from "@/components/MatchupDefense";
+import PlayerSplitsTable from "@/components/nba/PlayerSplitsTable";
 import { getTeamPrimary } from "@/lib/teams";
 import {
   getPlayerSignals as getSignals,
@@ -1325,6 +1326,11 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
   const [liveGameRow, setLiveGameRow] = useState<GameSummary | null>(null);
   const liveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [activeSplitKey, setActiveSplitKey] = useState<string | null>(null);
+  const [activeSplitLabel, setActiveSplitLabel] = useState<string | null>(null);
+  const [activeSplitGameIds, setActiveSplitGameIds] =
+    useState<Set<string> | null>(null);
+
   const isFullGame = selectedPeriods.size === 0;
 
   const playerTeamTricode = useMemo(() => {
@@ -1493,6 +1499,9 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     setLog([]);
     setGrades([]);
     setExpandedGameId(null);
+    setActiveSplitKey(null);
+    setActiveSplitLabel(null);
+    setActiveSplitGameIds(null);
     setPlayerInfo({
       oppTeamId: null,
       position: null,
@@ -1643,12 +1652,23 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
       rows = rows.filter((g) => g.opponentAbbr === oppParam);
     }
 
+    if (activeSplitGameIds) {
+      rows = rows.filter((g) => activeSplitGameIds.has(g.gameId));
+    }
+
     if (liveGameRow && !rows.some((g) => g.gameId === liveGameRow.gameId)) {
       rows = [liveGameRow, ...rows];
     }
 
     return rows;
-  }, [summaries, roleFilter, vsOppOnly, oppParam, liveGameRow]);
+  }, [
+    summaries,
+    roleFilter,
+    vsOppOnly,
+    oppParam,
+    liveGameRow,
+    activeSplitGameIds,
+  ]);
 
   const splits = useMemo(
     () => computeSplit(summaries, oppParam),
@@ -2072,6 +2092,34 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
           />
         </div>
       </div>
+
+      {/* New grouped splits table — click a row to filter the log below */}
+      <PlayerSplitsTable
+        playerId={parseInt(playerId, 10)}
+        activeSplitKey={activeSplitKey}
+        onApplyFilter={(key, label, gameIds) => {
+          setActiveSplitKey(key);
+          setActiveSplitLabel(label);
+          setActiveSplitGameIds(gameIds ? new Set(gameIds) : null);
+        }}
+      />
+
+      {activeSplitKey && (
+        <div className="flex items-center gap-2 px-4 py-2 text-xs text-fg-subtle border-b border-border bg-surface">
+          <span>Game log filtered by split:</span>
+          <span className="text-fg font-medium">{activeSplitLabel}</span>
+          <button
+            onClick={() => {
+              setActiveSplitKey(null);
+              setActiveSplitLabel(null);
+              setActiveSplitGameIds(null);
+            }}
+            className="ml-auto text-xs text-fg-disabled hover:text-fg-subtle underline"
+          >
+            Clear split filter
+          </button>
+        </div>
+      )}
 
       {/* Game log table */}
       <div className="flex-1 overflow-x-auto">
