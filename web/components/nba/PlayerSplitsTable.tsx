@@ -1,7 +1,22 @@
 "use client";
 
 import useSWR from "swr";
+import { useSearchParams } from "next/navigation";
 import { fetcher } from "@/lib/fetcher";
+
+const FORWARD_PARAMS = [
+  "range",
+  "vs",
+  "vsUpcoming",
+  "ha",
+  "starter",
+  "minGt",
+  "wl",
+  "rest",
+  "b2b",
+  "since",
+  "until",
+];
 
 interface SplitRow {
   splitKey: string;
@@ -69,8 +84,16 @@ export default function PlayerSplitsTable({
   activeSplitKey = null,
   onApplyFilter,
 }: PlayerSplitsTableProps) {
+  const sp = useSearchParams();
+  const forwarded = new URLSearchParams();
+  for (const key of FORWARD_PARAMS) {
+    const v = sp.get(key);
+    if (v != null && v !== "") forwarded.set(key, v);
+  }
+  const qs = forwarded.toString();
+
   const { data, error, isLoading } = useSWR<SplitsResponse>(
-    `/api/player/${playerId}/splits`,
+    `/api/player/${playerId}/splits${qs ? `?${qs}` : ""}`,
     fetcher,
     {
       refreshInterval: 0,

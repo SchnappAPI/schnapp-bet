@@ -24,6 +24,7 @@ interface GameRow {
   started: boolean | null;
   daysSincePrev: number | null;
   recencyRank: number;
+  win: boolean | null;
   upcomingOppTeamId: number | null;
   playerDivision: string | null;
   playerConference: string | null;
@@ -50,6 +51,7 @@ interface DbRow {
   started: number | null;
   daysSincePrev: number | null;
   recencyRank: number;
+  win: number | null;
   upcomingOppTeamId: number | null;
   upcomingOppAbbr: string | null;
   playerDivision: string | null;
@@ -229,10 +231,18 @@ export async function GET(
              ot.conference AS opp_conference,
              ls.started,
              DATEDIFF(DAY, LAG(gt.game_date) OVER (ORDER BY gt.game_date), gt.game_date) AS days_since_prev,
-             ROW_NUMBER() OVER (ORDER BY gt.game_date DESC, gt.game_id DESC) AS recency_rank
+             ROW_NUMBER() OVER (ORDER BY gt.game_date DESC, gt.game_id DESC) AS recency_rank,
+             CASE
+               WHEN g.home_score IS NULL OR g.away_score IS NULL THEN NULL
+               WHEN gt.isHome = 1 AND g.home_score > g.away_score THEN 1
+               WHEN gt.isHome = 0 AND g.away_score > g.home_score THEN 1
+               WHEN g.home_score = g.away_score THEN NULL
+               ELSE 0
+             END AS win
            FROM game_totals gt
            LEFT JOIN nba.teams ot ON ot.team_tricode = gt.opp_abbr
            LEFT JOIN lineup_status ls ON ls.game_id = gt.game_id
+           LEFT JOIN nba.games g ON g.game_id = gt.game_id
          )
          SELECT
            wm.game_id                              AS gameId,
@@ -248,6 +258,7 @@ export async function GET(
            wm.started,
            wm.days_since_prev                      AS daysSincePrev,
            wm.recency_rank                         AS recencyRank,
+           wm.win                                  AS win,
            (SELECT opp_team_id FROM upcoming)      AS upcomingOppTeamId,
            (SELECT opp_abbr    FROM upcoming)      AS upcomingOppAbbr,
            (SELECT division    FROM player_team)   AS playerDivision,
@@ -257,7 +268,7 @@ export async function GET(
          ORDER BY wm.game_date DESC`,
       );
 
-    const rows: GameRow[] = result.recordset.map((r) => ({
+    const allRows: GameRow[] = result.recordset.map((r) => ({
       gameId: r.gameId,
       gameDate: r.gameDate,
       pts: r.pts ?? 0,
@@ -278,10 +289,26 @@ export async function GET(
       started: r.started == null ? null : r.started === 1,
       daysSincePrev: r.daysSincePrev,
       recencyRank: r.recencyRank,
+      win: r.win == null ? null : r.win === 1,
       upcomingOppTeamId: r.upcomingOppTeamId,
       playerDivision: r.playerDivision,
       playerConference: r.playerConference,
     }));
+
+    // Active-filter params mirror PlayerLogFilters URL state. Apply before
+    // grouping so every split row reflects the filtered universe.
+    const sp = req.nextUrl.searchParams;
+    const fRange = (sp.get("range") ?? "season").toLowerCase();
+    const fVs = sp.get("vs")?.toUpperCase() ?? null;
+    const fVsUpcoming = sp.get("vsUpcoming") === "1";
+    const fHa = sp.get("ha")?.toLowerCase() ?? null;
+    const fStarter = sp.get("starter");
+    const fMinGt = sp.get("minGt");
+    const fWl = sp.get("wl")?.toLowerCase() ?? null;
+    const fRestCsv = sp.get("rest");
+    const fB2b = sp.get("b2b") === "1";
+    const fSince = sp.get("since");
+    const fUntil = sp.get("until");
 
     const first = result.recordset[0];
     const upcomingOppTeamId = first?.upcomingOppTeamId ?? null;
@@ -289,16 +316,56 @@ export async function GET(
     const playerDivision = first?.playerDivision ?? null;
     const playerConference = first?.playerConference ?? null;
 
+    let rows = allRows;
+    if (fSince) rows = rows.filter((r) => r.gameDate >= fSince);
+    if (fUntil) rows = rows.filter((r) => r.gameDate <= fUntil);
+    if (fVsUpcoming && upcomingOppTeamId != null) {
+      rows = rows.filter((r) => r.oppTeamId === upcomingOppTeamId);
+    } else if (fVs) {
+      rows = rows.filter((r) => r.oppAbbr === fVs);
+    }
+    if (fHa === "home") rows = rows.filter((r) => r.isHome);
+    else if (fHa === "away" || fHa === "road")
+      rows = rows.filter((r) => !r.isHome);
+    if (fStarter === "1") rows = rows.filter((r) => r.started === true);
+    else if (fStarter === "0") rows = rows.filter((r) => r.started === false);
+    if (fMinGt != null && fMinGt !== "") {
+      const n = parseFloat(fMinGt);
+      if (!Number.isNaN(n)) rows = rows.filter((r) => r.min > n);
+    }
+    if (fWl === "w" || fWl === "win") rows = rows.filter((r) => r.win === true);
+    else if (fWl === "l" || fWl === "loss")
+      rows = rows.filter((r) => r.win === false);
+    if (fB2b) {
+      rows = rows.filter((r) => r.daysSincePrev === 1);
+    } else if (fRestCsv) {
+      const buckets = new Set(
+        fRestCsv
+          .split(",")
+          .map((s) => parseInt(s, 10))
+          .filter((n) => !Number.isNaN(n)),
+      );
+      if (buckets.size > 0) {
+        rows = rows.filter((r) => {
+          if (r.daysSincePrev == null) return false;
+          const rd = r.daysSincePrev - 1;
+          if (rd >= 3) return buckets.has(3);
+          return buckets.has(rd);
+        });
+      }
+    }
+    if (fRange === "l5") rows = rows.filter((r) => r.recencyRank <= 5);
+    else if (fRange === "l10") rows = rows.filter((r) => r.recencyRank <= 10);
+    else if (fRange === "l20") rows = rows.filter((r) => r.recencyRank <= 20);
+
     const groups: SplitGroup[] = [];
 
-    // All splits
     groups.push({
       groupKey: "all",
       label: "All",
       rows: [aggregate(rows, "all", "All splits")],
     });
 
-    // Location
     groups.push({
       groupKey: "location",
       label: "Location",
@@ -316,7 +383,6 @@ export async function GET(
       ],
     });
 
-    // Opponent context
     const oppRows: SplitRow[] = [];
     if (upcomingOppTeamId != null) {
       oppRows.push(
@@ -349,7 +415,6 @@ export async function GET(
       groups.push({ groupKey: "opponent", label: "Opponent", rows: oppRows });
     }
 
-    // Role — only if we have any starter signal
     const hasRole = rows.some((r) => r.started != null);
     if (hasRole) {
       groups.push({
@@ -370,7 +435,6 @@ export async function GET(
       });
     }
 
-    // Rest
     const restRows = [
       aggregate(
         rows.filter((r) => r.daysSincePrev === 1),
@@ -395,7 +459,6 @@ export async function GET(
     ];
     groups.push({ groupKey: "rest", label: "Rest", rows: restRows });
 
-    // Recent form
     groups.push({
       groupKey: "recent",
       label: "Recent form",
