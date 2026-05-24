@@ -3,8 +3,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import useSWR from "swr";
 import MatchupDefense from "@/components/MatchupDefense";
 import PlayerSplitsTable from "@/components/nba/PlayerSplitsTable";
+import PlayerLogFilters from "@/components/nba/PlayerLogFilters";
+import { fetcher } from "@/lib/fetcher";
 import { getTeamPrimary } from "@/lib/teams";
 import {
   getPlayerSignals as getSignals,
@@ -1331,6 +1334,27 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
   const [activeSplitGameIds, setActiveSplitGameIds] =
     useState<Set<string> | null>(null);
 
+  const { data: upcomingData } = useSWR<{
+    player_id: number;
+    upcoming: {
+      game_id: string;
+      game_date: string;
+      opp_team_id: number | null;
+      opp_abbr: string | null;
+      home_or_away: "home" | "away";
+      game_status_text: string | null;
+    } | null;
+  }>(`/api/player/${playerId}/upcoming`, fetcher, {
+    refreshInterval: 0,
+    revalidateOnFocus: false,
+    dedupingInterval: 60_000,
+  });
+  const upcomingOppAbbr = upcomingData?.upcoming?.opp_abbr ?? null;
+  const upcomingHomeOrAway = upcomingData?.upcoming?.home_or_away ?? null;
+  const upcomingGameDate = upcomingData?.upcoming?.game_date ?? null;
+  const upcomingGameStatusText =
+    upcomingData?.upcoming?.game_status_text ?? null;
+
   const isFullGame = selectedPeriods.size === 0;
 
   const playerTeamTricode = useMemo(() => {
@@ -1637,6 +1661,37 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     };
   }, [log]);
 
+  // URL-driven filters from PlayerLogFilters
+  const urlRange = searchParams.get("range") ?? "season";
+  const urlVs = searchParams.get("vs")?.toUpperCase() ?? null;
+  const urlVsUpcoming = searchParams.get("vsUpcoming") === "1";
+  const urlHa = searchParams.get("ha");
+  const urlStarter = searchParams.get("starter");
+  const urlMinGt = searchParams.get("minGt");
+  const urlB2b = searchParams.get("b2b") === "1";
+  const urlRestCsv = searchParams.get("rest");
+  const urlSince = searchParams.get("since");
+  const urlUntil = searchParams.get("until");
+
+  // Rest-days lookup derived from played-only chronological summaries.
+  // restDays = gap between previous game and this one, minus 1.
+  const restDaysMap = useMemo(() => {
+    const played = summaries
+      .filter((g) => !g.dnp)
+      .slice()
+      .sort((a, b) => (a.gameDate < b.gameDate ? -1 : 1));
+    const m = new Map<string, number>();
+    for (let i = 1; i < played.length; i++) {
+      const prev = played[i - 1].gameDate;
+      const cur = played[i].gameDate;
+      const days = Math.round(
+        (new Date(cur).getTime() - new Date(prev).getTime()) / 86_400_000,
+      );
+      m.set(played[i].gameId, days - 1);
+    }
+    return m;
+  }, [summaries]);
+
   const displayedSummaries = useMemo(() => {
     let rows = summaries;
 
@@ -1651,6 +1706,53 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     if (vsOppOnly && oppParam) {
       rows = rows.filter((g) => g.opponentAbbr === oppParam);
     }
+
+    // URL-driven filters (PlayerLogFilters)
+    if (urlSince) rows = rows.filter((g) => g.gameDate >= urlSince);
+    if (urlUntil) rows = rows.filter((g) => g.gameDate <= urlUntil);
+
+    if (urlVsUpcoming && upcomingOppAbbr) {
+      rows = rows.filter((g) => g.opponentAbbr === upcomingOppAbbr);
+    } else if (urlVs) {
+      rows = rows.filter((g) => g.opponentAbbr === urlVs);
+    }
+
+    if (urlHa === "home") rows = rows.filter((g) => g.isHome);
+    else if (urlHa === "away" || urlHa === "road")
+      rows = rows.filter((g) => !g.isHome);
+
+    if (urlStarter === "1")
+      rows = rows.filter((g) => !g.dnp && g.started === true);
+    else if (urlStarter === "0")
+      rows = rows.filter((g) => !g.dnp && g.started === false);
+
+    if (urlMinGt != null && urlMinGt !== "") {
+      const n = parseFloat(urlMinGt);
+      if (!Number.isNaN(n)) rows = rows.filter((g) => !g.dnp && g.min > n);
+    }
+
+    if (urlB2b) {
+      rows = rows.filter((g) => restDaysMap.get(g.gameId) === 0);
+    } else if (urlRestCsv) {
+      const buckets = new Set(
+        urlRestCsv
+          .split(",")
+          .map((s) => parseInt(s, 10))
+          .filter((n) => !Number.isNaN(n)),
+      );
+      if (buckets.size > 0) {
+        rows = rows.filter((g) => {
+          const rd = restDaysMap.get(g.gameId);
+          if (rd == null) return false;
+          if (rd >= 3) return buckets.has(3);
+          return buckets.has(rd);
+        });
+      }
+    }
+
+    if (urlRange === "l5") rows = rows.filter((g) => !g.dnp).slice(0, 5);
+    else if (urlRange === "l10") rows = rows.filter((g) => !g.dnp).slice(0, 10);
+    else if (urlRange === "l20") rows = rows.filter((g) => !g.dnp).slice(0, 20);
 
     if (activeSplitGameIds) {
       rows = rows.filter((g) => activeSplitGameIds.has(g.gameId));
@@ -1668,6 +1770,18 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     oppParam,
     liveGameRow,
     activeSplitGameIds,
+    urlRange,
+    urlVs,
+    urlVsUpcoming,
+    urlHa,
+    urlStarter,
+    urlMinGt,
+    urlB2b,
+    urlRestCsv,
+    urlSince,
+    urlUntil,
+    upcomingOppAbbr,
+    restDaysMap,
   ]);
 
   const splits = useMemo(
@@ -1962,10 +2076,29 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
           periods={periodsParam}
         />
 
+        {upcomingOppAbbr && (
+          <span
+            className="text-xs text-fg-subtle flex-none"
+            title={upcomingGameStatusText ?? upcomingGameDate ?? undefined}
+          >
+            Next{" "}
+            <span className="text-fg-disabled">
+              {upcomingHomeOrAway === "home" ? "vs" : "@"}
+            </span>{" "}
+            <span className="font-medium text-fg">{upcomingOppAbbr}</span>
+          </span>
+        )}
+
         <span className="text-xs text-fg-disabled flex-none">
           {playedCount} GP / {teamGameCount} team games
         </span>
       </div>
+
+      <PlayerLogFilters
+        basePath={`/nba/player/${playerId}`}
+        upcomingOppAbbr={upcomingOppAbbr}
+        hasStartedSignal={summaries.some((s) => s.started != null)}
+      />
 
       {/* Splits table */}
       <div className="overflow-x-auto border-b border-border">
