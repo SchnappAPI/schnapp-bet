@@ -109,6 +109,14 @@ function avg(n: number, dp = 1): string {
   return n.toFixed(dp);
 }
 
+interface InactivePlayer {
+  playerName: string;
+  playerId: number | null;
+  teamTricode: string;
+  homeOrAway: "home" | "away";
+  reason: string;
+}
+
 export default function GameBoxScore({
   gameId,
   homeTeamId,
@@ -124,6 +132,16 @@ export default function GameBoxScore({
       refreshInterval: state === "live" ? 30_000 : 0,
       revalidateOnFocus: false,
       dedupingInterval: 15_000,
+    },
+  );
+
+  const { data: inactivesData } = useSWR<{ inactives: InactivePlayer[] }>(
+    `/api/game/${gameId}/inactives`,
+    fetcher,
+    {
+      refreshInterval: state === "pregame" ? 120_000 : 0,
+      revalidateOnFocus: false,
+      dedupingInterval: 60_000,
     },
   );
 
@@ -151,10 +169,18 @@ export default function GameBoxScore({
   const home = totals.filter((p) => p.teamId === homeTeamId);
   const away = totals.filter((p) => p.teamId === awayTeamId);
 
+  const allInactives = inactivesData?.inactives ?? [];
+  const homeInactives = allInactives.filter(
+    (i) => i.teamTricode === homeTeamAbbr,
+  );
+  const awayInactives = allInactives.filter(
+    (i) => i.teamTricode === awayTeamAbbr,
+  );
+
   return (
     <div className="grid grid-cols-1 gap-4 p-2 md:grid-cols-2">
-      <TeamPanel abbr={awayTeamAbbr} players={away} />
-      <TeamPanel abbr={homeTeamAbbr} players={home} />
+      <TeamPanel abbr={awayTeamAbbr} players={away} inactives={awayInactives} />
+      <TeamPanel abbr={homeTeamAbbr} players={home} inactives={homeInactives} />
     </div>
   );
 }
@@ -162,9 +188,11 @@ export default function GameBoxScore({
 function TeamPanel({
   abbr,
   players,
+  inactives,
 }: {
   abbr: string;
   players: PlayerTotals[];
+  inactives: InactivePlayer[];
 }) {
   const starters = players
     .filter((p) => p.starter)
@@ -239,6 +267,33 @@ function TeamPanel({
                   {teamTotal.reb + teamTotal.ast}
                 </td>
               </tr>
+            )}
+            {inactives.length > 0 && (
+              <>
+                <GroupHeader label="Inactive" />
+                {inactives.map((i) => (
+                  <tr
+                    key={`${i.teamTricode}-${i.playerName}`}
+                    className="border-t border-border opacity-55"
+                  >
+                    <td colSpan={10} className="px-3 py-1 text-fg-subtle">
+                      {i.playerId ? (
+                        <a
+                          href={`/nba/player/${i.playerId}`}
+                          className="hover:underline"
+                        >
+                          {i.playerName}
+                        </a>
+                      ) : (
+                        <span>{i.playerName}</span>
+                      )}
+                      <span className="ml-2 text-[10px] uppercase tracking-wider text-fg-disabled">
+                        {i.reason}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </>
             )}
           </tbody>
         </table>
