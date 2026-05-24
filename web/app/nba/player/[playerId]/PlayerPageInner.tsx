@@ -336,8 +336,6 @@ function volumeBg(value: number, range: AttemptRange): string {
 const ALL_PERIODS = ["1Q", "2Q", "3Q", "4Q", "OT"] as const;
 type QuarterKey = (typeof ALL_PERIODS)[number];
 
-type RoleFilter = "all" | "started" | "bench" | "played";
-
 function buildGameSummaries(
   rows: GameLogRow[],
   selectedPeriods: Set<QuarterKey>,
@@ -1202,7 +1200,6 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
   const gradeDate = backDate ?? todayLocal();
 
   const persistedPeriods = useRef<Set<QuarterKey>>(new Set());
-  const persistedRole = useRef<RoleFilter>("all");
   const persistedPropsExpanded = useRef<boolean>(true);
   const prevTeamId = useRef<number | null>(null);
 
@@ -1223,9 +1220,6 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
   const [selectedPeriods, setSelectedPeriods] = useState<Set<QuarterKey>>(
     persistedPeriods.current,
   );
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>(
-    persistedRole.current,
-  );
   const [propsExpanded, setPropsExpanded] = useState<boolean>(
     persistedPropsExpanded.current,
   );
@@ -1235,7 +1229,6 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     { playerId: number; playerName: string }[]
   >([]);
   const [showAllStats, setShowAllStats] = useState(false);
-  const [vsOppOnly, setVsOppOnly] = useState(false);
   const [todayGames, setTodayGames] = useState<TodayGame[]>([]);
   const [liveGameRow, setLiveGameRow] = useState<GameSummary | null>(null);
   const liveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1476,12 +1469,6 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
         };
         setPlayerInfo(info);
 
-        if (
-          prevTeamId.current !== null &&
-          prevTeamId.current !== playerData.teamId
-        ) {
-          setVsOppOnly(false);
-        }
         prevTeamId.current = playerData.teamId ?? null;
 
         if (playerData.teamId) {
@@ -1516,9 +1503,6 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
   useEffect(() => {
     persistedPeriods.current = selectedPeriods;
   }, [selectedPeriods]);
-  useEffect(() => {
-    persistedRole.current = roleFilter;
-  }, [roleFilter]);
   useEffect(() => {
     persistedPropsExpanded.current = propsExpanded;
   }, [propsExpanded]);
@@ -1606,18 +1590,6 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
   const displayedSummaries = useMemo(() => {
     let rows = summaries;
 
-    if (roleFilter === "started") {
-      rows = rows.filter((g) => !g.dnp && g.started === true);
-    } else if (roleFilter === "bench") {
-      rows = rows.filter((g) => !g.dnp && g.started === false);
-    } else if (roleFilter === "played") {
-      rows = rows.filter((g) => !g.dnp);
-    }
-
-    if (vsOppOnly && oppParam) {
-      rows = rows.filter((g) => g.opponentAbbr === oppParam);
-    }
-
     // URL-driven filters (PlayerLogFilters)
     if (urlSince) rows = rows.filter((g) => g.gameDate >= urlSince);
     if (urlUntil) rows = rows.filter((g) => g.gameDate <= urlUntil);
@@ -1676,9 +1648,6 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     return rows;
   }, [
     summaries,
-    roleFilter,
-    vsOppOnly,
-    oppParam,
     liveGameRow,
     activeSplitGameIds,
     urlRange,
@@ -1759,13 +1728,6 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
     return <div className="px-4 py-6 text-sm text-fg-subtle">Loading...</div>;
   if (error)
     return <div className="px-4 py-6 text-sm text-neg">Error: {error}</div>;
-
-  const roleButtons: { value: RoleFilter; label: string }[] = [
-    { value: "all", label: "All" },
-    { value: "played", label: "Played" },
-    { value: "started", label: "Started" },
-    { value: "bench", label: "Bench" },
-  ];
 
   const logColCount = showAllStats ? 18 : 12;
 
@@ -1918,36 +1880,6 @@ export default function PlayerPageInner({ playerId }: { playerId: string }) {
         )}
 
         <div className="ml-auto flex items-center gap-2 flex-wrap">
-          <div className="flex rounded overflow-hidden border border-border">
-            {roleButtons.map(({ value, label }) => (
-              <button
-                key={value}
-                onClick={() => setRoleFilter(value)}
-                className={[
-                  "px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap",
-                  roleFilter === value
-                    ? "bg-surface-hover text-fg"
-                    : "bg-surface text-fg-subtle hover:bg-surface-hover",
-                ].join(" ")}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {oppParam && (
-            <button
-              onClick={() => setVsOppOnly((v) => !v)}
-              className={[
-                "px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap",
-                vsOppOnly
-                  ? "bg-brand text-fg"
-                  : "bg-surface-hover text-fg-subtle hover:bg-surface-hover",
-              ].join(" ")}
-            >
-              vs {oppParam}
-            </button>
-          )}
           <StatsToggle
             showAll={showAllStats}
             onToggle={() => setShowAllStats((v) => !v)}
