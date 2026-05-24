@@ -87,7 +87,7 @@ export default function GamePageInner({ gameId }: { gameId: string }) {
         )}
 
         <Section id="team" label="Team stats" state={state}>
-          <TeamStatsPlaceholder game={game} state={state} />
+          <TeamStatsPlaceholder game={game} state={state} gameId={gameId} />
         </Section>
       </main>
     </div>
@@ -357,16 +357,100 @@ function StatePill({ state }: { state: GameState }) {
 }
 
 // ---------------------------------------------------------------------------
-// Team stats placeholder
+// Team stats
 // ---------------------------------------------------------------------------
+
+interface BoxRow {
+  playerId: number;
+  teamId: number;
+  period: string;
+  pts: number | null;
+  reb: number | null;
+  ast: number | null;
+  stl: number | null;
+  blk: number | null;
+  tov: number | null;
+  min: number | null;
+  fg3m: number | null;
+  fg3a: number | null;
+  fgm: number | null;
+  fga: number | null;
+  ftm: number | null;
+  fta: number | null;
+}
+
+interface TeamTotals {
+  pts: number;
+  reb: number;
+  ast: number;
+  tov: number;
+  stl: number;
+  blk: number;
+  fgm: number;
+  fga: number;
+  fg3m: number;
+  fg3a: number;
+  ftm: number;
+  fta: number;
+}
+
+function aggregateTeam(rows: BoxRow[], teamId: number): TeamTotals {
+  const t: TeamTotals = {
+    pts: 0,
+    reb: 0,
+    ast: 0,
+    tov: 0,
+    stl: 0,
+    blk: 0,
+    fgm: 0,
+    fga: 0,
+    fg3m: 0,
+    fg3a: 0,
+    ftm: 0,
+    fta: 0,
+  };
+  for (const r of rows) {
+    if (r.teamId !== teamId) continue;
+    t.pts += r.pts ?? 0;
+    t.reb += r.reb ?? 0;
+    t.ast += r.ast ?? 0;
+    t.tov += r.tov ?? 0;
+    t.stl += r.stl ?? 0;
+    t.blk += r.blk ?? 0;
+    t.fgm += r.fgm ?? 0;
+    t.fga += r.fga ?? 0;
+    t.fg3m += r.fg3m ?? 0;
+    t.fg3a += r.fg3a ?? 0;
+    t.ftm += r.ftm ?? 0;
+    t.fta += r.fta ?? 0;
+  }
+  return t;
+}
+
+function pct(num: number, denom: number): string {
+  if (denom <= 0) return "-";
+  return `${((num / denom) * 100).toFixed(1)}%`;
+}
 
 function TeamStatsPlaceholder({
   game,
   state,
+  gameId,
 }: {
   game: GameMeta;
   state: GameState;
+  gameId: string;
 }) {
+  const { data, isLoading } = useSWR<{ rows: BoxRow[] }>(
+    state === "pregame" ? null : `/api/boxscore?gameId=${gameId}`,
+    fetcher,
+    {
+      refreshInterval: state === "live" ? 30_000 : 0,
+      revalidateOnFocus: false,
+      dedupingInterval: 15_000,
+    },
+  );
+
   if (state === "pregame") {
     return (
       <div className="px-4 py-6 text-sm text-fg-disabled">
@@ -374,18 +458,54 @@ function TeamStatsPlaceholder({
       </div>
     );
   }
+
+  const rows = data?.rows ?? [];
+
+  if (isLoading && rows.length === 0) {
+    return (
+      <div className="px-4 py-6 text-sm text-fg-disabled">
+        Loading team stats...
+      </div>
+    );
+  }
+
+  const home = aggregateTeam(rows, game.homeTeamId);
+  const away = aggregateTeam(rows, game.awayTeamId);
+
+  const kpis: { label: string; away: string; home: string }[] = [
+    {
+      label: "Final score",
+      away: String(game.awayScore ?? "-"),
+      home: String(game.homeScore ?? "-"),
+    },
+    {
+      label: "FG%",
+      away: `${away.fgm}/${away.fga} · ${pct(away.fgm, away.fga)}`,
+      home: `${home.fgm}/${home.fga} · ${pct(home.fgm, home.fga)}`,
+    },
+    {
+      label: "3P%",
+      away: `${away.fg3m}/${away.fg3a} · ${pct(away.fg3m, away.fg3a)}`,
+      home: `${home.fg3m}/${home.fg3a} · ${pct(home.fg3m, home.fg3a)}`,
+    },
+    {
+      label: "FT%",
+      away: `${away.ftm}/${away.fta} · ${pct(away.ftm, away.fta)}`,
+      home: `${home.ftm}/${home.fta} · ${pct(home.ftm, home.fta)}`,
+    },
+    { label: "REB", away: String(away.reb), home: String(home.reb) },
+    { label: "AST", away: String(away.ast), home: String(home.ast) },
+    { label: "TOV", away: String(away.tov), home: String(home.tov) },
+    {
+      label: "STL · BLK",
+      away: `${away.stl} · ${away.blk}`,
+      home: `${home.stl} · ${home.blk}`,
+    },
+  ];
+
   return (
-    <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
-      {[
-        { label: "Final score", away: game.awayScore, home: game.homeScore },
-        { label: "FG%", away: null, home: null },
-        { label: "3P%", away: null, home: null },
-        { label: "FT%", away: null, home: null },
-        { label: "REB", away: null, home: null },
-        { label: "AST", away: null, home: null },
-        { label: "TOV", away: null, home: null },
-        { label: "Pts in paint", away: null, home: null },
-      ].map((kpi) => (
+    <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 lg:grid-cols-4">
+      {kpis.map((kpi) => (
         <div
           key={kpi.label}
           className="rounded border border-border bg-surface p-3"
@@ -393,12 +513,15 @@ function TeamStatsPlaceholder({
           <div className="mb-1 text-[10px] uppercase tracking-wider text-fg-disabled">
             {kpi.label}
           </div>
-          <div className="flex items-baseline justify-between gap-2 text-data tabular-nums">
-            <span className="text-fg-subtle">{game.awayTeamAbbr}</span>
-            <span className="text-fg">{kpi.away ?? "-"}</span>
-            <span className="text-fg-disabled">·</span>
-            <span className="text-fg">{kpi.home ?? "-"}</span>
-            <span className="text-fg-subtle">{game.homeTeamAbbr}</span>
+          <div className="space-y-0.5 text-data tabular-nums">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-fg-subtle">{game.awayTeamAbbr}</span>
+              <span className="text-fg">{kpi.away}</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-fg-subtle">{game.homeTeamAbbr}</span>
+              <span className="text-fg">{kpi.home}</span>
+            </div>
           </div>
         </div>
       ))}
