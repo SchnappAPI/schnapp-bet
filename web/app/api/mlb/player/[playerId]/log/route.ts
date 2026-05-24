@@ -144,7 +144,7 @@ export async function GET(
       .query<DbRow>(`
         WITH game_batting AS (
           SELECT
-            bs.game_pk,
+            bs.game_pk AS gamePk,
             CONVERT(VARCHAR(10), g.game_date, 120)       AS gameDate,
             MAX(bs.side)                                  AS side,
             SUM(COALESCE(bs.at_bats, 0))                  AS ab,
@@ -170,7 +170,7 @@ export async function GET(
           GROUP BY bs.game_pk, g.game_date
         )
         SELECT * FROM game_batting
-        ORDER BY gameDate DESC, game_pk DESC
+        ORDER BY gameDate DESC, gamePk DESC
       `);
 
     let rows: MlbLogRow[] = logRes.recordset.map((r) => ({

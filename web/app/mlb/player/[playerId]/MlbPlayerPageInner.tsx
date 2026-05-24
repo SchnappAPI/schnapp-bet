@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
@@ -280,8 +280,8 @@ export default function MlbPlayerPageInner({ playerId }: { playerId: string }) {
             </thead>
             <tbody>
               {splitGroups.map((group) => (
-                <>
-                  <tr key={group.groupKey}>
+                <React.Fragment key={group.groupKey}>
+                  <tr>
                     <td
                       colSpan={11}
                       className="px-4 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-fg-subtle bg-canvas"
@@ -329,7 +329,7 @@ export default function MlbPlayerPageInner({ playerId }: { playerId: string }) {
                       </td>
                     </tr>
                   ))}
-                </>
+                </React.Fragment>
               ))}
             </tbody>
           </table>
