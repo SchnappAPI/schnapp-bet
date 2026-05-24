@@ -11,7 +11,7 @@ Schnapp (schnapp.bet) — NBA, MLB, NFL prop betting research platform.
 - **MCP** — FastMCP. launchd on Schnapps-MBP (port 8765). `mac-mcp.schnapp.bet`. 10 tools.
 - **Shared** — `shared/db.py` and `shared/integrity.py`, imported by `etl/` and `grading/`.
 
-Repo path: `/Users/schnapp/code/schnapp-bet`. Primary host: Schnapps-MBP. Python runs in GitHub Actions on mac-runner or via Mac MCP `shell_exec` only.
+Repo path: `/Users/schnapp/code/schnapp-bet`. Primary host: Schnapps-MBP.
 
 ## Session Lifecycle
 
@@ -103,6 +103,11 @@ Cross-cutting rules only. Path-specific invariants live in `.claude/rules/*.md` 
 - `/skill regenerate-bootstrap-sql` — re-sync schema docs from the live DB.
 - `/skill regenerate-health` — re-run the health report locally.
 - `/skill new-sport-onboarding` — add a 4th sport checklist.
+- `/skill adr-writer` — write today's ADR with template (Claude-invocable companion to `/adr`).
+
+## Subagents
+
+- `etl-integrity-reviewer` — domain reviewer for diffs touching `etl/`, `shared/integrity.py`, `shared/db.py`, or sport workflows. Enforces ADR-20260424-2 invariants (Layer 1/2/3, CRITICAL_FIELDS append-mostly, predicate lockstep). Read-only, severity-tagged output.
 
 ## Rules (auto-load on matching files)
 
