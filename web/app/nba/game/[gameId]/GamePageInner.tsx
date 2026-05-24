@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
-import BoxScoreTable from "@/components/BoxScoreTable";
 import LiveBoxScore from "@/components/LiveBoxScore";
+import GameBoxScore from "@/components/nba/GameBoxScore";
 
 interface GameMeta {
   gameId: string;
@@ -74,7 +74,14 @@ export default function GamePageInner({ gameId }: { gameId: string }) {
           {state === "live" ? (
             <LiveBoxScore gameId={gameId} selectedDate={game.gameDate} />
           ) : (
-            <BoxScoreTable gameId={gameId} selectedDate={game.gameDate} />
+            <GameBoxScore
+              gameId={gameId}
+              homeTeamId={game.homeTeamId}
+              homeTeamAbbr={game.homeTeamAbbr}
+              awayTeamId={game.awayTeamId}
+              awayTeamAbbr={game.awayTeamAbbr}
+              state={state}
+            />
           )}
         </Section>
 
