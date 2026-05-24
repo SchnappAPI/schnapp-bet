@@ -106,7 +106,7 @@ export async function GET() {
       </span>
       <span id="btn-label">REFRESH</span>
     </button>
-    <div class="status ok" id="status">Last refresh: today at 11:00 AM</div>
+    <div class="status" id="status"></div>
   </div>
   <div class="watermark">schnapp.bet/fish</div>
 
