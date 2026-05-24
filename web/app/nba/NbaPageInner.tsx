@@ -207,13 +207,9 @@ export default function NbaPageInner() {
   }, [effectiveDate]);
 
   function handleSelectGame(gameId: string) {
-    isExplicitSelection.current = true;
-    const params = new URLSearchParams();
-    params.set("gameId", gameId);
-    params.set("date", effectiveDate);
-    const currentTab = searchParams.get("tab");
-    if (currentTab) params.set("tab", currentTab);
-    router.replace(`/nba?${params.toString()}`);
+    // Redesigned Game Log lives at /nba/game/[gameId]. Navigate there directly
+    // rather than toggling ?gameId= state on /nba.
+    router.push(`/nba/game/${gameId}`);
   }
 
   function applyDate(newDate: string) {
