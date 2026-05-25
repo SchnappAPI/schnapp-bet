@@ -110,35 +110,70 @@ export async function GET() {
       return Math.floor(s/60) + 'm ' + (s%60) + 's';
     }
 
+    const COLLAPSED = [
+      {id:'c_export',  label:'Fetching data from AppFolio...',  groupIds:['fetch_unit_directory','fetch_unit_vacancy','fetch_property_custom_fields','fetch_unit_custom_fields','fetch_tenant_directory','fetch_rental_applications_pending','fetch_rental_applications_leases','fetch_tenant_tickler','transform_units','transform_residents','transform_occupancy']},
+      {id:'c_dropbox', label:'Uploading CSVs to Dropbox...',    groupIds:['dropbox_units','dropbox_residents','dropbox_occupancy']},
+    ];
+    const SOLO_IDS = ['sleep','qb_units','qb_residents','qb_occupancy','job_complete'];
+
+    function makeRow(id, lbl) {
+      const el = document.createElement('div');
+      el.className = 'step-row state-pending';
+      el.id = 'row-' + id;
+      el.innerHTML =
+        '<span class="step-icon"><span class="ic-ring"></span><span class="ic-spin"></span>' +
+        '<span class="ic-check">' + CHECK_SVG + '</span><span class="ic-err">' + ERR_SVG + '</span></span>' +
+        '<span class="step-label">' + lbl + '</span><span class="step-dur"></span>';
+      return el;
+    }
+
     function buildStepList() {
       const list = document.getElementById('steps-list');
       list.innerHTML = '';
-      for (const row of ROWS) {
-        const el = document.createElement('div');
-        el.className = 'step-row state-pending';
-        el.id = 'row-' + row.id;
-        el.innerHTML =
-          '<span class="step-icon"><span class="ic-ring"></span><span class="ic-spin"></span>' +
-          '<span class="ic-check">' + CHECK_SVG + '</span><span class="ic-err">' + ERR_SVG + '</span></span>' +
-          '<span class="step-label">' + row.pending + '</span><span class="step-dur"></span>';
-        list.appendChild(el);
-      }
+      for (const c of COLLAPSED) list.appendChild(makeRow(c.id, c.label));
+      const byId = {};
+      for (const r of ROWS) byId[r.id] = r;
+      for (const id of SOLO_IDS) list.appendChild(makeRow(id, byId[id].pending));
     }
 
     function applyRows(apiRows) {
       const byId = {};
       for (const r of ROWS) byId[r.id] = r;
+      const list = document.getElementById('steps-list');
+
+      for (const c of COLLAPSED) {
+        const allDone = c.groupIds.every(id => { const r = apiRows.find(x=>x.id===id); return r&&(r.state==='done'||r.state==='error'); });
+        const anyStarted = c.groupIds.some(id => { const r = apiRows.find(x=>x.id===id); return r&&r.state!=='pending'; });
+        const col = document.getElementById('row-'+c.id);
+        if (allDone) {
+          if (col) {
+            for (const id of c.groupIds)
+              if (!document.getElementById('row-'+id)) list.insertBefore(makeRow(id,''), col);
+            col.remove();
+          }
+          for (const id of c.groupIds) {
+            const el = document.getElementById('row-'+id); if (!el) continue;
+            const r = apiRows.find(x=>x.id===id); if (!r) continue;
+            el.className = 'step-row state-'+r.state;
+            const lb = el.querySelector('.step-label'), du = el.querySelector('.step-dur');
+            lb.textContent = (r.state==='done'||r.state==='error') ? r.done : byId[id].pending;
+            if ((r.state==='done'||r.state==='error')&&r.elapsedSeconds!=null) du.textContent=fmtDur(r.elapsedSeconds);
+          }
+        } else if (col) {
+          col.className = 'step-row state-'+(anyStarted?'active':'pending');
+          col.querySelector('.step-label').textContent = c.label;
+        }
+      }
+
       for (const r of apiRows) {
-        const el = document.getElementById('row-' + r.id);
-        if (!el) continue;
-        el.className = 'step-row state-' + r.state;
-        const lbl = el.querySelector('.step-label');
-        const dur = el.querySelector('.step-dur');
-        if (r.state === 'pending')     lbl.textContent = byId[r.id].pending;
-        else if (r.state === 'active') lbl.textContent = byId[r.id].active;
-        else                           lbl.textContent = r.done;
-        if ((r.state === 'done' || r.state === 'error') && r.elapsedSeconds != null)
-          dur.textContent = fmtDur(r.elapsedSeconds);
+        if (!SOLO_IDS.includes(r.id)) continue;
+        const el = document.getElementById('row-'+r.id); if (!el) continue;
+        el.className = 'step-row state-'+r.state;
+        const lb = el.querySelector('.step-label'), du = el.querySelector('.step-dur');
+        if (r.state==='pending')      lb.textContent = byId[r.id].pending;
+        else if (r.state==='active')  lb.textContent = byId[r.id].active;
+        else                          lb.textContent = r.done;
+        if ((r.state==='done'||r.state==='error')&&r.elapsedSeconds!=null) du.textContent=fmtDur(r.elapsedSeconds);
       }
     }
 
