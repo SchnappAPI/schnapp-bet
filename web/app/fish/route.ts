@@ -233,7 +233,7 @@ export async function GET() {
     }
   </script>
 </body>
-</html>\`;
+</html>`;
 
   return new NextResponse(html, {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
