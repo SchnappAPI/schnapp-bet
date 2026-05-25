@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 
 export async function GET() {
-  const CHECK = '<svg viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="8.25" fill="#4e7e70"/><polyline points="5,9.5 7.5,12 13,6.5" stroke="#f8fafb" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
-  const ERR   = '<svg viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="8.25" fill="#774b52"/><line x1="6" y1="6" x2="12" y2="12" stroke="#f8fafb" stroke-width="1.8" stroke-linecap="round"/><line x1="12" y1="6" x2="6" y2="12" stroke="#f8fafb" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  const CHECK = '<svg viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="8.25" fill="#4e7e70"/><polyline points="5,9.5 7.5,12 13,6.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+  const ERR   = '<svg viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="8.25" fill="#774b52"/><line x1="6" y1="6" x2="12" y2="12" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><line x1="12" y1="6" x2="6" y2="12" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>';
 
   const ROWS = [
     { id: "fetch_unit_directory",              pending: "Fetch records from /unit_directory.json",                          active: "Fetching records from /unit_directory.json..." },
@@ -59,12 +59,12 @@ export async function GET() {
     .steps-wrap { width: 100%; margin-top: 28px; display: none; flex-direction: column; text-align: left; }
     .steps-wrap.visible { display: flex; }
     .steps-header { font-size: 8px; letter-spacing: .18em; text-transform: uppercase; color: #306e7b; margin-bottom: 10px; }
-    .steps-list { background: #003057; }
-    .step-row { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid rgba(37,135,200,.10); }
+    .steps-list { background: #fff; border: 1px solid #cddde8; }
+    .step-row { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid #e4eef5; }
     .step-row:last-child { border-bottom: none; }
     .step-icon { flex-shrink: 0; width: 18px; height: 18px; position: relative; }
-    .ic-ring { position: absolute; inset: 1px; border-radius: 50%; border: 1.5px solid #2587c8; opacity: .3; }
-    .ic-spin { display: none; position: absolute; inset: 1px; border-radius: 50%; border: 2px solid rgba(37,135,200,.2); border-top-color: #2587c8; animation: spin .7s linear infinite; }
+    .ic-ring { position: absolute; inset: 1px; border-radius: 50%; border: 1.5px solid #b8d9eb; }
+    .ic-spin { display: none; position: absolute; inset: 1px; border-radius: 50%; border: 2px solid #b8d9eb; border-top-color: #2587c8; animation: spin .7s linear infinite; }
     .ic-check, .ic-err { display: none; position: absolute; inset: 0; }
     .state-active .ic-ring  { display: none; }
     .state-active .ic-spin  { display: block; }
@@ -72,13 +72,13 @@ export async function GET() {
     .state-done   .ic-check { display: block; }
     .state-error  .ic-ring  { display: none; }
     .state-error  .ic-err   { display: block; }
-    .step-label { flex: 1; font-size: 9.5px; letter-spacing: .04em; line-height: 1.45; color: #b8d9eb; opacity: .35; transition: opacity .2s; }
-    .state-active .step-label { opacity: .7; }
-    .state-done   .step-label { opacity: 1; }
-    .state-error  .step-label { opacity: 1; color: #c47a7a; }
-    .step-time { flex-shrink: 0; font-size: 8px; color: #2587c8; opacity: 0; transition: opacity .2s; letter-spacing: .02em; }
-    .state-done  .step-time { opacity: .55; }
-    .state-error .step-time { opacity: .55; }
+    .step-label { flex: 1; font-size: 9.5px; letter-spacing: .04em; line-height: 1.45; color: #b8d9eb; transition: color .2s; }
+    .state-active .step-label { color: #306e7b; }
+    .state-done   .step-label { color: #003057; }
+    .state-error  .step-label { color: #774b52; }
+    .step-dur { flex-shrink: 0; font-size: 8px; color: #306e7b; opacity: 0; transition: opacity .2s; letter-spacing: .02em; }
+    .state-done  .step-dur { opacity: 1; }
+    .state-error .step-dur { opacity: 1; }
     .watermark { position: fixed; bottom: 14px; right: 16px; font-size: 8px; color: #b8d9eb; letter-spacing: .08em; user-select: none; }
   </style>
 </head>
@@ -105,6 +105,11 @@ export async function GET() {
     const ROWS = ${rowsJson};
     let running = false, pollTimer = null;
 
+    function fmtDur(s) {
+      if (s < 60) return s + 's';
+      return Math.floor(s/60) + 'm ' + (s%60) + 's';
+    }
+
     function buildStepList() {
       const list = document.getElementById('steps-list');
       list.innerHTML = '';
@@ -115,7 +120,7 @@ export async function GET() {
         el.innerHTML =
           '<span class="step-icon"><span class="ic-ring"></span><span class="ic-spin"></span>' +
           '<span class="ic-check">' + CHECK_SVG + '</span><span class="ic-err">' + ERR_SVG + '</span></span>' +
-          '<span class="step-label">' + row.pending + '</span><span class="step-time"></span>';
+          '<span class="step-label">' + row.pending + '</span><span class="step-dur"></span>';
         list.appendChild(el);
       }
     }
@@ -128,11 +133,12 @@ export async function GET() {
         if (!el) continue;
         el.className = 'step-row state-' + r.state;
         const lbl = el.querySelector('.step-label');
-        const tim = el.querySelector('.step-time');
-        if (r.state === 'pending')      lbl.textContent = byId[r.id].pending;
-        else if (r.state === 'active')  lbl.textContent = byId[r.id].active;
-        else                            lbl.textContent = r.done;
-        if (r.completedAt) tim.textContent = r.completedAt;
+        const dur = el.querySelector('.step-dur');
+        if (r.state === 'pending')     lbl.textContent = byId[r.id].pending;
+        else if (r.state === 'active') lbl.textContent = byId[r.id].active;
+        else                           lbl.textContent = r.done;
+        if ((r.state === 'done' || r.state === 'error') && r.elapsedSeconds != null)
+          dur.textContent = fmtDur(r.elapsedSeconds);
       }
     }
 
@@ -192,7 +198,7 @@ export async function GET() {
     }
   </script>
 </body>
-</html>`;
+</html>\`;
 
   return new NextResponse(html, {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
