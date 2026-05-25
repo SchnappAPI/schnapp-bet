@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import GameStrip, { type Game } from "@/components/GameStrip";
-import GameTabs from "@/components/GameTabs";
 import { randomLoadingWord } from "@/lib/loadingWord";
 import { useAuth } from "@/lib/auth-context";
 import { openCommandPalette } from "@/lib/ui/CommandPalette";
@@ -98,16 +97,6 @@ async function fetchGames(date: string): Promise<Game[]> {
   return data.games ?? [];
 }
 
-// Pick the best game to auto-select from a sorted list.
-// Prefers: live (status 2) > pre-game (status 1) > finished (status 3).
-function pickDefaultGame(sorted: Game[]): Game | undefined {
-  return (
-    sorted.find((g) => g.gameStatus === 2) ??
-    sorted.find((g) => g.gameStatus == null || g.gameStatus === 1) ??
-    sorted[0]
-  );
-}
-
 export default function NbaPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -121,6 +110,12 @@ export default function NbaPageInner() {
   const [selectedDate, setSelectedDate] = useState<string>(
     urlDate ?? defaultDate,
   );
+
+  // Legacy URL redirect: /nba?gameId=X → /nba/game/X
+  useEffect(() => {
+    const legacyGameId = searchParams.get("gameId");
+    if (legacyGameId) router.replace(`/nba/game/${legacyGameId}`);
+  }, [searchParams, router]);
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingWord] = useState(() => randomLoadingWord());
@@ -130,8 +125,6 @@ export default function NbaPageInner() {
   // Prevents auto-select from overriding an intentional selection.
   const isExplicitSelection = useRef<boolean>(false);
 
-  const activeGameId = searchParams.get("gameId");
-  const activeGame = games.find((g) => g.gameId === activeGameId) ?? null;
   const effectiveDate = isDemo && demoDate ? demoDate : selectedDate;
 
   // URL-synced tab. Default = games. The Players tab is a search-driven
@@ -170,31 +163,6 @@ export default function NbaPageInner() {
       );
 
       setGames(sorted);
-
-      if (sorted.length === 0) return;
-
-      const currentGameId = searchParams.get("gameId");
-      const currentGame = sorted.find((g) => g.gameId === currentGameId);
-
-      // Re-select when:
-      // - No valid game is selected for this date
-      // - Not an explicit user selection and the selected game is finished
-      //   while upcoming/live games exist (avoids landing on a final when
-      //   tonight's games are available)
-      const hasUpcoming = sorted.some(
-        (g) => g.gameStatus == null || g.gameStatus === 1 || g.gameStatus === 2,
-      );
-      const shouldReplace =
-        !currentGame ||
-        (!isExplicitSelection.current &&
-          currentGame.gameStatus === 3 &&
-          hasUpcoming);
-
-      if (shouldReplace) {
-        const pick = pickDefaultGame(sorted);
-        if (pick)
-          router.replace(`/nba?gameId=${pick.gameId}&date=${effectiveDate}`);
-      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -222,8 +190,6 @@ export default function NbaPageInner() {
   function handleDateChange(e: React.ChangeEvent<HTMLInputElement>) {
     applyDate(e.target.value);
   }
-
-  const gradesHref = `/nba/grades?date=${effectiveDate}`;
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -314,31 +280,18 @@ export default function NbaPageInner() {
           {!loading && !error && (
             <GameStrip
               games={games}
-              activeGameId={activeGameId}
+              activeGameId={null}
               onSelect={handleSelectGame}
             />
           )}
 
           <div className="flex-1 px-4">
-            {activeGame ? (
-              <GameTabs
-                gameId={activeGame.gameId}
-                homeTeamId={activeGame.homeTeamId}
-                awayTeamId={activeGame.awayTeamId}
-                homeTeamAbbr={activeGame.homeTeamAbbr}
-                awayTeamAbbr={activeGame.awayTeamAbbr}
-                selectedDate={effectiveDate}
-                gameStatus={activeGame.gameStatus}
-              />
-            ) : (
-              !loading &&
-              games.length === 0 && (
-                <div className="py-6 text-sm text-fg-subtle">
-                  No games scheduled for this date.
-                </div>
-              )
+            {!loading && games.length === 0 && (
+              <div className="py-6 text-sm text-fg-subtle">
+                No games scheduled for this date.
+              </div>
             )}
-            {!loading && games.length > 0 && !activeGame && (
+            {!loading && games.length > 0 && (
               <div className="py-6 text-sm text-fg-subtle">
                 Select a game above.
               </div>

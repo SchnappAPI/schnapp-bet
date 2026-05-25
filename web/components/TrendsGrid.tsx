@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 
 // Renders the Trends Grid: per-player tier lines + standard FanDuel line
 // + per-game stat history for the selected market. Fed by /api/tier-grid.
@@ -62,42 +62,42 @@ interface Props {
 
 // Markets the Trends Grid supports, in the order they appear in the toggle.
 const STAT_OPTIONS = [
-  { key: 'player_points',                  label: 'PTS' },
-  { key: 'player_rebounds',                label: 'REB' },
-  { key: 'player_assists',                 label: 'AST' },
-  { key: 'player_threes',                  label: '3PM' },
-  { key: 'player_points_rebounds_assists', label: 'PRA' },
-  { key: 'player_points_rebounds',         label: 'PR'  },
-  { key: 'player_points_assists',          label: 'PA'  },
-  { key: 'player_rebounds_assists',        label: 'RA'  },
+  { key: "player_points", label: "PTS" },
+  { key: "player_rebounds", label: "REB" },
+  { key: "player_assists", label: "AST" },
+  { key: "player_threes", label: "3PM" },
+  { key: "player_points_rebounds_assists", label: "PRA" },
+  { key: "player_points_rebounds", label: "PR" },
+  { key: "player_points_assists", label: "PA" },
+  { key: "player_rebounds_assists", label: "RA" },
 ] as const;
-type MarketKey = (typeof STAT_OPTIONS)[number]['key'];
+type MarketKey = (typeof STAT_OPTIONS)[number]["key"];
 
 const WINDOW_OPTIONS = [
-  { key: '10',  label: '10G' },
-  { key: '30',  label: '30G' },
-  { key: 'all', label: 'All' },
+  { key: "10", label: "10G" },
+  { key: "30", label: "30G" },
+  { key: "all", label: "All" },
 ] as const;
-type WindowKey = (typeof WINDOW_OPTIONS)[number]['key'];
+type WindowKey = (typeof WINDOW_OPTIONS)[number]["key"];
 
 function isMarketKey(s: string | null): s is MarketKey {
-  return s !== null && STAT_OPTIONS.some(o => o.key === s);
+  return s !== null && STAT_OPTIONS.some((o) => o.key === s);
 }
 function isWindowKey(s: string | null): s is WindowKey {
-  return s !== null && WINDOW_OPTIONS.some(o => o.key === s);
+  return s !== null && WINDOW_OPTIONS.some((o) => o.key === s);
 }
 
 // Format a number cell; null -> em dash, probability as percentage, etc.
 function fmtLine(n: number | null): string {
-  if (n === null || n === undefined) return '\u2014';
+  if (n === null || n === undefined) return "\u2014";
   return n.toFixed(1);
 }
 function fmtProb(n: number | null): string {
-  if (n === null || n === undefined) return '';
+  if (n === null || n === undefined) return "";
   return `${Math.round(n * 100)}%`;
 }
 function fmtPrice(n: number | null): string {
-  if (n === null || n === undefined) return '';
+  if (n === null || n === undefined) return "";
   return n > 0 ? `+${n}` : `${n}`;
 }
 
@@ -107,19 +107,19 @@ function fmtPrice(n: number | null): string {
 //   60-80 -> 60-74%    (yellow)
 //   <60 -> below 60%   (gray / red at extremes)
 function gradeColor(grade: number | null): string {
-  if (grade === null) return 'text-fg-subtle';
-  if (grade >= 80) return 'text-pos';
-  if (grade >= 60) return 'text-warn';
-  if (grade >= 40) return 'text-fg-subtle';
-  return 'text-neg';
+  if (grade === null) return "text-fg-subtle";
+  if (grade >= 80) return "text-pos";
+  if (grade >= 60) return "text-warn";
+  if (grade >= 40) return "text-fg-subtle";
+  return "text-neg";
 }
 
 // Stat color vs the posted standard line.
 function statCls(stat: number, standardLine: number | null): string {
-  if (standardLine === null) return 'text-fg-subtle';
-  if (stat > standardLine)  return 'text-pos';
-  if (stat < standardLine)  return 'text-neg';
-  return 'text-warn';
+  if (standardLine === null) return "text-fg-subtle";
+  if (stat > standardLine) return "text-pos";
+  if (stat < standardLine) return "text-neg";
+  return "text-warn";
 }
 
 function TeamGroup({
@@ -135,10 +135,10 @@ function TeamGroup({
 }) {
   if (players.length === 0) return null;
 
-  const starters = players.filter(p => p.starterStatus === 'Starter');
-  const bench    = players.filter(p => p.starterStatus === 'Bench');
-  const inactive = players.filter(p => p.starterStatus === 'Inactive');
-  const other    = players.filter(p => !p.starterStatus);
+  const starters = players.filter((p) => p.starterStatus === "Starter");
+  const bench = players.filter((p) => p.starterStatus === "Bench");
+  const inactive = players.filter((p) => p.starterStatus === "Inactive");
+  const other = players.filter((p) => !p.starterStatus);
 
   const sectionHeader = (label: string, count: number) => (
     <tr key={`hdr-${teamAbbr}-${label}`}>
@@ -146,56 +146,98 @@ function TeamGroup({
         colSpan={6 + visibleGameCount}
         className="pt-3 pb-0.5 text-xs text-fg-disabled font-semibold uppercase tracking-wider sticky left-0 bg-canvas"
       >
-        {label} {count > 0 && <span className="text-fg-disabled">({count})</span>}
+        {label}{" "}
+        {count > 0 && <span className="text-fg-disabled">({count})</span>}
       </td>
     </tr>
   );
 
   const row = (p: TrendPlayer, dimmed = false) => {
     const rowCls = [
-      'border-b border-border-subtle',
-      dimmed ? 'opacity-40' : '',
-    ].join(' ');
+      "border-b border-border-subtle",
+      dimmed ? "opacity-40" : "",
+    ].join(" ");
     return (
       <tr key={p.playerId} className={rowCls}>
         <td className="py-1.5 pr-3 sticky left-0 bg-canvas z-10">
-          <Link href={onPlayerClick(p.playerId)} className="text-fg-muted hover:text-brand whitespace-nowrap">
+          <Link
+            href={onPlayerClick(p.playerId)}
+            className="text-fg-muted hover:text-brand whitespace-nowrap"
+          >
             {p.playerName}
           </Link>
           {p.blowoutDampened && (
-            <span className="ml-1 text-xs text-warn" title="Blowout risk dampening applied">&#9888;</span>
+            <span
+              className="ml-1 text-xs text-warn"
+              title="Blowout risk dampening applied"
+            >
+              &#9888;
+            </span>
           )}
         </td>
-        <td className={`py-1.5 pr-3 text-right tabular-nums font-semibold ${gradeColor(p.compositeGrade)}`}>
-          {p.compositeGrade !== null ? p.compositeGrade.toFixed(0) : '\u2014'}
+        <td
+          className={`py-1.5 pr-3 text-right tabular-nums font-semibold ${gradeColor(p.compositeGrade)}`}
+        >
+          {p.compositeGrade !== null ? p.compositeGrade.toFixed(0) : "\u2014"}
         </td>
         <td className="py-1.5 pr-3 text-right tabular-nums text-fg-muted">
           {fmtLine(p.standardLine)}
         </td>
-        <td className="py-1.5 pr-3 text-right tabular-nums text-pos" title={p.safeProb !== null ? `${fmtProb(p.safeProb)} probability` : ''}>
+        <td
+          className="py-1.5 pr-3 text-right tabular-nums text-pos"
+          title={
+            p.safeProb !== null ? `${fmtProb(p.safeProb)} probability` : ""
+          }
+        >
           {fmtLine(p.safeLine)}
         </td>
-        <td className="py-1.5 pr-3 text-right tabular-nums text-warn" title={p.valueProb !== null ? `${fmtProb(p.valueProb)} probability` : ''}>
+        <td
+          className="py-1.5 pr-3 text-right tabular-nums text-warn"
+          title={
+            p.valueProb !== null ? `${fmtProb(p.valueProb)} probability` : ""
+          }
+        >
           {fmtLine(p.valueLine)}
         </td>
-        <td className="py-1.5 pr-3 text-right tabular-nums text-warn" title={p.highriskPrice !== null ? `${fmtProb(p.highriskProb)} @ ${fmtPrice(p.highriskPrice)}` : ''}>
-          {p.highriskLine !== null ? fmtLine(p.highriskLine) : '\u2014'}
+        <td
+          className="py-1.5 pr-3 text-right tabular-nums text-warn"
+          title={
+            p.highriskPrice !== null
+              ? `${fmtProb(p.highriskProb)} @ ${fmtPrice(p.highriskPrice)}`
+              : ""
+          }
+        >
+          {p.highriskLine !== null ? fmtLine(p.highriskLine) : "\u2014"}
         </td>
-        <td className="py-1.5 pr-3 text-right tabular-nums text-info" title={p.lottoPrice !== null ? `${fmtProb(p.lottoProb)} @ ${fmtPrice(p.lottoPrice)}` : ''}>
-          {p.lottoLine !== null ? fmtLine(p.lottoLine) : '\u2014'}
+        <td
+          className="py-1.5 pr-3 text-right tabular-nums text-info"
+          title={
+            p.lottoPrice !== null
+              ? `${fmtProb(p.lottoProb)} @ ${fmtPrice(p.lottoPrice)}`
+              : ""
+          }
+        >
+          {p.lottoLine !== null ? fmtLine(p.lottoLine) : "\u2014"}
         </td>
         {p.gameLog.slice(0, visibleGameCount).map((g) => (
           <td
             key={g.gameId}
             className={`py-1.5 px-2 text-right tabular-nums ${statCls(g.stat, p.standardLine)}`}
-            title={`${g.gameDate} vs ${g.oppTricode} (${g.minutes !== null ? g.minutes.toFixed(0) : '-'} min)`}
+            title={`${g.gameDate} vs ${g.oppTricode} (${g.minutes !== null ? g.minutes.toFixed(0) : "-"} min)`}
           >
             {g.stat.toFixed(0)}
           </td>
         ))}
         {/* Pad short game logs so the row keeps width */}
-        {Array.from({ length: Math.max(0, visibleGameCount - p.gameLog.length) }).map((_, i) => (
-          <td key={`pad-${p.playerId}-${i}`} className="py-1.5 px-2 text-right text-fg-disabled">&ndash;</td>
+        {Array.from({
+          length: Math.max(0, visibleGameCount - p.gameLog.length),
+        }).map((_, i) => (
+          <td
+            key={`pad-${p.playerId}-${i}`}
+            className="py-1.5 px-2 text-right text-fg-disabled"
+          >
+            &ndash;
+          </td>
         ))}
       </tr>
     );
@@ -211,13 +253,13 @@ function TeamGroup({
           {teamAbbr}
         </td>
       </tr>
-      {starters.length > 0 && sectionHeader('Starters', starters.length)}
+      {starters.length > 0 && sectionHeader("Starters", starters.length)}
       {starters.map((p) => row(p))}
-      {bench.length > 0 && sectionHeader('Bench', bench.length)}
+      {bench.length > 0 && sectionHeader("Bench", bench.length)}
       {bench.map((p) => row(p))}
-      {other.length > 0 && sectionHeader('Other', other.length)}
+      {other.length > 0 && sectionHeader("Other", other.length)}
       {other.map((p) => row(p))}
-      {inactive.length > 0 && sectionHeader('Out / Inactive', inactive.length)}
+      {inactive.length > 0 && sectionHeader("Out / Inactive", inactive.length)}
       {inactive.map((p) => row(p, true))}
     </>
   );
@@ -229,17 +271,19 @@ export default function TrendsGrid({
   homeTeamAbbr,
   awayTeamAbbr,
 }: Props) {
-  const router      = useRouter();
+  const router = useRouter();
   const searchParams = useSearchParams();
 
-  const rawMarket  = searchParams.get('stat');
-  const rawWindow  = searchParams.get('window');
-  const market: MarketKey  = isMarketKey(rawMarket)   ? rawMarket  : 'player_points';
-  const win:    WindowKey  = isWindowKey(rawWindow)   ? rawWindow  : '30';
+  const rawMarket = searchParams.get("stat");
+  const rawWindow = searchParams.get("window");
+  const market: MarketKey = isMarketKey(rawMarket)
+    ? rawMarket
+    : "player_points";
+  const win: WindowKey = isWindowKey(rawWindow) ? rawWindow : "30";
 
-  const [data, setData]       = useState<TrendsData | null>(null);
+  const [data, setData] = useState<TrendsData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -257,29 +301,42 @@ export default function TrendsGrid({
   function setParam(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set(key, value);
-    router.replace(`/nba?${params.toString()}`);
+    const path =
+      typeof window !== "undefined" ? window.location.pathname : "/nba";
+    router.replace(`${path}?${params.toString()}`);
   }
 
   function playerHref(playerId: number): string {
     const params = new URLSearchParams();
-    params.set('gameId', gameId);
-    params.set('tab', 'trends');
-    params.set('stat', market);
-    if (selectedDate) params.set('date', selectedDate);
+    params.set("gameId", gameId);
+    params.set("tab", "trends");
+    params.set("stat", market);
+    if (selectedDate) params.set("date", selectedDate);
     return `/nba/player/${playerId}?${params.toString()}`;
   }
 
-  if (loading) return <div className="text-sm text-fg-subtle py-6">Loading tier lines...</div>;
-  if (error)   return <div className="text-sm text-neg py-6">Error: {error}</div>;
+  if (loading)
+    return (
+      <div className="text-sm text-fg-subtle py-6">Loading tier lines...</div>
+    );
+  if (error) return <div className="text-sm text-neg py-6">Error: {error}</div>;
   if (!data || data.players.length === 0) {
-    return <div className="text-sm text-fg-subtle py-6">No tier data available for this game yet.</div>;
+    return (
+      <div className="text-sm text-fg-subtle py-6">
+        No tier data available for this game yet.
+      </div>
+    );
   }
 
-  const visibleGameCount = win === 'all' ? 82 : parseInt(win, 10);
-  const awayPlayers = data.players.filter((p) => p.teamTricode === awayTeamAbbr);
-  const homePlayers = data.players.filter((p) => p.teamTricode === homeTeamAbbr);
+  const visibleGameCount = win === "all" ? 82 : parseInt(win, 10);
+  const awayPlayers = data.players.filter(
+    (p) => p.teamTricode === awayTeamAbbr,
+  );
+  const homePlayers = data.players.filter(
+    (p) => p.teamTricode === homeTeamAbbr,
+  );
   const unknownTeamPlayers = data.players.filter(
-    (p) => p.teamTricode !== awayTeamAbbr && p.teamTricode !== homeTeamAbbr
+    (p) => p.teamTricode !== awayTeamAbbr && p.teamTricode !== homeTeamAbbr,
   );
 
   return (
@@ -287,34 +344,38 @@ export default function TrendsGrid({
       {/* Stat + Window toggles */}
       <div className="flex items-center flex-wrap gap-2 mb-3">
         <div className="flex items-center gap-1 mr-4">
-          <span className="text-xs text-fg-subtle uppercase tracking-wider mr-1">Stat</span>
+          <span className="text-xs text-fg-subtle uppercase tracking-wider mr-1">
+            Stat
+          </span>
           {STAT_OPTIONS.map((opt) => (
             <button
               key={opt.key}
-              onClick={() => setParam('stat', opt.key)}
+              onClick={() => setParam("stat", opt.key)}
               className={[
-                'px-2 py-1 text-xs rounded border transition-colors',
+                "px-2 py-1 text-xs rounded border transition-colors",
                 market === opt.key
-                  ? 'bg-brand-muted border-brand text-brand'
-                  : 'border-border text-fg-subtle hover:text-fg-muted hover:border-border-strong',
-              ].join(' ')}
+                  ? "bg-brand-muted border-brand text-brand"
+                  : "border-border text-fg-subtle hover:text-fg-muted hover:border-border-strong",
+              ].join(" ")}
             >
               {opt.label}
             </button>
           ))}
         </div>
         <div className="flex items-center gap-1">
-          <span className="text-xs text-fg-subtle uppercase tracking-wider mr-1">Window</span>
+          <span className="text-xs text-fg-subtle uppercase tracking-wider mr-1">
+            Window
+          </span>
           {WINDOW_OPTIONS.map((opt) => (
             <button
               key={opt.key}
-              onClick={() => setParam('window', opt.key)}
+              onClick={() => setParam("window", opt.key)}
               className={[
-                'px-2 py-1 text-xs rounded border transition-colors',
+                "px-2 py-1 text-xs rounded border transition-colors",
                 win === opt.key
-                  ? 'bg-brand-muted border-brand text-brand'
-                  : 'border-border text-fg-subtle hover:text-fg-muted hover:border-border-strong',
-              ].join(' ')}
+                  ? "bg-brand-muted border-brand text-brand"
+                  : "border-border text-fg-subtle hover:text-fg-muted hover:border-border-strong",
+              ].join(" ")}
             >
               {opt.label}
             </button>
@@ -324,10 +385,10 @@ export default function TrendsGrid({
 
       {/* Legend */}
       <div className="text-xs text-fg-subtle mb-2">
-        <span className="text-fg-subtle">Tier lines:</span>{' '}
-        <span className="text-pos">Safe</span> &ge;80% /{' '}
-        <span className="text-warn">Value</span> &ge;58% /{' '}
-        <span className="text-warn">HR</span> &ge;28% @ +150 /{' '}
+        <span className="text-fg-subtle">Tier lines:</span>{" "}
+        <span className="text-pos">Safe</span> &ge;80% /{" "}
+        <span className="text-warn">Value</span> &ge;58% /{" "}
+        <span className="text-warn">HR</span> &ge;28% @ +150 /{" "}
         <span className="text-info">Lotto</span> &ge;7% @ +400
       </div>
 
@@ -336,7 +397,9 @@ export default function TrendsGrid({
         <table className="text-sm border-collapse">
           <thead>
             <tr className="border-b border-border text-xs text-fg-subtle uppercase tracking-wider">
-              <th className="py-2 pr-3 text-left sticky left-0 bg-canvas z-20">Player</th>
+              <th className="py-2 pr-3 text-left sticky left-0 bg-canvas z-20">
+                Player
+              </th>
               <th className="py-2 pr-3 text-right">Grade</th>
               <th className="py-2 pr-3 text-right">Line</th>
               <th className="py-2 pr-3 text-right text-pos">Safe</th>
@@ -345,7 +408,9 @@ export default function TrendsGrid({
               <th className="py-2 pr-3 text-right text-info">Lotto</th>
               {/* Game column headers */}
               {(() => {
-                const allGames = data.players.flatMap((p) => p.gameLog.slice(0, visibleGameCount));
+                const allGames = data.players.flatMap((p) =>
+                  p.gameLog.slice(0, visibleGameCount),
+                );
                 const uniqueGames = new Map<string, GameLogEntry>();
                 for (const g of allGames) {
                   if (!uniqueGames.has(g.gameId)) uniqueGames.set(g.gameId, g);
@@ -362,7 +427,7 @@ export default function TrendsGrid({
                     className="py-2 px-2 text-right tabular-nums whitespace-nowrap"
                     title={g.gameDate}
                   >
-                    {g.gameDate.slice(5).replace('-', '/')}
+                    {g.gameDate.slice(5).replace("-", "/")}
                   </th>
                 ));
               })()}

@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
+import { useAuth } from "@/lib/auth-context";
+import GameStrip, { type Game } from "@/components/GameStrip";
 import LiveBoxScore from "@/components/LiveBoxScore";
 import GameBoxScore from "@/components/nba/GameBoxScore";
+import RosterTable from "@/components/RosterTable";
+import MatchupGrid from "@/components/MatchupGrid";
+import TrendsGrid from "@/components/TrendsGrid";
+import StatsTable from "@/components/StatsTable";
+import PropsSection from "@/components/nba/PropsSection";
+import SupplementalSection from "@/components/nba/SupplementalSection";
+import PreviousMatchupsCard from "@/components/nba/PreviousMatchupsCard";
 
 interface GameMeta {
   gameId: string;
@@ -33,7 +43,23 @@ function classifyStatus(g: GameMeta): GameState {
   return "pregame";
 }
 
+function defaultAnchor(state: GameState): string {
+  if (state === "live") return "live";
+  if (state === "pregame") return "lineups";
+  return "box";
+}
+
+function shiftDate(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+
 export default function GamePageInner({ gameId }: { gameId: string }) {
+  const router = useRouter();
+  const { mode } = useAuth();
+  const isDemo = mode === "demo";
+
   const { data, error, isLoading } = useSWR<{ game: GameMeta }>(
     `/api/game/${gameId}`,
     fetcher,
@@ -44,10 +70,32 @@ export default function GamePageInner({ gameId }: { gameId: string }) {
     },
   );
 
+  const game = data?.game ?? null;
+  const state: GameState = game ? classifyStatus(game) : "pregame";
+  const gameDate = game?.gameDate ?? "";
+
+  // Initial anchor scroll once game state is known.
+  const didInitialScroll = useRef(false);
+  useEffect(() => {
+    if (!game || didInitialScroll.current) return;
+    didInitialScroll.current = true;
+    const target = window.location.hash
+      ? window.location.hash.slice(1)
+      : defaultAnchor(state);
+    requestAnimationFrame(() => {
+      const el = document.getElementById(target);
+      if (!el) return;
+      window.scrollTo({
+        top: el.getBoundingClientRect().top + window.scrollY - 132,
+        behavior: "auto",
+      });
+    });
+  }, [game, state]);
+
   if (isLoading) {
     return <div className="p-4 text-sm text-fg-subtle">Loading game...</div>;
   }
-  if (error || !data?.game) {
+  if (error || !game) {
     return (
       <div className="p-4 text-sm text-neg">
         Error loading game:{" "}
@@ -56,47 +104,95 @@ export default function GamePageInner({ gameId }: { gameId: string }) {
     );
   }
 
-  const game = data.game;
-  const state = classifyStatus(game);
-
   return (
     <div className="flex min-h-screen flex-col">
-      <Scoreboard game={game} state={state} />
-      <AnchorNav state={state} />
+      <StickyHeader
+        game={game}
+        state={state}
+        gameDate={gameDate}
+        isDemo={isDemo}
+        onPickDate={(d) => {
+          if (isDemo) return;
+          // Date change navigates back to index for that date.
+          router.push(`/nba?date=${d}`);
+        }}
+        onPickGame={(g) => router.push(`/nba/game/${g.gameId}`)}
+      />
 
       <main className="flex-1 px-4 pb-12">
+        <Section id="lineups" label="Lineups" state={state}>
+          <RosterTable gameId={gameId} selectedDate={gameDate} />
+        </Section>
+
+        {state === "live" && (
+          <Section id="live" label="Live" state={state}>
+            <LiveBoxScore gameId={gameId} selectedDate={gameDate} />
+          </Section>
+        )}
+
         <Section
           id="box"
           label="Box score"
           state={state}
           extra={<LineupStatusPill gameId={gameId} state={state} />}
         >
-          {state === "live" ? (
-            <LiveBoxScore gameId={gameId} selectedDate={game.gameDate} />
-          ) : (
-            <GameBoxScore
-              gameId={gameId}
-              homeTeamId={game.homeTeamId}
-              homeTeamAbbr={game.homeTeamAbbr}
-              awayTeamId={game.awayTeamId}
-              awayTeamAbbr={game.awayTeamAbbr}
-              state={state}
-            />
-          )}
+          <GameBoxScore
+            gameId={gameId}
+            homeTeamId={game.homeTeamId}
+            homeTeamAbbr={game.homeTeamAbbr}
+            awayTeamId={game.awayTeamId}
+            awayTeamAbbr={game.awayTeamAbbr}
+            state={state}
+          />
         </Section>
 
-        {state !== "pregame" && (
-          <Section id="pbp" label="Play-by-play" state={state}>
-            <div className="px-4 py-6 text-sm text-fg-disabled">
-              {state === "live"
-                ? "Live play-by-play feed not yet wired."
-                : "Play-by-play archive not available for this game."}
-            </div>
+        <Section id="matchups" label="Matchups" state={state}>
+          <div className="p-4">
+            <MatchupGrid
+              gameId={gameId}
+              homeTeamAbbr={game.homeTeamAbbr}
+              awayTeamAbbr={game.awayTeamAbbr}
+              selectedDate={gameDate}
+            />
+          </div>
+        </Section>
+
+        <Section id="trends" label="Trends" state={state}>
+          <div className="p-4">
+            <TrendsGrid
+              gameId={gameId}
+              homeTeamAbbr={game.homeTeamAbbr}
+              awayTeamAbbr={game.awayTeamAbbr}
+              selectedDate={gameDate}
+            />
+          </div>
+        </Section>
+
+        <Section id="props" label="Props" state={state}>
+          <PropsSection gameId={gameId} selectedDate={gameDate} />
+        </Section>
+
+        <Section id="stats" label="Stats" state={state}>
+          <div className="p-4">
+            <StatsTable
+              gameId={gameId}
+              homeTeamId={game.homeTeamId}
+              awayTeamId={game.awayTeamId}
+              homeTeamAbbr={game.homeTeamAbbr}
+              awayTeamAbbr={game.awayTeamAbbr}
+              selectedDate={gameDate}
+            />
+          </div>
+        </Section>
+
+        {state === "pregame" && (
+          <Section id="supplemental" label="Supplemental" state={state}>
+            <SupplementalSection gameId={gameId} selectedDate={gameDate} />
           </Section>
         )}
 
-        <Section id="team" label="Team stats" state={state}>
-          <TeamStatsPlaceholder game={game} state={state} gameId={gameId} />
+        <Section id="prev" label="Previous matchups" state={state}>
+          <PreviousMatchupsCard gameId={gameId} limit={8} />
         </Section>
       </main>
     </div>
@@ -104,10 +200,89 @@ export default function GamePageInner({ gameId }: { gameId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Scoreboard
+// Sticky header: GameStrip + scoreboard + anchor nav
 // ---------------------------------------------------------------------------
 
-function Scoreboard({ game, state }: { game: GameMeta; state: GameState }) {
+function StickyHeader({
+  game,
+  state,
+  gameDate,
+  isDemo,
+  onPickDate,
+  onPickGame,
+}: {
+  game: GameMeta;
+  state: GameState;
+  gameDate: string;
+  isDemo: boolean;
+  onPickDate: (d: string) => void;
+  onPickGame: (g: Game) => void;
+}) {
+  const { data } = useSWR<{ games: Game[] }>(
+    gameDate ? `/api/games?sport=nba&date=${gameDate}` : null,
+    fetcher,
+    { revalidateOnFocus: false, dedupingInterval: 30_000 },
+  );
+  const games = data?.games ?? [];
+
+  return (
+    <div className="sticky top-0 z-40 border-b border-border bg-canvas/95 backdrop-blur">
+      <div className="px-4 py-2 flex items-center gap-3 border-b border-border-subtle">
+        <Link
+          href="/nba"
+          className="text-xs text-fg-subtle hover:text-fg font-mono uppercase tracking-wider"
+        >
+          /nba
+        </Link>
+        <div className="flex items-center gap-1 ml-auto">
+          {!isDemo && (
+            <button
+              onClick={() => onPickDate(shiftDate(gameDate, -1))}
+              className="px-2 py-1 text-fg-subtle hover:text-fg-muted text-base leading-none"
+              aria-label="Previous day"
+            >
+              &#8249;
+            </button>
+          )}
+          <input
+            type="date"
+            value={gameDate}
+            disabled={isDemo}
+            onChange={(e) => onPickDate(e.target.value)}
+            className={`text-sm bg-surface border border-border rounded px-2 py-1 text-fg-muted focus:outline-none focus:border-border-strong ${
+              isDemo ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+            }`}
+          />
+          {!isDemo && (
+            <button
+              onClick={() => onPickDate(shiftDate(gameDate, 1))}
+              className="px-2 py-1 text-fg-subtle hover:text-fg-muted text-base leading-none"
+              aria-label="Next day"
+            >
+              &#8250;
+            </button>
+          )}
+        </div>
+      </div>
+
+      {games.length > 0 && (
+        <GameStrip
+          games={games}
+          activeGameId={game.gameId}
+          onSelect={(id) => {
+            const g = games.find((gg) => gg.gameId === id);
+            if (g) onPickGame(g);
+          }}
+        />
+      )}
+
+      <ThinScoreboard game={game} state={state} />
+      <AnchorNav state={state} />
+    </div>
+  );
+}
+
+function ThinScoreboard({ game, state }: { game: GameMeta; state: GameState }) {
   const tint =
     state === "live"
       ? "bg-neg-muted"
@@ -117,17 +292,15 @@ function Scoreboard({ game, state }: { game: GameMeta; state: GameState }) {
 
   return (
     <header className={`border-b border-border ${tint}`}>
-      <div className="mx-auto flex max-w-5xl items-center justify-between gap-6 px-4 py-4">
-        <TeamScore
+      <div className="mx-auto flex max-w-5xl items-center justify-between gap-6 px-4 py-2">
+        <TeamLine
           abbr={game.awayTeamAbbr}
-          name={game.awayTeamName}
           score={game.awayScore}
           showScore={state !== "pregame"}
         />
         <StatusBadge state={state} statusText={game.gameStatusText} />
-        <TeamScore
+        <TeamLine
           abbr={game.homeTeamAbbr}
-          name={game.homeTeamName}
           score={game.homeScore}
           showScore={state !== "pregame"}
           alignRight
@@ -137,15 +310,13 @@ function Scoreboard({ game, state }: { game: GameMeta; state: GameState }) {
   );
 }
 
-function TeamScore({
+function TeamLine({
   abbr,
-  name,
   score,
   showScore,
   alignRight = false,
 }: {
   abbr: string;
-  name: string;
   score: number | null;
   showScore: boolean;
   alignRight?: boolean;
@@ -154,12 +325,9 @@ function TeamScore({
     <div
       className={`flex flex-1 items-center gap-3 ${alignRight ? "flex-row-reverse text-right" : ""}`}
     >
-      <div className={alignRight ? "text-right" : ""}>
-        <div className="text-h2 font-semibold text-fg">{abbr}</div>
-        <div className="text-xs text-fg-disabled">{name}</div>
-      </div>
+      <span className="text-base font-semibold text-fg">{abbr}</span>
       {showScore && (
-        <div className="text-display tabular-nums text-fg">{score ?? "-"}</div>
+        <span className="text-xl tabular-nums text-fg">{score ?? "-"}</span>
       )}
     </div>
   );
@@ -192,7 +360,7 @@ function StatusBadge({
 
   return (
     <div
-      className={`flex flex-col items-center rounded border px-3 py-1 text-xs font-medium uppercase tracking-wider ${cls}`}
+      className={`flex flex-col items-center rounded border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${cls}`}
     >
       {state === "live" && (
         <span className="mb-0.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-neg" />
@@ -207,33 +375,29 @@ function StatusBadge({
 // ---------------------------------------------------------------------------
 
 function AnchorNav({ state }: { state: GameState }) {
-  const [active, setActive] = useState<string>("box");
+  const [active, setActive] = useState<string>(defaultAnchor(state));
 
   useEffect(() => {
+    const ids = anchorIds(state);
     function onScroll() {
-      const ids = ["box", "pbp", "team"];
-      let cur = "box";
+      let cur = ids[0];
       for (const id of ids) {
         const el = document.getElementById(id);
         if (!el) continue;
         const top = el.getBoundingClientRect().top;
-        if (top - 120 <= 0) cur = id;
+        if (top - 140 <= 0) cur = id;
       }
       setActive(cur);
     }
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [state]);
 
-  const items: { id: string; label: string }[] = [
-    { id: "box", label: "Box score" },
-    ...(state !== "pregame" ? [{ id: "pbp", label: "Play-by-play" }] : []),
-    { id: "team", label: "Team stats" },
-  ];
+  const items = anchorItems(state);
 
   return (
-    <nav className="sticky top-0 z-30 border-b border-border bg-canvas/90 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl gap-1 px-4">
+    <nav className="border-t border-border-subtle">
+      <div className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-4">
         {items.map((it) => (
           <Link
             key={it.id}
@@ -244,15 +408,16 @@ function AnchorNav({ state }: { state: GameState }) {
               const el = document.getElementById(it.id);
               if (el)
                 window.scrollTo({
-                  top: el.getBoundingClientRect().top + window.scrollY - 64,
+                  top: el.getBoundingClientRect().top + window.scrollY - 132,
                   behavior: "smooth",
                 });
+              history.replaceState(null, "", `#${it.id}`);
             }}
             className={[
-              "px-3 py-2 text-xs font-medium uppercase tracking-wider transition-colors",
+              "whitespace-nowrap px-3 py-2 text-[11px] font-mono uppercase tracking-wider transition-colors border-b-2",
               active === it.id
-                ? "border-b-2 border-brand text-fg"
-                : "border-b-2 border-transparent text-fg-subtle hover:text-fg",
+                ? "border-brand text-fg"
+                : "border-transparent text-fg-subtle hover:text-fg",
             ].join(" ")}
           >
             {it.label}
@@ -263,8 +428,35 @@ function AnchorNav({ state }: { state: GameState }) {
   );
 }
 
+function anchorIds(state: GameState): string[] {
+  const ids: string[] = ["lineups"];
+  if (state === "live") ids.push("live");
+  ids.push("box", "matchups", "trends", "props", "stats");
+  if (state === "pregame") ids.push("supplemental");
+  ids.push("prev");
+  return ids;
+}
+
+function anchorItems(state: GameState): { id: string; label: string }[] {
+  const list: { id: string; label: string }[] = [
+    { id: "lineups", label: "Lineups" },
+  ];
+  if (state === "live") list.push({ id: "live", label: "Live" });
+  list.push(
+    { id: "box", label: "Box score" },
+    { id: "matchups", label: "Matchups" },
+    { id: "trends", label: "Trends" },
+    { id: "props", label: "Props" },
+    { id: "stats", label: "Stats" },
+  );
+  if (state === "pregame")
+    list.push({ id: "supplemental", label: "Supplemental" });
+  list.push({ id: "prev", label: "Prev. matchups" });
+  return list;
+}
+
 // ---------------------------------------------------------------------------
-// Section
+// Section wrapper
 // ---------------------------------------------------------------------------
 
 function Section({
@@ -281,7 +473,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="mx-auto max-w-5xl scroll-mt-20 py-6">
+    <section id={id} className="mx-auto max-w-5xl scroll-mt-32 py-6">
       <div className="mb-3 flex items-baseline gap-2">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">
           {label}
@@ -291,6 +483,23 @@ function Section({
       </div>
       <div className="rounded border border-border bg-canvas">{children}</div>
     </section>
+  );
+}
+
+function StatePill({ state }: { state: GameState }) {
+  const map: Record<GameState, { label: string; cls: string }> = {
+    pregame: { label: "pregame", cls: "text-brand border-brand" },
+    live: { label: "live", cls: "text-neg border-neg" },
+    final: { label: "final", cls: "text-fg-subtle border-border" },
+    postponed: { label: "postponed", cls: "text-warn border-warn" },
+  };
+  const { label, cls } = map[state];
+  return (
+    <span
+      className={`rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${cls}`}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -345,195 +554,5 @@ function LineupStatusPill({
     >
       {label}
     </span>
-  );
-}
-
-function StatePill({ state }: { state: GameState }) {
-  const map: Record<GameState, { label: string; cls: string }> = {
-    pregame: { label: "pregame", cls: "text-brand border-brand" },
-    live: { label: "live", cls: "text-neg border-neg" },
-    final: { label: "final", cls: "text-fg-subtle border-border" },
-    postponed: { label: "postponed", cls: "text-warn border-warn" },
-  };
-  const { label, cls } = map[state];
-  return (
-    <span
-      className={`rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${cls}`}
-    >
-      {label}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Team stats
-// ---------------------------------------------------------------------------
-
-interface BoxRow {
-  playerId: number;
-  teamId: number;
-  period: string;
-  pts: number | null;
-  reb: number | null;
-  ast: number | null;
-  stl: number | null;
-  blk: number | null;
-  tov: number | null;
-  min: number | null;
-  fg3m: number | null;
-  fg3a: number | null;
-  fgm: number | null;
-  fga: number | null;
-  ftm: number | null;
-  fta: number | null;
-}
-
-interface TeamTotals {
-  pts: number;
-  reb: number;
-  ast: number;
-  tov: number;
-  stl: number;
-  blk: number;
-  fgm: number;
-  fga: number;
-  fg3m: number;
-  fg3a: number;
-  ftm: number;
-  fta: number;
-}
-
-function aggregateTeam(rows: BoxRow[], teamId: number): TeamTotals {
-  const t: TeamTotals = {
-    pts: 0,
-    reb: 0,
-    ast: 0,
-    tov: 0,
-    stl: 0,
-    blk: 0,
-    fgm: 0,
-    fga: 0,
-    fg3m: 0,
-    fg3a: 0,
-    ftm: 0,
-    fta: 0,
-  };
-  for (const r of rows) {
-    if (r.teamId !== teamId) continue;
-    t.pts += r.pts ?? 0;
-    t.reb += r.reb ?? 0;
-    t.ast += r.ast ?? 0;
-    t.tov += r.tov ?? 0;
-    t.stl += r.stl ?? 0;
-    t.blk += r.blk ?? 0;
-    t.fgm += r.fgm ?? 0;
-    t.fga += r.fga ?? 0;
-    t.fg3m += r.fg3m ?? 0;
-    t.fg3a += r.fg3a ?? 0;
-    t.ftm += r.ftm ?? 0;
-    t.fta += r.fta ?? 0;
-  }
-  return t;
-}
-
-function pct(num: number, denom: number): string {
-  if (denom <= 0) return "-";
-  return `${((num / denom) * 100).toFixed(1)}%`;
-}
-
-function TeamStatsPlaceholder({
-  game,
-  state,
-  gameId,
-}: {
-  game: GameMeta;
-  state: GameState;
-  gameId: string;
-}) {
-  const { data, isLoading } = useSWR<{ rows: BoxRow[] }>(
-    state === "pregame" ? null : `/api/boxscore?gameId=${gameId}`,
-    fetcher,
-    {
-      refreshInterval: state === "live" ? 30_000 : 0,
-      revalidateOnFocus: false,
-      dedupingInterval: 15_000,
-    },
-  );
-
-  if (state === "pregame") {
-    return (
-      <div className="px-4 py-6 text-sm text-fg-disabled">
-        Team stats available once the game tips.
-      </div>
-    );
-  }
-
-  const rows = data?.rows ?? [];
-
-  if (isLoading && rows.length === 0) {
-    return (
-      <div className="px-4 py-6 text-sm text-fg-disabled">
-        Loading team stats...
-      </div>
-    );
-  }
-
-  const home = aggregateTeam(rows, game.homeTeamId);
-  const away = aggregateTeam(rows, game.awayTeamId);
-
-  const kpis: { label: string; away: string; home: string }[] = [
-    {
-      label: "Final score",
-      away: String(game.awayScore ?? "-"),
-      home: String(game.homeScore ?? "-"),
-    },
-    {
-      label: "FG%",
-      away: `${away.fgm}/${away.fga} · ${pct(away.fgm, away.fga)}`,
-      home: `${home.fgm}/${home.fga} · ${pct(home.fgm, home.fga)}`,
-    },
-    {
-      label: "3P%",
-      away: `${away.fg3m}/${away.fg3a} · ${pct(away.fg3m, away.fg3a)}`,
-      home: `${home.fg3m}/${home.fg3a} · ${pct(home.fg3m, home.fg3a)}`,
-    },
-    {
-      label: "FT%",
-      away: `${away.ftm}/${away.fta} · ${pct(away.ftm, away.fta)}`,
-      home: `${home.ftm}/${home.fta} · ${pct(home.ftm, home.fta)}`,
-    },
-    { label: "REB", away: String(away.reb), home: String(home.reb) },
-    { label: "AST", away: String(away.ast), home: String(home.ast) },
-    { label: "TOV", away: String(away.tov), home: String(home.tov) },
-    {
-      label: "STL · BLK",
-      away: `${away.stl} · ${away.blk}`,
-      home: `${home.stl} · ${home.blk}`,
-    },
-  ];
-
-  return (
-    <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 lg:grid-cols-4">
-      {kpis.map((kpi) => (
-        <div
-          key={kpi.label}
-          className="rounded border border-border bg-surface p-3"
-        >
-          <div className="mb-1 text-[10px] uppercase tracking-wider text-fg-disabled">
-            {kpi.label}
-          </div>
-          <div className="space-y-0.5 text-data tabular-nums">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-fg-subtle">{game.awayTeamAbbr}</span>
-              <span className="text-fg">{kpi.away}</span>
-            </div>
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-fg-subtle">{game.homeTeamAbbr}</span>
-              <span className="text-fg">{kpi.home}</span>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }

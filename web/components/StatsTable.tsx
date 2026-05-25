@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useEffect, useState, useCallback } from 'react';
-import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 
 interface PlayerAvg {
   playerId: number;
@@ -36,37 +36,45 @@ interface Props {
 }
 
 function fmt(val: number | null | undefined, decimals = 1): string {
-  if (val == null) return '-';
+  if (val == null) return "-";
   return val.toFixed(decimals);
 }
 
 const PERIOD_OPTIONS = [
-  { label: 'Full', value: 'full' },
-  { label: '1Q',   value: '1Q' },
-  { label: '2Q',   value: '2Q' },
-  { label: '3Q',   value: '3Q' },
-  { label: '4Q',   value: '4Q' },
-  { label: 'OT',   value: 'OT' },
+  { label: "Full", value: "full" },
+  { label: "1Q", value: "1Q" },
+  { label: "2Q", value: "2Q" },
+  { label: "3Q", value: "3Q" },
+  { label: "4Q", value: "4Q" },
+  { label: "OT", value: "OT" },
 ] as const;
 
 const N_OPTIONS = [
-  { label: 'L10',    value: '10' },
-  { label: 'L20',    value: '20' },
-  { label: 'L40',    value: '40' },
-  { label: 'All',    value: 'all' },
-  { label: 'vs Opp', value: 'opp' },
+  { label: "L10", value: "10" },
+  { label: "L20", value: "20" },
+  { label: "L40", value: "40" },
+  { label: "All", value: "all" },
+  { label: "vs Opp", value: "opp" },
 ];
 
-function StatsToggle({ showAll, onToggle }: { showAll: boolean; onToggle: () => void }) {
+function StatsToggle({
+  showAll,
+  onToggle,
+}: {
+  showAll: boolean;
+  onToggle: () => void;
+}) {
   return (
     <button
       onClick={onToggle}
       className={[
-        'px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap',
-        showAll ? 'bg-surface-hover text-fg' : 'bg-surface-hover text-fg-subtle hover:bg-surface-hover',
-      ].join(' ')}
+        "px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap",
+        showAll
+          ? "bg-surface-hover text-fg"
+          : "bg-surface-hover text-fg-subtle hover:bg-surface-hover",
+      ].join(" ")}
     >
-      {showAll ? 'Compact' : 'All Stats'}
+      {showAll ? "Compact" : "All Stats"}
     </button>
   );
 }
@@ -91,9 +99,11 @@ function TeamStatsTable({
   const [benchOpen, setBenchOpen] = useState(true);
   const [inactiveOpen, setInactiveOpen] = useState(false);
 
-  const starters  = players.filter((p) => p.starterStatus === 'Starter');
-  const bench     = players.filter((p) => p.starterStatus !== 'Starter' && p.starterStatus !== 'Inactive');
-  const inactive  = players.filter((p) => p.starterStatus === 'Inactive');
+  const starters = players.filter((p) => p.starterStatus === "Starter");
+  const bench = players.filter(
+    (p) => p.starterStatus !== "Starter" && p.starterStatus !== "Inactive",
+  );
+  const inactive = players.filter((p) => p.starterStatus === "Inactive");
   const hasLineup = players.some((p) => p.starterStatus != null);
 
   // compact:   Player GP MIN PTS 3PM REB AST PRA PR PA RA = 11 cols
@@ -102,11 +112,16 @@ function TeamStatsTable({
 
   const renderRow = (p: PlayerAvg, dimmed = false) => {
     const pra = (p.avgPts ?? 0) + (p.avgReb ?? 0) + (p.avgAst ?? 0);
-    const pr  = (p.avgPts ?? 0) + (p.avgReb ?? 0);
-    const pa  = (p.avgPts ?? 0) + (p.avgAst ?? 0);
-    const ra  = (p.avgReb ?? 0) + (p.avgAst ?? 0);
+    const pr = (p.avgPts ?? 0) + (p.avgReb ?? 0);
+    const pa = (p.avgPts ?? 0) + (p.avgAst ?? 0);
+    const ra = (p.avgReb ?? 0) + (p.avgAst ?? 0);
     return (
-      <tr key={p.playerId} className={['border-b border-border', dimmed ? 'opacity-40' : ''].join(' ')}>
+      <tr
+        key={p.playerId}
+        className={["border-b border-border", dimmed ? "opacity-40" : ""].join(
+          " ",
+        )}
+      >
         <td className="py-1.5 pr-3">
           <Link
             href={`/nba/player/${p.playerId}?${playerLinkParams}&opp=${opponentAbbr}`}
@@ -115,32 +130,70 @@ function TeamStatsTable({
             {p.playerName}
           </Link>
         </td>
-        <td className="py-1.5 px-2 text-right text-fg-subtle text-xs">{p.games}</td>
-        <td className="py-1.5 px-2 text-right text-fg-muted">{fmt(p.avgMin)}</td>
-        <td className="py-1.5 px-2 text-right text-fg-muted">{fmt(p.avgPts)}</td>
+        <td className="py-1.5 px-2 text-right text-fg-subtle text-xs">
+          {p.games}
+        </td>
+        <td className="py-1.5 px-2 text-right text-fg-muted">
+          {fmt(p.avgMin)}
+        </td>
+        <td className="py-1.5 px-2 text-right text-fg-muted">
+          {fmt(p.avgPts)}
+        </td>
         {showAllStats ? (
           <>
-            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">{fmt(p.avgFgm)}</td>
-            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">{fmt(p.avgFga)}</td>
-            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">{fmt(p.avg3pm)}</td>
-            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">{fmt(p.avg3pa)}</td>
-            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">{fmt(p.avgFtm)}</td>
-            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">{fmt(p.avgFta)}</td>
+            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">
+              {fmt(p.avgFgm)}
+            </td>
+            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">
+              {fmt(p.avgFga)}
+            </td>
+            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">
+              {fmt(p.avg3pm)}
+            </td>
+            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">
+              {fmt(p.avg3pa)}
+            </td>
+            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">
+              {fmt(p.avgFtm)}
+            </td>
+            <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">
+              {fmt(p.avgFta)}
+            </td>
           </>
         ) : (
-          <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">{fmt(p.avg3pm)}</td>
+          <td className="py-1.5 px-2 text-right text-fg-subtle tabular-nums">
+            {fmt(p.avg3pm)}
+          </td>
         )}
-        <td className="py-1.5 px-2 text-right text-fg-muted">{fmt(p.avgReb)}</td>
-        <td className="py-1.5 px-2 text-right text-fg-muted">{fmt(p.avgAst)}</td>
-        <td className="py-1.5 px-2 text-right text-fg-muted">{pra > 0 ? pra.toFixed(1) : '-'}</td>
-        <td className="py-1.5 px-2 text-right text-fg-muted">{pr  > 0 ? pr.toFixed(1)  : '-'}</td>
-        <td className="py-1.5 px-2 text-right text-fg-muted">{pa  > 0 ? pa.toFixed(1)  : '-'}</td>
-        <td className="py-1.5 px-2 text-right text-fg-muted">{ra  > 0 ? ra.toFixed(1)  : '-'}</td>
+        <td className="py-1.5 px-2 text-right text-fg-muted">
+          {fmt(p.avgReb)}
+        </td>
+        <td className="py-1.5 px-2 text-right text-fg-muted">
+          {fmt(p.avgAst)}
+        </td>
+        <td className="py-1.5 px-2 text-right text-fg-muted">
+          {pra > 0 ? pra.toFixed(1) : "-"}
+        </td>
+        <td className="py-1.5 px-2 text-right text-fg-muted">
+          {pr > 0 ? pr.toFixed(1) : "-"}
+        </td>
+        <td className="py-1.5 px-2 text-right text-fg-muted">
+          {pa > 0 ? pa.toFixed(1) : "-"}
+        </td>
+        <td className="py-1.5 px-2 text-right text-fg-muted">
+          {ra > 0 ? ra.toFixed(1) : "-"}
+        </td>
         {showAllStats && (
           <>
-            <td className="py-1.5 px-2 text-right text-fg-muted">{fmt(p.avgStl)}</td>
-            <td className="py-1.5 px-2 text-right text-fg-muted">{fmt(p.avgBlk)}</td>
-            <td className="py-1.5 pl-2 text-right text-fg-muted">{fmt(p.avgTov)}</td>
+            <td className="py-1.5 px-2 text-right text-fg-muted">
+              {fmt(p.avgStl)}
+            </td>
+            <td className="py-1.5 px-2 text-right text-fg-muted">
+              {fmt(p.avgBlk)}
+            </td>
+            <td className="py-1.5 pl-2 text-right text-fg-muted">
+              {fmt(p.avgTov)}
+            </td>
           </>
         )}
       </tr>
@@ -164,7 +217,9 @@ function TeamStatsTable({
           colSpan={colSpanTotal}
           className="py-1.5 text-xs text-fg-subtle font-semibold uppercase tracking-wider"
         >
-          <span className="mr-1.5 text-fg-disabled">{open ? '\u25be' : '\u25b8'}</span>
+          <span className="mr-1.5 text-fg-disabled">
+            {open ? "\u25be" : "\u25b8"}
+          </span>
           {label} ({count})
         </td>
       </tr>
@@ -174,7 +229,9 @@ function TeamStatsTable({
 
   return (
     <div className="overflow-x-auto">
-      <div className="text-xs font-semibold text-fg-subtle uppercase tracking-wider mb-2">{abbr}</div>
+      <div className="text-xs font-semibold text-fg-subtle uppercase tracking-wider mb-2">
+        {abbr}
+      </div>
       <table className="w-full text-sm">
         <thead>
           <tr className="text-xs text-fg-subtle border-b border-border">
@@ -213,8 +270,23 @@ function TeamStatsTable({
           {hasLineup ? (
             <>
               {starters.map((p) => renderRow(p))}
-              {bench.length > 0 && collapsibleSection('Bench', bench.length, benchOpen, () => setBenchOpen((o) => !o), bench)}
-              {inactive.length > 0 && collapsibleSection('Inactive', inactive.length, inactiveOpen, () => setInactiveOpen((o) => !o), inactive, true)}
+              {bench.length > 0 &&
+                collapsibleSection(
+                  "Bench",
+                  bench.length,
+                  benchOpen,
+                  () => setBenchOpen((o) => !o),
+                  bench,
+                )}
+              {inactive.length > 0 &&
+                collapsibleSection(
+                  "Inactive",
+                  inactive.length,
+                  inactiveOpen,
+                  () => setInactiveOpen((o) => !o),
+                  inactive,
+                  true,
+                )}
             </>
           ) : (
             players.map((p) => renderRow(p))
@@ -225,43 +297,53 @@ function TeamStatsTable({
   );
 }
 
-export default function StatsTable({ gameId, homeTeamId, awayTeamId, homeTeamAbbr, awayTeamAbbr, selectedDate }: Props) {
-  const router       = useRouter();
+export default function StatsTable({
+  gameId,
+  homeTeamId,
+  awayTeamId,
+  homeTeamAbbr,
+  awayTeamAbbr,
+  selectedDate,
+}: Props) {
+  const router = useRouter();
   const searchParams = useSearchParams();
 
   // Read period filter from URL on mount so navigating back restores state.
   // URL param: periods=3Q,4Q  (absent or empty = full game)
-  const periodsFromUrl = searchParams.get('periods') ?? '';
+  const periodsFromUrl = searchParams.get("periods") ?? "";
   const initialPeriods: Set<string> = periodsFromUrl
-    ? new Set(periodsFromUrl.split(',').filter(Boolean))
-    : new Set(['full']);
+    ? new Set(periodsFromUrl.split(",").filter(Boolean))
+    : new Set(["full"]);
 
-  const [activePeriods, setActivePeriods] = useState<Set<string>>(initialPeriods);
-  const [nGames, setNGames]               = useState('20');
-  const [players, setPlayers]             = useState<PlayerAvg[]>([]);
-  const [loading, setLoading]             = useState(true);
-  const [error, setError]                 = useState<string | null>(null);
-  const [showAllStats, setShowAllStats]   = useState(false);
+  const [activePeriods, setActivePeriods] =
+    useState<Set<string>>(initialPeriods);
+  const [nGames, setNGames] = useState("20");
+  const [players, setPlayers] = useState<PlayerAvg[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showAllStats, setShowAllStats] = useState(false);
 
   // Write period changes back to URL so back-navigation restores them.
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
-    if (activePeriods.has('full') || activePeriods.size === 0) {
-      params.delete('periods');
+    if (activePeriods.has("full") || activePeriods.size === 0) {
+      params.delete("periods");
     } else {
-      params.set('periods', Array.from(activePeriods).join(','));
+      params.set("periods", Array.from(activePeriods).join(","));
     }
-    router.replace(`/nba?${params.toString()}`, { scroll: false });
+    const path =
+      typeof window !== "undefined" ? window.location.pathname : "/nba";
+    router.replace(`${path}?${params.toString()}`, { scroll: false });
   }, [activePeriods]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function togglePeriod(value: string) {
     setActivePeriods((prev) => {
       const next = new Set(prev);
-      if (value === 'full') return new Set(['full']);
-      next.delete('full');
+      if (value === "full") return new Set(["full"]);
+      next.delete("full");
       if (next.has(value)) {
         next.delete(value);
-        if (next.size === 0) return new Set(['full']);
+        if (next.size === 0) return new Set(["full"]);
       } else {
         next.add(value);
       }
@@ -272,39 +354,62 @@ export default function StatsTable({ gameId, homeTeamId, awayTeamId, homeTeamAbb
   const fetchStats = useCallback(() => {
     setLoading(true);
     setError(null);
-    const periodsParam = activePeriods.has('full') ? '' : Array.from(activePeriods).join(',');
-    const url = new URL('/api/team-averages', window.location.origin);
-    url.searchParams.set('homeTeamId', String(homeTeamId));
-    url.searchParams.set('awayTeamId', String(awayTeamId));
-    url.searchParams.set('context', nGames);
-    url.searchParams.set('gameId', gameId);
-    if (periodsParam) url.searchParams.set('periods', periodsParam);
-    if (nGames === 'opp') {
-      url.searchParams.set('opp', `${awayTeamAbbr},${homeTeamAbbr}`);
+    const periodsParam = activePeriods.has("full")
+      ? ""
+      : Array.from(activePeriods).join(",");
+    const url = new URL("/api/team-averages", window.location.origin);
+    url.searchParams.set("homeTeamId", String(homeTeamId));
+    url.searchParams.set("awayTeamId", String(awayTeamId));
+    url.searchParams.set("context", nGames);
+    url.searchParams.set("gameId", gameId);
+    if (periodsParam) url.searchParams.set("periods", periodsParam);
+    if (nGames === "opp") {
+      url.searchParams.set("opp", `${awayTeamAbbr},${homeTeamAbbr}`);
     }
     fetch(url.toString())
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then((data) => setPlayers(data.players ?? []))
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [homeTeamId, awayTeamId, nGames, activePeriods, gameId, homeTeamAbbr, awayTeamAbbr]);
+  }, [
+    homeTeamId,
+    awayTeamId,
+    nGames,
+    activePeriods,
+    gameId,
+    homeTeamAbbr,
+    awayTeamAbbr,
+  ]);
 
-  useEffect(() => { fetchStats(); }, [fetchStats]);
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
 
   // Build the base params to pass to player links so periods survive navigation.
-  const periodsStr = activePeriods.has('full') ? '' : Array.from(activePeriods).join(',');
+  const periodsStr = activePeriods.has("full")
+    ? ""
+    : Array.from(activePeriods).join(",");
   const playerLinkParams = new URLSearchParams({
     gameId,
-    tab: 'stats',
+    tab: "stats",
     date: selectedDate,
     ...(periodsStr ? { periods: periodsStr } : {}),
   }).toString();
 
   const homePlayers = players.filter((p) => p.teamAbbr === homeTeamAbbr);
   const awayPlayers = players.filter((p) => p.teamAbbr === awayTeamAbbr);
-  const otherAbbrs  = Array.from(new Set(
-    players.filter((p) => p.teamAbbr !== homeTeamAbbr && p.teamAbbr !== awayTeamAbbr).map((p) => p.teamAbbr)
-  ));
+  const otherAbbrs = Array.from(
+    new Set(
+      players
+        .filter(
+          (p) => p.teamAbbr !== homeTeamAbbr && p.teamAbbr !== awayTeamAbbr,
+        )
+        .map((p) => p.teamAbbr),
+    ),
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -315,9 +420,11 @@ export default function StatsTable({ gameId, homeTeamId, awayTeamId, homeTeamAbb
               key={value}
               onClick={() => togglePeriod(value)}
               className={[
-                'px-2.5 py-1 text-xs font-medium rounded transition-colors',
-                activePeriods.has(value) ? 'bg-brand text-fg' : 'bg-surface-hover text-fg-subtle hover:bg-surface-hover',
-              ].join(' ')}
+                "px-2.5 py-1 text-xs font-medium rounded transition-colors",
+                activePeriods.has(value)
+                  ? "bg-brand text-fg"
+                  : "bg-surface-hover text-fg-subtle hover:bg-surface-hover",
+              ].join(" ")}
             >
               {label}
             </button>
@@ -329,45 +436,66 @@ export default function StatsTable({ gameId, homeTeamId, awayTeamId, homeTeamAbb
               key={value}
               onClick={() => setNGames(value)}
               className={[
-                'px-2.5 py-1 text-xs font-medium rounded transition-colors',
-                nGames === value ? 'bg-surface-hover text-fg' : 'bg-surface-hover text-fg-subtle hover:bg-surface-hover',
-              ].join(' ')}
+                "px-2.5 py-1 text-xs font-medium rounded transition-colors",
+                nGames === value
+                  ? "bg-surface-hover text-fg"
+                  : "bg-surface-hover text-fg-subtle hover:bg-surface-hover",
+              ].join(" ")}
             >
               {label}
             </button>
           ))}
         </div>
-        <StatsToggle showAll={showAllStats} onToggle={() => setShowAllStats((v) => !v)} />
+        <StatsToggle
+          showAll={showAllStats}
+          onToggle={() => setShowAllStats((v) => !v)}
+        />
       </div>
 
-      {loading && <div className="text-sm text-fg-subtle py-2">Loading stats...</div>}
-      {error   && <div className="text-sm text-neg py-2">Error: {error}</div>}
+      {loading && (
+        <div className="text-sm text-fg-subtle py-2">Loading stats...</div>
+      )}
+      {error && <div className="text-sm text-neg py-2">Error: {error}</div>}
 
       {!loading && !error && (
         <div className="flex flex-col gap-6">
           {awayPlayers.length > 0 && (
             <TeamStatsTable
-              abbr={awayTeamAbbr} opponentAbbr={homeTeamAbbr}
-              players={awayPlayers} gameId={gameId} selectedDate={selectedDate}
-              showAllStats={showAllStats} playerLinkParams={playerLinkParams}
+              abbr={awayTeamAbbr}
+              opponentAbbr={homeTeamAbbr}
+              players={awayPlayers}
+              gameId={gameId}
+              selectedDate={selectedDate}
+              showAllStats={showAllStats}
+              playerLinkParams={playerLinkParams}
             />
           )}
           {homePlayers.length > 0 && (
             <TeamStatsTable
-              abbr={homeTeamAbbr} opponentAbbr={awayTeamAbbr}
-              players={homePlayers} gameId={gameId} selectedDate={selectedDate}
-              showAllStats={showAllStats} playerLinkParams={playerLinkParams}
+              abbr={homeTeamAbbr}
+              opponentAbbr={awayTeamAbbr}
+              players={homePlayers}
+              gameId={gameId}
+              selectedDate={selectedDate}
+              showAllStats={showAllStats}
+              playerLinkParams={playerLinkParams}
             />
           )}
           {otherAbbrs.map((abbr) => (
             <TeamStatsTable
-              key={abbr} abbr={abbr} opponentAbbr=''
+              key={abbr}
+              abbr={abbr}
+              opponentAbbr=""
               players={players.filter((p) => p.teamAbbr === abbr)}
-              gameId={gameId} selectedDate={selectedDate}
-              showAllStats={showAllStats} playerLinkParams={playerLinkParams}
+              gameId={gameId}
+              selectedDate={selectedDate}
+              showAllStats={showAllStats}
+              playerLinkParams={playerLinkParams}
             />
           ))}
-          {players.length === 0 && <div className="text-sm text-fg-subtle">No stats available.</div>}
+          {players.length === 0 && (
+            <div className="text-sm text-fg-subtle">No stats available.</div>
+          )}
         </div>
       )}
     </div>
