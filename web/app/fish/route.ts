@@ -93,6 +93,78 @@ export async function GET() {
     .status.ok { color: #3a9a68; }
     .status.running { color: #2a7ab8; }
     .status.error { color: #aa4a40; }
+
+    /* Log panel */
+    .log-wrap {
+      width: 100%;
+      margin-top: 28px;
+      display: none;
+      flex-direction: column;
+      align-items: stretch;
+      text-align: left;
+    }
+    .log-wrap.visible { display: flex; }
+    .log-header {
+      font-size: 8px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #8aaabb;
+      margin-bottom: 8px;
+    }
+    .log-box {
+      background: #0a2a40;
+      padding: 14px 16px;
+      min-height: 48px;
+      max-height: 260px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .log-line {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+      opacity: 0;
+      animation: fadein 0.25s ease forwards;
+    }
+    @keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+    .log-time {
+      font-size: 9px;
+      color: #4a7a9a;
+      flex-shrink: 0;
+      letter-spacing: 0.04em;
+    }
+    .log-text {
+      font-size: 10px;
+      color: #c8e0f0;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .log-text.ok   { color: #5aba88; }
+    .log-text.err  { color: #e06060; }
+    .log-text.muted { color: #4a7a9a; }
+    .log-cursor {
+      display: inline-block;
+      width: 6px; height: 10px;
+      background: #4a7a9a;
+      animation: blink 1s step-end infinite;
+      vertical-align: middle;
+      margin-left: 2px;
+    }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+    .log-gh-link {
+      margin-top: 8px;
+      font-size: 8px;
+      color: #4a7a9a;
+      letter-spacing: 0.1em;
+      text-decoration: none;
+      text-transform: uppercase;
+      display: inline-block;
+    }
+    .log-gh-link:hover { color: #8aaabb; }
+
     .watermark { position: fixed; bottom: 14px; right: 16px; font-size: 8px; color: #c0d0e0; letter-spacing: 0.08em; font-family: 'IBM Plex Mono', monospace; user-select: none; }
   </style>
 </head>
@@ -107,25 +179,148 @@ export async function GET() {
       <span id="btn-label">REFRESH</span>
     </button>
     <div class="status" id="status"></div>
+
+    <div class="log-wrap" id="log-wrap">
+      <div class="log-header">Sync log</div>
+      <div class="log-box" id="log-box"></div>
+      <a class="log-gh-link" id="log-gh-link" href="#" target="_blank" rel="noopener" style="display:none">View on GitHub &rarr;</a>
+    </div>
   </div>
   <div class="watermark">schnapp.bet/fish</div>
 
   <script>
     let running = false;
+    let pollTimer = null;
+    let knownLineCount = 0;
+    let cursorEl = null;
+
+    function addLogLine(time, text, cls) {
+      const box = document.getElementById('log-box');
+
+      // Remove cursor from wherever it is
+      if (cursorEl && cursorEl.parentNode) {
+        cursorEl.parentNode.removeChild(cursorEl);
+        cursorEl = null;
+      }
+
+      const row = document.createElement('div');
+      row.className = 'log-line';
+
+      const t = document.createElement('span');
+      t.className = 'log-time';
+      t.textContent = time;
+
+      const m = document.createElement('span');
+      m.className = 'log-text' + (cls ? ' ' + cls : '');
+      m.textContent = text;
+
+      row.appendChild(t);
+      row.appendChild(m);
+      box.appendChild(row);
+      box.scrollTop = box.scrollHeight;
+      return row;
+    }
+
+    function addCursor() {
+      const box = document.getElementById('log-box');
+      if (cursorEl && cursorEl.parentNode) cursorEl.parentNode.removeChild(cursorEl);
+      cursorEl = document.createElement('div');
+      cursorEl.className = 'log-line';
+      const t = document.createElement('span');
+      t.className = 'log-time';
+      t.textContent = '';
+      const m = document.createElement('span');
+      m.className = 'log-text muted';
+      const c = document.createElement('span');
+      c.className = 'log-cursor';
+      m.appendChild(c);
+      cursorEl.appendChild(t);
+      cursorEl.appendChild(m);
+      box.appendChild(cursorEl);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function classFor(text) {
+      if (text.includes('FAILED') || text.includes('ERR')) return 'err';
+      if (text.startsWith('DONE.')) return 'ok';
+      return '';
+    }
+
+    async function poll(runId) {
+      try {
+        const res = await fetch('/api/fish-sync/status?runId=' + runId);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Render any new lines
+        const newLines = data.lines.slice(knownLineCount);
+        for (const ln of newLines) {
+          addLogLine(ln.time, ln.text, classFor(ln.text));
+          knownLineCount++;
+        }
+
+        if (data.runUrl) {
+          const link = document.getElementById('log-gh-link');
+          link.href = data.runUrl;
+          link.style.display = 'inline-block';
+        }
+
+        if (data.done) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          if (cursorEl && cursorEl.parentNode) { cursorEl.parentNode.removeChild(cursorEl); cursorEl = null; }
+
+          const btn    = document.getElementById('btn');
+          const icon   = document.getElementById('btn-icon');
+          const label  = document.getElementById('btn-label');
+          const status = document.getElementById('status');
+
+          if (data.failed) {
+            btn.className = 'btn state-error';
+            icon.className = 'btn-icon';
+            label.textContent = 'REFRESH';
+            status.className = 'status error';
+            status.textContent = 'Run failed.';
+          } else {
+            btn.className = 'btn state-success';
+            icon.className = 'btn-icon';
+            label.textContent = 'FISH FRESH NOW';
+            status.className = 'status ok';
+            status.textContent = 'Last refresh: just now';
+            setTimeout(() => {
+              btn.className = 'btn';
+              label.textContent = 'REFRESH';
+            }, 3500);
+          }
+          running = false;
+        }
+      } catch (e) {
+        // swallow poll errors; keep trying
+      }
+    }
 
     async function runSync() {
       if (running) return;
       running = true;
+
       const btn    = document.getElementById('btn');
       const icon   = document.getElementById('btn-icon');
       const label  = document.getElementById('btn-label');
       const status = document.getElementById('status');
+      const logWrap = document.getElementById('log-wrap');
+      const logBox  = document.getElementById('log-box');
 
       btn.className = 'btn state-running';
       icon.className = 'btn-icon spinning';
       label.textContent = 'FETCHING...';
       status.className = 'status running';
-      status.textContent = 'Contacting AppFolio...';
+      status.textContent = '';
+
+      // Reset log
+      logBox.innerHTML = '';
+      knownLineCount = 0;
+      logWrap.classList.add('visible');
+      addCursor();
 
       try {
         const res = await fetch('/api/fish-sync', {
@@ -134,7 +329,10 @@ export async function GET() {
           body: JSON.stringify({}),
         });
         const data = await res.json();
-        if (!res.ok) {
+
+        if (!res.ok || !data.runId) {
+          if (cursorEl && cursorEl.parentNode) { cursorEl.parentNode.removeChild(cursorEl); cursorEl = null; }
+          addLogLine('--:--:--', data.error ?? 'DISPATCH FAILED', 'err');
           btn.className = 'btn state-error';
           icon.className = 'btn-icon';
           label.textContent = 'REFRESH';
@@ -143,17 +341,13 @@ export async function GET() {
           running = false;
           return;
         }
-        btn.className = 'btn state-success';
-        icon.className = 'btn-icon';
-        label.textContent = 'FISH FRESH NOW';
-        status.className = 'status ok';
-        status.textContent = 'Last refresh: just now';
-        setTimeout(() => {
-          btn.className = 'btn';
-          label.textContent = 'REFRESH';
-          running = false;
-        }, 3500);
+
+        label.textContent = 'RUNNING...';
+        pollTimer = setInterval(() => poll(data.runId), 5000);
+        poll(data.runId); // immediate first poll
       } catch (e) {
+        if (cursorEl && cursorEl.parentNode) { cursorEl.parentNode.removeChild(cursorEl); cursorEl = null; }
+        addLogLine('--:--:--', e.message ?? 'UNKNOWN ERROR', 'err');
         btn.className = 'btn state-error';
         icon.className = 'btn-icon';
         label.textContent = 'REFRESH';
