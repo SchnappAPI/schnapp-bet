@@ -140,6 +140,9 @@ export async function GET() {
       const byId = {};
       for (const r of ROWS) byId[r.id] = r;
       const list = document.getElementById('steps-list');
+      const doneRows = apiRows.filter(r=>(r.state==='done'||r.state==='error')&&r.elapsedSeconds!=null).sort((a,b)=>a.elapsedSeconds-b.elapsedSeconds);
+      const stepDur = {}; let prev=0;
+      for (const r of doneRows) { stepDur[r.id]=r.elapsedSeconds-prev; prev=r.elapsedSeconds; }
 
       for (const c of COLLAPSED) {
         const allDone = c.groupIds.every(id => { const r = apiRows.find(x=>x.id===id); return r&&(r.state==='done'||r.state==='error'); });
@@ -157,7 +160,7 @@ export async function GET() {
             el.className = 'step-row state-'+r.state;
             const lb = el.querySelector('.step-label'), du = el.querySelector('.step-dur');
             lb.textContent = (r.state==='done'||r.state==='error') ? r.done : byId[id].pending;
-            if ((r.state==='done'||r.state==='error')&&r.elapsedSeconds!=null) du.textContent=fmtDur(r.elapsedSeconds);
+            if ((r.state==='done'||r.state==='error')&&r.elapsedSeconds!=null) du.textContent=fmtDur(stepDur[r.id]!=null?stepDur[r.id]:r.elapsedSeconds);
           }
         } else if (col) {
           col.className = 'step-row state-'+(anyStarted?'active':'pending');
@@ -173,7 +176,7 @@ export async function GET() {
         if (r.state==='pending')      lb.textContent = byId[r.id].pending;
         else if (r.state==='active')  lb.textContent = byId[r.id].active;
         else                          lb.textContent = r.done;
-        if ((r.state==='done'||r.state==='error')&&r.elapsedSeconds!=null) du.textContent=fmtDur(r.elapsedSeconds);
+        if ((r.state==='done'||r.state==='error')&&r.elapsedSeconds!=null) du.textContent=fmtDur(stepDur[r.id]!=null?stepDur[r.id]:r.elapsedSeconds);
       }
     }
 
