@@ -33,7 +33,7 @@ export async function GET() {
     .headline {
       font-family: 'Bebas Neue', sans-serif;
       font-size: clamp(52px, 14vw, 88px);
-      color: #0a2a40;
+      color: #003057;
       line-height: 0.88;
       letter-spacing: 0.04em;
       user-select: none;
@@ -41,7 +41,7 @@ export async function GET() {
     .subtext {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 10px;
-      color: #6a8aaa;
+      color: #306e7b;
       letter-spacing: 0.15em;
       text-transform: uppercase;
       margin-top: 14px;
@@ -54,8 +54,8 @@ export async function GET() {
       align-items: center;
       justify-content: center;
       gap: 10px;
-      background: #0a2a40;
-      color: #e8f4fc;
+      background: #004b87;
+      color: #f8fafb;
       font-family: 'Bebas Neue', sans-serif;
       font-size: 22px;
       letter-spacing: 0.12em;
@@ -67,32 +67,32 @@ export async function GET() {
       outline: none;
     }
     .btn:not(:disabled):hover {
-      background: #072030;
+      background: #003057;
       transform: translateY(-2px);
-      box-shadow: 0 6px 24px rgba(10, 42, 64, 0.28);
+      box-shadow: 0 6px 24px rgba(0, 48, 87, 0.32);
     }
     .btn::after {
       content: '';
       position: absolute;
       top: 0; left: -100%;
       width: 60%; height: 100%;
-      background: linear-gradient(105deg, transparent 30%, rgba(232,244,252,0.12) 50%, transparent 70%);
+      background: linear-gradient(105deg, transparent 30%, rgba(184,217,235,0.10) 50%, transparent 70%);
       pointer-events: none;
     }
     .btn:not(:disabled):hover::after { animation: shimmer 0.55s ease forwards; }
     @keyframes shimmer { 0% { left: -80%; } 100% { left: 140%; } }
     .btn-icon { width: 18px; height: 18px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-    .btn-icon svg { width: 18px; height: 18px; fill: none; stroke: #e8f4fc; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-    .btn.state-running { opacity: 0.8; cursor: not-allowed; pointer-events: none; }
-    .btn.state-success { background: #0a4a28; }
-    .btn.state-success:hover { background: #083820; }
-    .btn.state-error { background: #4a1010; }
+    .btn-icon svg { width: 18px; height: 18px; fill: none; stroke: #b8d9eb; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+    .btn.state-running { opacity: 0.75; cursor: not-allowed; pointer-events: none; }
+    .btn.state-success { background: #306e7b; }
+    .btn.state-success:hover { background: #245660; }
+    .btn.state-error { background: #774b52; }
     .spinning svg { animation: spin 0.8s linear infinite; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    .status { margin-top: 12px; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: #8aaabb; min-height: 14px; transition: color 0.2s ease; }
-    .status.ok { color: #3a9a68; }
-    .status.running { color: #2a7ab8; }
-    .status.error { color: #aa4a40; }
+    .status { margin-top: 12px; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: #306e7b; min-height: 14px; transition: color 0.2s ease; }
+    .status.ok { color: #4e7e70; }
+    .status.running { color: #2587c8; }
+    .status.error { color: #774b52; }
 
     /* Log panel */
     .log-wrap {
@@ -108,14 +108,14 @@ export async function GET() {
       font-size: 8px;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: #8aaabb;
+      color: #306e7b;
       margin-bottom: 8px;
     }
     .log-box {
-      background: #0a2a40;
+      background: #003057;
       padding: 14px 16px;
       min-height: 48px;
-      max-height: 260px;
+      max-height: 280px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
@@ -126,29 +126,29 @@ export async function GET() {
       gap: 10px;
       align-items: baseline;
       opacity: 0;
-      animation: fadein 0.25s ease forwards;
+      animation: fadein 0.2s ease forwards;
     }
-    @keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+    @keyframes fadein { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
     .log-time {
       font-size: 9px;
-      color: #4a7a9a;
+      color: #2587c8;
       flex-shrink: 0;
       letter-spacing: 0.04em;
     }
     .log-text {
       font-size: 10px;
-      color: #c8e0f0;
+      color: #b8d9eb;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       font-weight: 500;
     }
-    .log-text.ok   { color: #5aba88; }
-    .log-text.err  { color: #e06060; }
-    .log-text.muted { color: #4a7a9a; }
+    .log-text.ok   { color: #4e7e70; }
+    .log-text.err  { color: #774b52; }
+    .log-text.muted { color: #2587c8; }
     .log-cursor {
       display: inline-block;
       width: 6px; height: 10px;
-      background: #4a7a9a;
+      background: #2587c8;
       animation: blink 1s step-end infinite;
       vertical-align: middle;
       margin-left: 2px;
@@ -157,15 +157,15 @@ export async function GET() {
     .log-gh-link {
       margin-top: 8px;
       font-size: 8px;
-      color: #4a7a9a;
+      color: #306e7b;
       letter-spacing: 0.1em;
       text-decoration: none;
       text-transform: uppercase;
       display: inline-block;
     }
-    .log-gh-link:hover { color: #8aaabb; }
+    .log-gh-link:hover { color: #2587c8; }
 
-    .watermark { position: fixed; bottom: 14px; right: 16px; font-size: 8px; color: #c0d0e0; letter-spacing: 0.08em; font-family: 'IBM Plex Mono', monospace; user-select: none; }
+    .watermark { position: fixed; bottom: 14px; right: 16px; font-size: 8px; color: #b8d9eb; letter-spacing: 0.08em; font-family: 'IBM Plex Mono', monospace; user-select: none; }
   </style>
 </head>
 <body>
@@ -196,12 +196,7 @@ export async function GET() {
 
     function addLogLine(time, text, cls) {
       const box = document.getElementById('log-box');
-
-      // Remove cursor from wherever it is
-      if (cursorEl && cursorEl.parentNode) {
-        cursorEl.parentNode.removeChild(cursorEl);
-        cursorEl = null;
-      }
+      if (cursorEl && cursorEl.parentNode) { cursorEl.parentNode.removeChild(cursorEl); cursorEl = null; }
 
       const row = document.createElement('div');
       row.className = 'log-line';
@@ -218,7 +213,6 @@ export async function GET() {
       row.appendChild(m);
       box.appendChild(row);
       box.scrollTop = box.scrollHeight;
-      return row;
     }
 
     function addCursor() {
@@ -226,22 +220,16 @@ export async function GET() {
       if (cursorEl && cursorEl.parentNode) cursorEl.parentNode.removeChild(cursorEl);
       cursorEl = document.createElement('div');
       cursorEl.className = 'log-line';
-      const t = document.createElement('span');
-      t.className = 'log-time';
-      t.textContent = '';
-      const m = document.createElement('span');
-      m.className = 'log-text muted';
-      const c = document.createElement('span');
-      c.className = 'log-cursor';
-      m.appendChild(c);
-      cursorEl.appendChild(t);
-      cursorEl.appendChild(m);
+      const t = document.createElement('span'); t.className = 'log-time'; t.textContent = '';
+      const m = document.createElement('span'); m.className = 'log-text muted';
+      const c = document.createElement('span'); c.className = 'log-cursor';
+      m.appendChild(c); cursorEl.appendChild(t); cursorEl.appendChild(m);
       box.appendChild(cursorEl);
       box.scrollTop = box.scrollHeight;
     }
 
     function classFor(text) {
-      if (text.includes('FAILED') || text.includes('ERR')) return 'err';
+      if (text.includes('FAILED') || text.endsWith('ERR)') || text === 'FETCH FAILED') return 'err';
       if (text.startsWith('DONE.')) return 'ok';
       return '';
     }
@@ -252,12 +240,12 @@ export async function GET() {
         if (!res.ok) return;
         const data = await res.json();
 
-        // Render any new lines
         const newLines = data.lines.slice(knownLineCount);
         for (const ln of newLines) {
           addLogLine(ln.time, ln.text, classFor(ln.text));
           knownLineCount++;
         }
+        if (newLines.length) addCursor();
 
         if (data.runUrl) {
           const link = document.getElementById('log-gh-link');
@@ -266,13 +254,12 @@ export async function GET() {
         }
 
         if (data.done) {
-          clearInterval(pollTimer);
-          pollTimer = null;
+          clearInterval(pollTimer); pollTimer = null;
           if (cursorEl && cursorEl.parentNode) { cursorEl.parentNode.removeChild(cursorEl); cursorEl = null; }
 
-          const btn    = document.getElementById('btn');
-          const icon   = document.getElementById('btn-icon');
-          const label  = document.getElementById('btn-label');
+          const btn = document.getElementById('btn');
+          const icon = document.getElementById('btn-icon');
+          const label = document.getElementById('btn-label');
           const status = document.getElementById('status');
 
           if (data.failed) {
@@ -287,28 +274,23 @@ export async function GET() {
             label.textContent = 'FISH FRESH NOW';
             status.className = 'status ok';
             status.textContent = 'Last refresh: just now';
-            setTimeout(() => {
-              btn.className = 'btn';
-              label.textContent = 'REFRESH';
-            }, 3500);
+            setTimeout(() => { btn.className = 'btn'; label.textContent = 'REFRESH'; }, 3500);
           }
           running = false;
         }
-      } catch (e) {
-        // swallow poll errors; keep trying
-      }
+      } catch (e) { /* keep trying */ }
     }
 
     async function runSync() {
       if (running) return;
       running = true;
 
-      const btn    = document.getElementById('btn');
-      const icon   = document.getElementById('btn-icon');
-      const label  = document.getElementById('btn-label');
+      const btn = document.getElementById('btn');
+      const icon = document.getElementById('btn-icon');
+      const label = document.getElementById('btn-label');
       const status = document.getElementById('status');
       const logWrap = document.getElementById('log-wrap');
-      const logBox  = document.getElementById('log-box');
+      const logBox = document.getElementById('log-box');
 
       btn.className = 'btn state-running';
       icon.className = 'btn-icon spinning';
@@ -316,7 +298,6 @@ export async function GET() {
       status.className = 'status running';
       status.textContent = '';
 
-      // Reset log
       logBox.innerHTML = '';
       knownLineCount = 0;
       logWrap.classList.add('visible');
@@ -343,8 +324,8 @@ export async function GET() {
         }
 
         label.textContent = 'RUNNING...';
-        pollTimer = setInterval(() => poll(data.runId), 5000);
-        poll(data.runId); // immediate first poll
+        pollTimer = setInterval(() => poll(data.runId), 3000);
+        poll(data.runId);
       } catch (e) {
         if (cursorEl && cursorEl.parentNode) { cursorEl.parentNode.removeChild(cursorEl); cursorEl = null; }
         addLogLine('--:--:--', e.message ?? 'UNKNOWN ERROR', 'err');
