@@ -3,107 +3,67 @@ import { NextRequest, NextResponse } from "next/server";
 const OWNER = "SchnappAPI";
 const REPO = "appfolio-quickbase-sync";
 
-// QB refresh status parsed from trigger step logs.
-const QB_STATUS_RE = /status: (\d{3})/i;
+// ISO timestamp prefix on every GitHub Actions log line.
+const LINE_TS_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/;
 
-function ts(d: string) {
-  const dt = new Date(d);
-  return dt.toLocaleTimeString("en-US", {
+function ts(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-US", {
     hour: "2-digit", minute: "2-digit", second: "2-digit",
     hour12: false, timeZone: "America/Chicago",
   });
 }
 
-// Ordered inline patterns to scan from the "Run CSV export" log.
-// Each fires at most once, in the order listed.
-const INLINE_PATTERNS: { re: RegExp; label: (m: RegExpMatchArray) => string }[] = [
-  { re: /Fetching Unit Directory/i,          label: () => "FETCHING UNITS" },
-  { re: /Fetching Unit Vacancy/i,            label: () => "FETCHING VACANCY" },
-  { re: /Fetching Property Custom Fields/i,  label: () => "FETCHING PROPERTY FIELDS" },
-  { re: /Fetching Unit Custom Fields/i,      label: () => "FETCHING UNIT FIELDS" },
-  { re: /Fetching Tenant Directory/i,        label: () => "FETCHING TENANTS" },
-  { re: /Fetching Pending Applications/i,    label: () => "FETCHING PENDING APPS" },
-  { re: /Fetching Leases MTD/i,              label: () => "FETCHING LEASES MTD" },
-  { re: /Fetching Future Move-Ins/i,         label: () => "FETCHING MOVE-INS" },
-  { re: /\[STEP 3\]/i,                       label: () => "MERGING DATA" },
-  { re: /\[STEP 4\]/i,                       label: () => "TRANSFORMING" },
-  { re: /Wrote (\d+) rows.*?units\.csv/i,    label: (m) => `WROTE ${m[1]} UNITS` },
-  { re: /Wrote (\d+) rows.*?residents\.csv/i,label: (m) => `WROTE ${m[1]} RESIDENTS` },
-  { re: /Wrote (\d+) rows.*?occupancy_/i,    label: (m) => `WROTE ${m[1]} OCCUPANCY ROWS` },
+// Each pattern fires at most once, in order. label() receives the full regex match.
+const LOG_PATTERNS: { re: RegExp; label: (m: RegExpMatchArray) => string }[] = [
+  { re: /Fetching Unit Directory\.\.\./,           label: () => "FETCHING UNITS" },
+  { re: /Fetching Unit Vacancy\.\.\./,             label: () => "FETCHING VACANCY" },
+  { re: /Fetching Property Custom Fields\.\.\./,   label: () => "FETCHING PROPERTY FIELDS" },
+  { re: /Fetching Unit Custom Fields\.\.\./,       label: () => "FETCHING UNIT FIELDS" },
+  { re: /Fetching Tenant Directory/,               label: () => "FETCHING TENANTS" },
+  { re: /Fetching Pending Applications\.\.\./,     label: () => "FETCHING PENDING APPS" },
+  { re: /Fetching Leases MTD\.\.\./,               label: () => "FETCHING LEASES MTD" },
+  { re: /Fetching Future Move-Ins\.\.\./,          label: () => "FETCHING MOVE-INS" },
+  { re: /Fetching Rental Applications for Move-Ins/, label: () => "FETCHING APPS FOR MOVE-INS" },
+  { re: /\[STEP 3\]/,                             label: () => "MERGING DATA" },
+  { re: /\[STEP 4\]/,                             label: () => "TRANSFORMING" },
+  { re: /Wrote (\d+) rows.*?units\.csv/,          label: (m) => `WROTE ${m[1]} UNITS` },
+  { re: /Wrote (\d+) rows.*?residents\.csv/,      label: (m) => `WROTE ${m[1]} RESIDENTS` },
+  { re: /Wrote (\d+) rows.*?occupancy_/,          label: (m) => `WROTE ${m[1]} OCCUPANCY ROWS` },
+  { re: /Uploaded units\.csv/,                    label: () => "DROPBOX: UNITS" },
+  { re: /Uploaded residents\.csv/,                label: () => "DROPBOX: RESIDENTS" },
+  { re: /Uploaded occupancy_/,                    label: () => "DROPBOX: OCCUPANCY" },
+  { re: /Units refresh trigger status: (\d+)/,    label: (m) => `QB UNITS REFRESH (${m[1]})` },
+  { re: /Residents refresh trigger status: (\d+)/,label: (m) => `QB RESIDENTS REFRESH (${m[1]})` },
+  { re: /Occupancy refresh trigger status: (\d+)/,label: (m) => `QB OCCUPANCY REFRESH (${m[1]})` },
 ];
 
-// Inline patterns for the Dropbox upload step.
-const DROPBOX_PATTERNS: { re: RegExp; label: string }[] = [
-  { re: /Uploaded units\.csv/i,      label: "DROPBOX: UNITS" },
-  { re: /Uploaded residents\.csv/i,  label: "DROPBOX: RESIDENTS" },
-  { re: /Uploaded occupancy_/i,      label: "DROPBOX: OCCUPANCY" },
-];
-
-function parseInlineLines(
-  log: string,
-  patterns: { re: RegExp; label: (m: RegExpMatchArray) => string }[],
-  stepStartedAt: string
-): { time: string; text: string }[] {
-  // GitHub job log lines look like: 2025-05-01T10:00:01.1234567Z  some text
-  // We'll try to extract timestamps per line; fall back to step start time.
-  const lines = log.split("\n");
+function parseLog(raw: string): { time: string; text: string }[] {
+  const lines = raw.split("\n");
   const result: { time: string; text: string }[] = [];
   const fired = new Set<number>();
 
   for (const line of lines) {
-    // GitHub log timestamp prefix: YYYY-MM-DDTHH:MM:SS.xxxxxxxZ
-    const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
-    const lineTime = tsMatch ? ts(tsMatch[1] + "Z") : ts(stepStartedAt);
-    const text = line.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
-                     .replace(/##\[.*?\]/g, "")
-                     .trim();
+    // Strip ANSI color codes and the ISO timestamp prefix to get clean text
+    const clean = line
+      .replace(/\x1b\[[0-9;]*m/g, "")
+      .replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
+      .trim();
 
-    for (let i = 0; i < patterns.length; i++) {
+    const tsMatch = line.match(LINE_TS_RE);
+    const lineTime = tsMatch ? ts(tsMatch[1] + "Z") : "--:--:--";
+
+    for (let i = 0; i < LOG_PATTERNS.length; i++) {
       if (fired.has(i)) continue;
-      const m = text.match(patterns[i].re);
+      const m = clean.match(LOG_PATTERNS[i].re);
       if (m) {
         fired.add(i);
-        result.push({ time: lineTime, text: patterns[i].label(m) });
+        result.push({ time: lineTime, text: LOG_PATTERNS[i].label(m) });
+        break; // one pattern per line
       }
     }
   }
+
   return result;
-}
-
-function parseDropboxLines(
-  log: string,
-  stepStartedAt: string
-): { time: string; text: string }[] {
-  const lines = log.split("\n");
-  const result: { time: string; text: string }[] = [];
-  const fired = new Set<number>();
-
-  for (const line of lines) {
-    const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
-    const lineTime = tsMatch ? ts(tsMatch[1] + "Z") : ts(stepStartedAt);
-    const text = line.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
-                     .replace(/##\[.*?\]/g, "")
-                     .trim();
-
-    for (let i = 0; i < DROPBOX_PATTERNS.length; i++) {
-      if (fired.has(i)) continue;
-      if (DROPBOX_PATTERNS[i].re.test(text)) {
-        fired.add(i);
-        result.push({ time: lineTime, text: DROPBOX_PATTERNS[i].label });
-      }
-    }
-  }
-  return result;
-}
-
-function splitLogSections(raw: string): Record<string, string> {
-  const sections: Record<string, string> = {};
-  const parts = raw.split(/\n(?=##\[group\])/);
-  for (const sec of parts) {
-    const header = sec.match(/##\[group\](.*)/)?.[1]?.trim() ?? "";
-    if (header) sections[header] = sec;
-  }
-  return sections;
 }
 
 export async function GET(req: NextRequest) {
@@ -130,108 +90,38 @@ export async function GET(req: NextRequest) {
 
   const done = run.status === "completed";
   const failed = done && run.conclusion !== "success";
-  const lines: { time: string; text: string }[] = [];
+  let lines: { time: string; text: string }[] = [];
 
-  if (!job) {
-    return NextResponse.json({ lines, done, failed, runUrl: run.html_url });
-  }
+  if (job) {
+    // Fetch flat log whenever the export step has started (in_progress or completed)
+    const steps: any[] = job.steps ?? [];
+    const exportStep = steps.find(s => s.name === "Run CSV export");
+    const shouldFetchLog = exportStep && exportStep.status !== "queued";
 
-  const steps: any[] = job.steps ?? [];
-  const completedNames = new Set(steps.filter(s => s.conclusion).map(s => s.name));
-  const activeNames = new Set(steps.filter(s => s.status === "in_progress").map(s => s.name));
-
-  const needsLogs =
-    completedNames.has("Run CSV export") ||
-    completedNames.has("Upload CSVs to Dropbox") ||
-    completedNames.has("Trigger refresh - Fish Units") ||
-    completedNames.has("Trigger refresh - Fish Residents") ||
-    completedNames.has("Trigger refresh - Fish Occupancy") ||
-    // Also fetch logs while export step is in-progress to stream inline events
-    activeNames.has("Run CSV export") ||
-    activeNames.has("Upload CSVs to Dropbox");
-
-  let sections: Record<string, string> = {};
-  if (needsLogs) {
-    const logRes = await fetch(
-      `https://api.github.com/repos/${OWNER}/${REPO}/actions/jobs/${job.id}/logs`,
-      { headers }
-    );
-    if (logRes.ok) {
-      sections = splitLogSections(await logRes.text());
-    }
-  }
-
-  for (const step of steps) {
-    if (step.status === "queued") continue;
-
-    const stepTime = step.started_at ?? job.started_at;
-    const time = ts(stepTime);
-
-    // --- Run CSV export ---
-    if (step.name === "Run CSV export") {
-      const log = sections["Run CSV export"] ?? "";
-      if (log) {
-        // Stream inline events from the log regardless of step completion state
-        const parsed = parseInlineLines(log, INLINE_PATTERNS, stepTime);
-        lines.push(...parsed);
-      } else if (step.status === "in_progress") {
-        lines.push({ time, text: "FETCHING DATA..." });
-      } else if (step.conclusion && step.conclusion !== "success") {
-        lines.push({ time, text: "FETCH FAILED" });
+    if (shouldFetchLog) {
+      const logRes = await fetch(
+        `https://api.github.com/repos/${OWNER}/${REPO}/actions/jobs/${job.id}/logs`,
+        { headers }
+      );
+      if (logRes.ok) {
+        lines = parseLog(await logRes.text());
       }
-      continue;
     }
 
-    // --- Upload CSVs to Dropbox ---
-    if (step.name === "Upload CSVs to Dropbox") {
-      const log = sections["Upload CSVs to Dropbox"] ?? "";
-      if (log) {
-        const parsed = parseDropboxLines(log, stepTime);
-        lines.push(...parsed);
-        if (!parsed.length && step.conclusion) {
-          lines.push({ time: ts(step.completed_at ?? stepTime), text: step.conclusion === "success" ? "DROPBOX UPLOAD DONE" : "DROPBOX UPLOAD FAILED" });
-        }
-      } else if (step.status === "in_progress") {
-        lines.push({ time, text: "UPLOADING TO DROPBOX..." });
-      }
-      continue;
-    }
-
-    // --- Sleep step: skip ---
-    if (step.name === "Sleep 30s to allow Dropbox to register files") continue;
-
-    // --- QB refresh steps ---
-    if (step.name.startsWith("Trigger refresh")) {
-      if (step.status === "in_progress") {
-        const label = step.name.replace("Trigger refresh - ", "QB ").toUpperCase() + " REFRESH...";
-        lines.push({ time, text: label });
-        continue;
-      }
-      if (!step.conclusion) continue;
-      const sectionKey = step.name;
-      const log = sections[sectionKey] ?? "";
-      const statusMatch = log.match(QB_STATUS_RE);
-      const statusCode = statusMatch ? statusMatch[1] : step.conclusion === "success" ? "200" : "ERR";
-      const label = step.name
-        .replace("Trigger refresh - Fish ", "QB ")
-        .toUpperCase();
-      lines.push({ time: ts(step.completed_at ?? stepTime), text: `${label} REFRESH (${statusCode})` });
+    // Append final summary line
+    if (done && job.started_at && job.completed_at) {
+      const elapsed = Math.round(
+        (new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()) / 1000
+      );
+      const m = Math.floor(elapsed / 60);
+      const s = elapsed % 60;
+      const dur = m > 0 ? `${m}m ${s}s` : `${s}s`;
+      lines.push({
+        time: ts(job.completed_at),
+        text: failed ? `FAILED. ${dur}` : `DONE. ${dur}`,
+      });
     }
   }
 
-  // Final summary
-  if (done && job.started_at && job.completed_at) {
-    const elapsed = Math.round(
-      (new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()) / 1000
-    );
-    const m = Math.floor(elapsed / 60);
-    const s = elapsed % 60;
-    const dur = m > 0 ? `${m}m ${s}s` : `${s}s`;
-    lines.push({
-      time: ts(job.completed_at),
-      text: failed ? `FAILED. ${dur}` : `DONE. ${dur}`,
-    });
-  }
-
-  return NextResponse.json({ lines, done, failed, runUrl: run.html_url });
+  return NextResponse.json({ lines, done, failed });
 }
