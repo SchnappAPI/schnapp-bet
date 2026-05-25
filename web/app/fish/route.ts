@@ -93,8 +93,6 @@ export async function GET() {
     .status.ok { color: #4e7e70; }
     .status.running { color: #2587c8; }
     .status.error { color: #774b52; }
-
-    /* Log panel */
     .log-wrap {
       width: 100%;
       margin-top: 28px;
@@ -154,17 +152,6 @@ export async function GET() {
       margin-left: 2px;
     }
     @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
-    .log-gh-link {
-      margin-top: 8px;
-      font-size: 8px;
-      color: #306e7b;
-      letter-spacing: 0.1em;
-      text-decoration: none;
-      text-transform: uppercase;
-      display: inline-block;
-    }
-    .log-gh-link:hover { color: #2587c8; }
-
     .watermark { position: fixed; bottom: 14px; right: 16px; font-size: 8px; color: #b8d9eb; letter-spacing: 0.08em; font-family: 'IBM Plex Mono', monospace; user-select: none; }
   </style>
 </head>
@@ -179,11 +166,9 @@ export async function GET() {
       <span id="btn-label">REFRESH</span>
     </button>
     <div class="status" id="status"></div>
-
     <div class="log-wrap" id="log-wrap">
       <div class="log-header">Sync log</div>
       <div class="log-box" id="log-box"></div>
-      <a class="log-gh-link" id="log-gh-link" href="#" target="_blank" rel="noopener" style="display:none">View on GitHub &rarr;</a>
     </div>
   </div>
   <div class="watermark">schnapp.bet/fish</div>
@@ -197,20 +182,11 @@ export async function GET() {
     function addLogLine(time, text, cls) {
       const box = document.getElementById('log-box');
       if (cursorEl && cursorEl.parentNode) { cursorEl.parentNode.removeChild(cursorEl); cursorEl = null; }
-
       const row = document.createElement('div');
       row.className = 'log-line';
-
-      const t = document.createElement('span');
-      t.className = 'log-time';
-      t.textContent = time;
-
-      const m = document.createElement('span');
-      m.className = 'log-text' + (cls ? ' ' + cls : '');
-      m.textContent = text;
-
-      row.appendChild(t);
-      row.appendChild(m);
+      const t = document.createElement('span'); t.className = 'log-time'; t.textContent = time;
+      const m = document.createElement('span'); m.className = 'log-text' + (cls ? ' ' + cls : ''); m.textContent = text;
+      row.appendChild(t); row.appendChild(m);
       box.appendChild(row);
       box.scrollTop = box.scrollHeight;
     }
@@ -218,8 +194,7 @@ export async function GET() {
     function addCursor() {
       const box = document.getElementById('log-box');
       if (cursorEl && cursorEl.parentNode) cursorEl.parentNode.removeChild(cursorEl);
-      cursorEl = document.createElement('div');
-      cursorEl.className = 'log-line';
+      cursorEl = document.createElement('div'); cursorEl.className = 'log-line';
       const t = document.createElement('span'); t.className = 'log-time'; t.textContent = '';
       const m = document.createElement('span'); m.className = 'log-text muted';
       const c = document.createElement('span'); c.className = 'log-cursor';
@@ -229,7 +204,7 @@ export async function GET() {
     }
 
     function classFor(text) {
-      if (text.includes('FAILED') || text.endsWith('ERR)') || text === 'FETCH FAILED') return 'err';
+      if (text.includes('FAILED') || text.includes('(ERR)') || text === 'FETCH FAILED') return 'err';
       if (text.startsWith('DONE.')) return 'ok';
       return '';
     }
@@ -239,41 +214,25 @@ export async function GET() {
         const res = await fetch('/api/fish-sync/status?runId=' + runId);
         if (!res.ok) return;
         const data = await res.json();
-
         const newLines = data.lines.slice(knownLineCount);
         for (const ln of newLines) {
           addLogLine(ln.time, ln.text, classFor(ln.text));
           knownLineCount++;
         }
         if (newLines.length) addCursor();
-
-        if (data.runUrl) {
-          const link = document.getElementById('log-gh-link');
-          link.href = data.runUrl;
-          link.style.display = 'inline-block';
-        }
-
         if (data.done) {
           clearInterval(pollTimer); pollTimer = null;
           if (cursorEl && cursorEl.parentNode) { cursorEl.parentNode.removeChild(cursorEl); cursorEl = null; }
-
           const btn = document.getElementById('btn');
           const icon = document.getElementById('btn-icon');
           const label = document.getElementById('btn-label');
           const status = document.getElementById('status');
-
           if (data.failed) {
-            btn.className = 'btn state-error';
-            icon.className = 'btn-icon';
-            label.textContent = 'REFRESH';
-            status.className = 'status error';
-            status.textContent = 'Run failed.';
+            btn.className = 'btn state-error'; icon.className = 'btn-icon';
+            label.textContent = 'REFRESH'; status.className = 'status error'; status.textContent = 'Run failed.';
           } else {
-            btn.className = 'btn state-success';
-            icon.className = 'btn-icon';
-            label.textContent = 'FISH FRESH NOW';
-            status.className = 'status ok';
-            status.textContent = 'Last refresh: just now';
+            btn.className = 'btn state-success'; icon.className = 'btn-icon';
+            label.textContent = 'FISH FRESH NOW'; status.className = 'status ok'; status.textContent = 'Last refresh: just now';
             setTimeout(() => { btn.className = 'btn'; label.textContent = 'REFRESH'; }, 3500);
           }
           running = false;
@@ -284,56 +243,35 @@ export async function GET() {
     async function runSync() {
       if (running) return;
       running = true;
-
       const btn = document.getElementById('btn');
       const icon = document.getElementById('btn-icon');
       const label = document.getElementById('btn-label');
       const status = document.getElementById('status');
       const logWrap = document.getElementById('log-wrap');
       const logBox = document.getElementById('log-box');
-
-      btn.className = 'btn state-running';
-      icon.className = 'btn-icon spinning';
-      label.textContent = 'FETCHING...';
-      status.className = 'status running';
-      status.textContent = '';
-
-      logBox.innerHTML = '';
-      knownLineCount = 0;
+      btn.className = 'btn state-running'; icon.className = 'btn-icon spinning';
+      label.textContent = 'FETCHING...'; status.className = 'status running'; status.textContent = '';
+      logBox.innerHTML = ''; knownLineCount = 0;
       logWrap.classList.add('visible');
       addCursor();
-
       try {
-        const res = await fetch('/api/fish-sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        });
+        const res = await fetch('/api/fish-sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
         const data = await res.json();
-
         if (!res.ok || !data.runId) {
           if (cursorEl && cursorEl.parentNode) { cursorEl.parentNode.removeChild(cursorEl); cursorEl = null; }
           addLogLine('--:--:--', data.error ?? 'DISPATCH FAILED', 'err');
-          btn.className = 'btn state-error';
-          icon.className = 'btn-icon';
-          label.textContent = 'REFRESH';
-          status.className = 'status error';
-          status.textContent = data.error ?? 'Dispatch failed.';
-          running = false;
-          return;
+          btn.className = 'btn state-error'; icon.className = 'btn-icon';
+          label.textContent = 'REFRESH'; status.className = 'status error'; status.textContent = data.error ?? 'Dispatch failed.';
+          running = false; return;
         }
-
         label.textContent = 'RUNNING...';
         pollTimer = setInterval(() => poll(data.runId), 3000);
         poll(data.runId);
       } catch (e) {
         if (cursorEl && cursorEl.parentNode) { cursorEl.parentNode.removeChild(cursorEl); cursorEl = null; }
         addLogLine('--:--:--', e.message ?? 'UNKNOWN ERROR', 'err');
-        btn.className = 'btn state-error';
-        icon.className = 'btn-icon';
-        label.textContent = 'REFRESH';
-        status.className = 'status error';
-        status.textContent = e.message ?? 'Unknown error.';
+        btn.className = 'btn state-error'; icon.className = 'btn-icon';
+        label.textContent = 'REFRESH'; status.className = 'status error'; status.textContent = e.message ?? 'Unknown error.';
         running = false;
       }
     }
