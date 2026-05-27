@@ -8,7 +8,7 @@ Two components cooperate to make `OP_SERVICE_ACCOUNT_TOKEN` available to all lau
 
 1. **`com.schnapp.environment`** (`~/Library/LaunchAgents/com.schnapp.environment.plist`, _not in this repo_): runs at login via `RunAtLoad=true`. Sources `~/.zshenv` and calls `launchctl setenv OP_SERVICE_ACCOUNT_TOKEN "$OP_SERVICE_ACCOUNT_TOKEN"`, injecting the token into the launchd environment so every subsequent service load inherits it.
 
-2. **`op-wrap.sh`** (in this repo): each service plist invokes this wrapper as the first `ProgramArguments` entry. It independently reads `OP_SERVICE_ACCOUNT_TOKEN` from `~/.zshrc` via grep, exports it, then execs `op run --env-file=<repo-root>/.env.template -- <real command>`. This resolves all `op://` URIs in `.env.template` and injects them as environment variables before the service process starts.
+2. **`op-wrap.sh`** (in this repo): each service plist invokes this wrapper as the first `ProgramArguments` entry. It independently reads `OP_SERVICE_ACCOUNT_TOKEN` from `~/.zshrc` via grep, exports it, then execs `op run --env-file=<repo-root>/.env.template -- <real command>`. This resolves all `op://` URIs in `.env.template` and injects them as environment variables before the service process starts. If the service's working directory also contains a `.env.template`, that file is layered on top (`--env-file=<global> --env-file=<local>`), allowing per-service secrets without polluting the repo-root template.
 
 Both mechanisms are belt-and-suspenders. `op-wrap.sh` does not assume `com.schnapp.environment` has run — it always re-reads `~/.zshrc` directly. Plists contain zero secret values.
 
