@@ -51,4 +51,12 @@ if ! command -v op >/dev/null 2>&1; then
   exit 1
 fi
 
-exec op run --env-file="$ENV_FILE" -- "$@"
+# If the service's working directory has its own .env.template, layer it on top.
+# This allows per-service secrets (e.g. distinct GH_PAT values) without
+# polluting the global schnapp-bet .env.template.
+LOCAL_ENV="$(pwd)/.env.template"
+if [ -f "$LOCAL_ENV" ]; then
+  exec op run --env-file="$ENV_FILE" --env-file="$LOCAL_ENV" -- "$@"
+else
+  exec op run --env-file="$ENV_FILE" -- "$@"
+fi
