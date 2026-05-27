@@ -1,8 +1,8 @@
 # Connections
 
-Single source of truth for every external system the project connects to. Secret values redacted; actual values live in launchd plists on Schnapps-MBP or in GitHub Actions repository secrets.
+Single source of truth for every external system the project connects to. Secret values live in the `web-variables` 1Password vault; see ADR-20260517-5 and `.env.template` for the full consumer map.
 
-Last verified: 2026-05-17 (carried forward from sports-modeling; re-verify endpoint set when code lands).
+Last verified: 2026-05-27.
 
 ## Local SQL Server (Schnapps-MBP, canonical ETL target)
 
@@ -30,7 +30,7 @@ Plist env vars (resolved at process-start by `op-wrap.sh` per ADR-20260517-5):
 - `ADMIN_REFRESH_CODE` — alternate auth code for the body-auth path on `/api/refresh-data`
 - `RUNNER_URL` — consumed by `/api/scoreboard`, `/api/games`, `/api/live-boxscore`
 - `RUNNER_API_KEY` — `X-Runner-Key` header on Flask calls
-- `GITHUB_PAT` — fine-grained PAT, same value as `~/.git-credentials` and the Mac MCP plist's `GH_PAT`. Used by `/api/refresh-data` and `/api/refresh-lines` to dispatch workflows
+- `GITHUB_PAT` — fine-grained PAT. Used by `/api/refresh-data` and `/api/refresh-lines` to dispatch workflows. Stored in vault; resolved via `op-wrap.sh` at process start.
 - `ODDS_API_KEY` — consumed by `web/app/api/live-props/route.ts`
 
 Restart: `launchctl kickstart -k gui/$UID/bet.schnapp.web-prod`.
@@ -47,18 +47,12 @@ Deploy: manual `deploy-web.yml` workflow (workflow_dispatch) on mac-runner. Clon
 
 Repository secrets (Settings → Secrets and variables → Actions):
 
-| Secret                 | Notes                                                                              |
-| ---------------------- | ---------------------------------------------------------------------------------- |
-| `SQL_SERVER`           | `localhost,1433` on Schnapps-MBP                                                   |
-| `SQL_DATABASE`         | `schnapp-bet`                                                                      |
-| `SQL_USERNAME`         | `sa`                                                                               |
-| `SQL_PASSWORD`         | SA password (same value as `/Users/schnapp/sql-server.env`)                        |
-| `SQL_TRUST_CERT`       | `yes`                                                                              |
-| `ODDS_API_KEY`         | The Odds API key                                                                   |
-| `NBA_PROXY_URL`        | Webshare rotating residential proxy                                                |
-| `secrets.GITHUB_TOKEN` | Auto-provided. Used for `workflow_run` dispatch with `permissions: actions: write` |
+| Secret                      | Notes                                                                              |
+| --------------------------- | ---------------------------------------------------------------------------------- |
+| `OP_SERVICE_ACCOUNT_TOKEN`  | Bootstrap secret. Workflows use `1password/load-secrets-action@v2` to resolve all other secrets as `op://` URIs from the `web-variables` vault. |
+| `secrets.GITHUB_TOKEN`      | Auto-provided. Used for `workflow_run` dispatch with `permissions: actions: write`. |
 
-PAT (account level at `github.com/settings/tokens`): `GITHUB_PAT` fine-grained, scoped to SchnappAPI/schnapp-bet, Metadata read + Actions read/write. Stored in: Mac web plists' `GITHUB_PAT` env, Mac MCP plist's `GH_PAT` env, `~/.git-credentials`. All locations rotate together.
+All other runtime secrets (`SQL_*`, `ODDS_API_KEY`, `NBA_PROXY_URL`, etc.) are declared as `op://web-variables/...` URIs in each workflow's `env:` block and resolved by `load-secrets-action` at run time — they are not stored as GitHub Actions secrets.
 
 ## Schnapp Mac MCP
 
@@ -68,7 +62,7 @@ PAT (account level at `github.com/settings/tokens`): `GITHUB_PAT` fine-grained, 
 
 Tools (10): `flask_status`, `flask_restart`, `live_scoreboard`, `live_boxscore`, `workflow_trigger`, `workflow_status` (uses `GH_PAT`), `shell_exec`, `read_file`, `write_file` (require `MAC_MCP_AUTH_TOKEN` parameter), `mac_info`.
 
-Plist env: `MAC_MCP_AUTH_TOKEN`, `RUNNER_API_KEY`, `GH_PAT`.
+Secrets: resolved via `op-wrap.sh` + a service-local `.env.template` in `/Users/schnapp/mac-mcp/` for MCP-specific vars (`MAC_MCP_AUTH_TOKEN`, `GH_PAT`, etc.). No plaintext credentials in the plist.
 
 Recovery: 1) tunnel — `sudo launchctl kickstart -k system/com.cloudflare.cloudflared`. 2) MCP — `launchctl bootout gui/501/com.schnapp.macmcp && launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.schnapp.macmcp.plist`.
 
@@ -125,7 +119,7 @@ All Schnapp subdomains are Cloudflare-proxied (orange cloud). Do not flip any to
 
 ## Claude Code on Mac
 
-- Hostname: `Schnapps-MBP`, user: `schnapp`. `claude` CLI 2.1.126 on PATH. `gh` CLI 2.92.0 at `/usr/local/bin/gh`. SSH-authenticated to GitHub.
+- Hostname: `Schnapps-MBP`, user: `schnapp`. `claude` CLI 2.1.126 on PATH. `gh` CLI 2.92.0 at `/usr/local/bin/gh`. Authenticated via 1Password plugin (`~/.config/op/plugins.sh` aliases `gh` to `op plugin run -- gh`; biometric unlock, no stored token).
 
 OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`): minted via `claude setup-token`, 1-year expiry, stored as a GitHub Actions repo secret. Consumed by `.github/workflows/claude.yml` (if/when added) to authenticate `anthropics/claude-code-action@v1`. Rotation:
 
