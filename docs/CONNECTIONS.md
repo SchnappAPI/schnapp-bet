@@ -47,10 +47,12 @@ Deploy: manual `deploy-web.yml` workflow (workflow_dispatch) on mac-runner. Clon
 
 Repository secrets (Settings → Secrets and variables → Actions):
 
-| Secret                      | Notes                                                                              |
-| --------------------------- | ---------------------------------------------------------------------------------- |
-| `OP_SERVICE_ACCOUNT_TOKEN`  | Bootstrap secret. Workflows use `1password/load-secrets-action@v2` to resolve all other secrets as `op://` URIs from the `web-variables` vault. |
-| `secrets.GITHUB_TOKEN`      | Auto-provided. Used for `workflow_run` dispatch with `permissions: actions: write`. |
+| Secret                     | Notes                                                                                                                                                                                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OP_SERVICE_ACCOUNT_TOKEN` | Bootstrap secret. Workflows use `1password/load-secrets-action@v2` to resolve all other secrets as `op://` URIs from the `web-variables` vault.                                                                               |
+| `CLAUDE_CODE_OAUTH_TOKEN`  | OAuth token for `anthropics/claude-code-action@v1` in `.github/workflows/claude.yml` (if/when added). Minted via `claude setup-token`. Also stored in the 1Password vault under the "Claude Code" item (`oauth_token` field). |
+
+`GITHUB_TOKEN` is auto-provided by GitHub Actions (not stored as a repo secret); available in workflows that declare `permissions: actions: write`.
 
 All other runtime secrets (`SQL_*`, `ODDS_API_KEY`, `NBA_PROXY_URL`, etc.) are declared as `op://web-variables/...` URIs in each workflow's `env:` block and resolved by `load-secrets-action` at run time — they are not stored as GitHub Actions secrets.
 
@@ -121,8 +123,9 @@ All Schnapp subdomains are Cloudflare-proxied (orange cloud). Do not flip any to
 
 - Hostname: `Schnapps-MBP`, user: `schnapp`. `claude` CLI 2.1.126 on PATH. `gh` CLI 2.92.0 at `/usr/local/bin/gh`. Authenticated via 1Password plugin (`~/.config/op/plugins.sh` aliases `gh` to `op plugin run -- gh`; biometric unlock, no stored token).
 
-OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`): minted via `claude setup-token`, 1-year expiry, stored as a GitHub Actions repo secret. Consumed by `.github/workflows/claude.yml` (if/when added) to authenticate `anthropics/claude-code-action@v1`. Rotation:
+OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`): minted via `claude setup-token`, 1-year expiry. Stored in two places: (1) GitHub Actions repo secret `CLAUDE_CODE_OAUTH_TOKEN`, and (2) 1Password vault "Claude Code" item (`oauth_token` field) as the canonical reference copy. Consumed by `.github/workflows/claude.yml` (if/when added) to authenticate `anthropics/claude-code-action@v1`. Rotation:
 
 1. Revoke at `https://console.anthropic.com`.
 2. `claude setup-token` on the Mac; copy new value.
-3. `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repos schnappapi/schnapp-bet`.
+3. Update the 1Password "Claude Code" item `oauth_token` field with the new value.
+4. `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repos schnappapi/schnapp-bet`.
