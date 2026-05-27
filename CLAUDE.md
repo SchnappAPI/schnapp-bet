@@ -68,9 +68,13 @@ Cross-cutting rules only. Path-specific invariants live in `.claude/rules/*.md` 
 ### Secrets
 
 - **1Password vault `web-variables` is the single source of truth** for runtime secrets (per ADR-20260517-5). The mapping of env var → `op://` URI lives in `.env.template` at repo root.
-- **Bootstrap secret**: `OP_SERVICE_ACCOUNT_TOKEN`. On Schnapps-MBP it is in `~/.zshrc`. On GitHub Actions it is the _only_ repository secret.
+- **Bootstrap secret**: `OP_SERVICE_ACCOUNT_TOKEN`. On Schnapps-MBP it lives in both `~/.zshrc` (read by `op-wrap.sh` for launchd services) and `~/.zshenv` (read by `com.schnapp.environment` at login). On GitHub Actions it is the _only_ repository secret.
+- **`com.schnapp.environment`**: launchd agent at `~/Library/LaunchAgents/com.schnapp.environment.plist` (not in this repo). Runs at login, reads `OP_SERVICE_ACCOUNT_TOKEN` from `~/.zshenv`, and calls `launchctl setenv` to propagate the token into the launchd environment — making it available to all subsequent service loads.
+- **launchd services** (Flask, Next.js web, MCP server): each plist invokes `services/launchd/op-wrap.sh`, which reads the token from `~/.zshrc` and execs `op run --env-file=.env.template` to resolve all secrets at process start.
 - **Local dev**: invoke commands via `op run --env-file=.env.template -- <command>`. Never resolve URIs to a plaintext file on disk.
 - **GitHub Actions**: use `1password/load-secrets-action@v2`. Each workflow declares the URIs it needs in the action's `env:` block.
+- **`gh` CLI**: `~/.config/op/plugins.sh` sets `alias gh="op plugin run -- gh"`. Authentication is via 1Password desktop app biometric unlock — no stored token on disk.
+- **Claude Code sessions**: `~/.claude/settings.json` `env` block holds `ANTHROPIC_API_KEY` and `GITHUB_TOKEN` as `op://` URIs, resolved natively by Claude Code on session start.
 - **Adding a new env var** is a coupled three-part change: vault item/field, `.env.template` line, and the code that reads `os.environ[...]`. A PR with only the code side is incomplete.
 
 ### Commits & history
