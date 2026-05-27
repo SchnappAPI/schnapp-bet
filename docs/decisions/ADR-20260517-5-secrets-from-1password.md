@@ -25,8 +25,8 @@ Three properties of this setup make it the natural fit:
 
 ## Decision
 
-1. The `web-variables` 1Password vault is the **single source of truth** for runtime secrets. No secret value lives in repo files, `.zshrc`, GitHub Actions secrets, or `launchd` plists — with one exception:
-   - `OP_SERVICE_ACCOUNT_TOKEN` is the bootstrap secret. It is the _only_ secret that lives outside the vault. On Schnapps-MBP it is in `~/.zshrc:10`. On GitHub Actions it is the _only_ repository secret, named `OP_SERVICE_ACCOUNT_TOKEN`.
+1. The `web-variables` 1Password vault is the **single source of truth** for runtime secrets. No secret value lives in repo files, GitHub Actions secrets, or `launchd` plists — with one exception:
+   - `OP_SERVICE_ACCOUNT_TOKEN` is the bootstrap secret. It is the _only_ secret that lives outside the vault. On Schnapps-MBP it lives in two shell init files for different consumers: `~/.zshrc` (read by `op-wrap.sh` for launchd services) and `~/.zshenv` (read by `com.schnapp.environment` at login — see Decision 4). On GitHub Actions it is the _only_ repository secret, named `OP_SERVICE_ACCOUNT_TOKEN`.
 
 2. **Local dev (Mac)** resolves secrets via `op run`:
 
@@ -38,17 +38,24 @@ Three properties of this setup make it the natural fit:
 
 3. **GitHub Actions** resolves secrets via `1password/load-secrets-action@v2`. Each workflow declares the URIs it needs in the action's `env:` block. The action exposes the resolved values to subsequent steps as standard env vars. The only repo-level GitHub secret is `OP_SERVICE_ACCOUNT_TOKEN`.
 
-4. **launchd services** (Flask runner, MCP server) source secrets the same way: their plist's `ProgramArguments` invokes `op run --env-file=.env.template -- <real command>`. The `.env.template` location must be absolute in the plist.
+4. **launchd services** (Flask runner, Next.js web, MCP server) source secrets via two cooperating mechanisms:
+   - `com.schnapp.environment` (`~/Library/LaunchAgents/com.schnapp.environment.plist`, not in this repo): runs at login, reads `OP_SERVICE_ACCOUNT_TOKEN` from `~/.zshenv`, and calls `launchctl setenv OP_SERVICE_ACCOUNT_TOKEN` to inject the token into the launchd environment for all subsequent service loads.
+   - `services/launchd/op-wrap.sh`: each service plist's `ProgramArguments` invokes this wrapper, which reads `OP_SERVICE_ACCOUNT_TOKEN` independently from `~/.zshrc` and execs `op run --env-file=.env.template -- <real command>`. The `.env.template` path is absolute.
+   - Both mechanisms are belt-and-suspenders; `op-wrap.sh` does not rely on `com.schnapp.environment` having run first.
 
 5. **The canonical env-var → URI mapping lives in `.env.template`**, not in this ADR. Adding a new env var is a one-file edit (plus the vault entry); it does not require a new ADR.
 
 6. **No fallback path.** Scripts do not check for missing env vars and proceed with defaults. The historical sole exception — `RUNNER_API_KEY` defaulting to `"runner-Lake4971"` in `services/flask/runner.py:45` — is honored as legacy until the Flask service port is revisited, at which point the default is removed.
 
+7. **`gh` CLI** authenticates via 1Password plugin integration: `~/.config/op/plugins.sh` sets `alias gh="op plugin run -- gh"`. Biometric vault unlock via the 1Password desktop app — no stored token on disk or in `~/.git-credentials`.
+
+8. **Claude Code sessions** resolve secrets natively: the `env` block in `~/.claude/settings.json` holds `ANTHROPIC_API_KEY` and `GITHUB_TOKEN` as `op://` URIs. Claude Code resolves them using `OP_SERVICE_ACCOUNT_TOKEN` from the shell environment on session start — no `op run` wrapper needed.
+
 ## Consequences
 
 - New `.env.template` at repo root. Required header documents that this is not a plain dotenv file; direct sourcing (`set -a; . .env.template`) exports literal `op://` strings, which the consuming Python would reject.
 - `.gitignore` updated to allow `.env.template` while continuing to block `.env`, `.env.local`, `.env.*` at the repo root (defense in depth — even if a user resolves URIs to plaintext locally, the file cannot be committed).
-- `~/.zshrc` line 10 (`export OP_SERVICE_ACCOUNT_TOKEN=ops_...`) is the only legitimate plaintext secret on the host. It is scoped to the personal user account; shoulder-surfing is the only realistic risk. If it leaks, rotate the service account in 1Password — no other secret needs rotation.
+- `OP_SERVICE_ACCOUNT_TOKEN` is the only legitimate plaintext secret on the host. It lives in two shell init files: `~/.zshrc` (for interactive shells and `op-wrap.sh`) and `~/.zshenv` (for `com.schnapp.environment`). Both are scoped to the personal user account; shoulder-surfing is the only realistic risk. If it leaks, rotate the service account in 1Password — no other secret needs rotation.
 - Self-hosted runner workflows (mac-runner) must also have `OP_SERVICE_ACCOUNT_TOKEN` exported in the runner's environment, or the workflow must accept it via the same `secrets.OP_SERVICE_ACCOUNT_TOKEN` and pass through.
 - Future env vars added to ported code MUST land with a corresponding `.env.template` entry and a vault item/field. A code-only PR that reads a new `os.environ[...]` is incomplete until the wiring exists.
 
