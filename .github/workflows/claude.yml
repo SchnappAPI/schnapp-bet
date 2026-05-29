@@ -38,6 +38,30 @@ jobs:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN: op://web-variables/Claude Code/oauth_token
           GITHUB_PAT: op://web-variables/GitHub/pat_git_credentials
+          MAC_MCP_AUTH_TOKEN: op://web-variables/MCP Tokens/schnapp_mac
+
+      - name: Set up schnapp plugins
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git clone --depth=1 https://x-access-token:${GH_TOKEN}@github.com/SchnappAPI/schnapp-kit.git /tmp/schnapp-kit
+          mkdir -p ~/.claude
+          cat > ~/.claude/settings.json <<'SETTINGS'
+          {
+            "extraKnownMarketplaces": {
+              "schnapp-kit": {"source": {"source": "directory", "path": "/tmp/schnapp-kit"}},
+              "schnapp-overlays": {"source": {"source": "directory", "path": "/tmp/schnapp-kit/overlays"}},
+              "ecc": {"source": {"source": "directory", "path": "/tmp/schnapp-kit/core"}},
+              "mattpocock-skills": {"source": {"source": "directory", "path": "/tmp/schnapp-kit/vendored/mattpocock-skills"}}
+            },
+            "enabledPlugins": {
+              "schnapp-kit@schnapp-kit": true,
+              "schnapp-overlays@schnapp-overlays": true,
+              "ecc@ecc": true,
+              "mattpocock-skills@mattpocock-skills": true
+            }
+          }
+          SETTINGS
 
       - name: Run Claude Code
         id: claude
@@ -45,5 +69,18 @@ jobs:
         with:
           claude_code_oauth_token: ${{ env.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          mcp_config: |
+            {
+              "mcpServers": {
+                "mac-mcp": {
+                  "type": "http",
+                  "url": "https://mac-mcp.schnapp.bet/mcp",
+                  "headers": {
+                    "Authorization": "Bearer ${{ env.MAC_MCP_AUTH_TOKEN }}"
+                  }
+                }
+              }
+            }
         env:
           GITHUB_PAT: ${{ env.GITHUB_PAT }}
+          MAC_MCP_AUTH_TOKEN: ${{ env.MAC_MCP_AUTH_TOKEN }}
