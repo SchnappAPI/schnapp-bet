@@ -44,7 +44,12 @@ if [ -z "$TOKEN_LINE" ]; then
   exit 1
 fi
 
-export OP_SERVICE_ACCOUNT_TOKEN="${TOKEN_LINE#export OP_SERVICE_ACCOUNT_TOKEN=}"
+OP_SERVICE_ACCOUNT_TOKEN="${TOKEN_LINE#export OP_SERVICE_ACCOUNT_TOKEN=}"
+# .zshrc stores the token quoted; op rejects a quoted value ("unrecognized
+# auth type"), so strip a single pair of surrounding double quotes if present.
+OP_SERVICE_ACCOUNT_TOKEN="${OP_SERVICE_ACCOUNT_TOKEN%\"}"
+OP_SERVICE_ACCOUNT_TOKEN="${OP_SERVICE_ACCOUNT_TOKEN#\"}"
+export OP_SERVICE_ACCOUNT_TOKEN
 
 if ! command -v op >/dev/null 2>&1; then
   echo "op-wrap: 'op' CLI not found in PATH" >&2
