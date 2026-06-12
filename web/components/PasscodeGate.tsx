@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
+import { isPublicPath } from '@/lib/public-paths';
 import { AuthContext, type DemoDates } from '@/lib/auth-context';
 
 const TOKEN_KEY      = 'schnapp_auth_token';
@@ -27,6 +29,7 @@ export default function PasscodeGate({ children }: { children: React.ReactNode }
   const [code, setCode]             = useState('');
   const [error, setError]           = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const pathname = usePathname();
 
   // Derive isAdmin from localStorage.schnapp_admin_token presence. The admin
   // login flow at /admin sets this key after a successful ADMIN_PASSCODE
@@ -114,6 +117,9 @@ export default function PasscodeGate({ children }: { children: React.ReactNode }
     setCode('');
     setError('');
   }
+
+  // Public routes (e.g. QR landing pages) bypass the access-code gate.
+  if (isPublicPath(pathname)) return <>{children}</>;
 
   if (status === 'loading') {
     return (

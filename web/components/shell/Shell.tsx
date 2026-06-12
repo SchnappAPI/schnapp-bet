@@ -1,6 +1,8 @@
 'use client';
 
 import { type ReactNode, useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { isPublicPath } from '@/lib/public-paths';
 import { CommandPalette, CommandGroup, CommandItem } from '@/lib/ui/CommandPalette';
 import { cn } from '@/lib/ui/cn';
 import { useAuth } from '@/lib/auth-context';
@@ -14,6 +16,9 @@ export interface ShellProps {
 
 // Outer wrapper provides the context; inner content reads it.
 export function Shell({ children }: ShellProps) {
+  const pathname = usePathname();
+  // Public, full-bleed routes render with no shell chrome.
+  if (isPublicPath(pathname)) return <>{children}</>;
   return (
     <ShellProvider>
       <ShellInner>{children}</ShellInner>
