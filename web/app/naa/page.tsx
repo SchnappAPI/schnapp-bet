@@ -20,8 +20,8 @@ export default function NaaPage() {
       <img
         src="/schnapp-logo.webp"
         alt="schnapp.bet"
-        width={640}
-        height={613}
+        width={480}
+        height={460}
         className="w-56 h-auto max-w-[70vw] select-none"
       />
       <h1 className="mt-6 text-3xl font-semibold tracking-tight">NAA</h1>
