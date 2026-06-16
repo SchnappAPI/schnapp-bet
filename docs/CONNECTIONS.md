@@ -2,7 +2,7 @@
 
 Single source of truth for every external system the project connects to. Secret values live in the `web-variables` 1Password vault; see ADR-20260517-5 and `.env.template` for the full consumer map.
 
-Last verified: 2026-05-27.
+Last verified: 2026-06-16.
 
 ## Local SQL Server (Schnapps-MBP, canonical ETL target)
 
@@ -68,6 +68,34 @@ Secrets: resolved via `op-wrap.sh` + a service-local `.env.template` in `/Users/
 
 Recovery: 1) tunnel — `sudo launchctl kickstart -k system/com.cloudflare.cloudflared`. 2) MCP — `launchctl bootout gui/501/com.schnapp.macmcp && launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.schnapp.macmcp.plist`.
 
+## Obsidian MCP
+
+- URL: `https://obsidian-mcp.schnapp.bet/mcp`
+- Service: launchd `com.schnapp.obsidian-mcp` (`RunAtLoad=true`, `KeepAlive=true`). Code at `/Users/schnapp/obsidian-mcp/server.py`. Venv `/Users/schnapp/obsidian-mcp/venv`. Port `8767`.
+- Auth: OAuth 2.1 + PKCE + Dynamic Client Registration (RFC 7591) via FastMCP native `OAuthAuthorizationServerProvider`. OAuth state persisted to `/Users/schnapp/obsidian-mcp/oauth_state.json`.
+- Vault: `~/Library/CloudStorage/OneDrive-Schnapp/Obsidian` (synced to OneDrive; `~/Documents/Obsidian` is a symlink).
+- Secrets: `MAC_MCP_AUTH_TOKEN` resolved via `op-wrap.sh` + `/Users/schnapp/obsidian-mcp/.env.template` (`op://web-variables/MCP Tokens/schnapp_mac`).
+- Tools (7): `read_note`, `write_note`, `append_note`, `search_notes`, `list_notes`, `inbox_drop`, `get_index`.
+- Connected in claude.ai. `inbox_drop` triggers the brain agent via FSEvents automatically.
+- Recovery: `launchctl bootout gui/$UID ~/Library/LaunchAgents/com.schnapp.obsidian-mcp.plist && launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.schnapp.obsidian-mcp.plist`.
+
+## Obsidian Brain Agent
+
+- Service: launchd `com.schnapp.brain-watcher` (`RunAtLoad=true`, `KeepAlive=true`). Plist at `~/Library/LaunchAgents/com.schnapp.brain-watcher.plist`.
+- Code: `~/Library/CloudStorage/OneDrive-Schnapp/Obsidian/.github/scripts/inbox_watcher.py` (FSEvents watcher) + `brain_agent.py` (Claude API classifier).
+- Watches: `~/Library/CloudStorage/OneDrive-Schnapp/Obsidian/Inbox/` — fires on any `.md` create or modify.
+- Model: `claude-sonnet-4-6`. API key: `op://web-variables/Anthropic/api_key` (dedicated key named `schnapps-mbp-brain-agent` in console.anthropic.com).
+- Secrets: resolved via `op-wrap.sh` + `Obsidian/.github/.env.template`. `WorkingDirectory` set to `Obsidian/.github/` so op-wrap picks up the local template.
+- Index output: `~/Library/CloudStorage/OneDrive-Schnapp/Obsidian/_brain/_index.json`.
+- Log: `~/Library/Logs/brain-watcher.log`.
+- Recovery: `launchctl bootout gui/$UID ~/Library/LaunchAgents/com.schnapp.brain-watcher.plist && launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.schnapp.brain-watcher.plist`.
+
+## GitHub MCP
+
+- URL: `https://github-mcp.schnapp.bet/mcp`
+- Service: launchd (managed separately). Code at `/Users/schnapp/github-mcp/server.py`. Port `8766`.
+- Auth: Bearer token (`MAC_MCP_AUTH_TOKEN`). Connected in claude.ai as `Schnapp GitHub`.
+
 ## Flask Runner (Mac)
 
 - Service: launchd `bet.schnapp.flask`. Code `services/flask/runner.py`. Bind `0.0.0.0:5000`.
@@ -85,6 +113,9 @@ Recovery: 1) tunnel — `sudo launchctl kickstart -k system/com.cloudflare.cloud
 | `dev.schnapp.bet`                | Mac Next.js dev `:3000` via `schnapp-mac`  | Orange | route still live; backend only when `next dev` is running interactively (no auto-managed agent) |
 | `mac-flask.schnapp.bet`          | Mac Flask `:5000` via `schnapp-mac`        | Orange | live                                                                                            |
 | `mac-mcp.schnapp.bet`            | Mac MCP `:8765` via `schnapp-mac`          | Orange | live                                                                                            |
+| `obsidian-mcp.schnapp.bet`       | Obsidian MCP `:8767` via `schnapp-mac`     | Orange | live                                                                                            |
+| `github-mcp.schnapp.bet`         | GitHub MCP `:8766` via `schnapp-mac`       | Orange | live                                                                                            |
+| `mcp.schnapp.bet`                | Self-hosted 1Password MCP portal           | Orange | live; Cloudflare Access required (email login)                                                  |
 
 All Schnapp subdomains are Cloudflare-proxied (orange cloud). Do not flip any to DNS-only.
 
