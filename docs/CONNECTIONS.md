@@ -66,7 +66,7 @@ Tools (10): `flask_status`, `flask_restart`, `live_scoreboard`, `live_boxscore`,
 
 Secrets: resolved via `op-wrap.sh` + a service-local `.env.template` in `/Users/schnapp/mac-mcp/` for MCP-specific vars (`MAC_MCP_AUTH_TOKEN`, `GH_PAT`, etc.). No plaintext credentials in the plist.
 
-Recovery: 1) tunnel — `sudo launchctl kickstart -k system/com.cloudflare.cloudflared`. 2) MCP — `launchctl bootout gui/501/com.schnapp.macmcp && launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.schnapp.macmcp.plist`.
+Recovery: 1) tunnel — `sudo launchctl kickstart -k system/com.cloudflare.cloudflared`. 2) MCP — graceful restart `launchctl kill TERM gui/$(id -u)/com.schnapp.macmcp` (KeepAlive relaunches; the entrypoint now serves a pre-bound SO_REUSEADDR/SO_REUSEPORT socket so a fresh process rebinds :8765 in ~2.5s with no [Errno 48] race — see claude-kit decision 0010 / handoff 021). Do NOT use `kickstart -k` (SIGKILL skips uvicorn's clean socket close). Hard reload only if it will not come up: `launchctl bootout gui/$(id -u)/com.schnapp.macmcp && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.schnapp.macmcp.plist`.
 
 ## Obsidian MCP
 
