@@ -20,7 +20,7 @@ Scoreboard response per game:
   gameId, gameStatus (1=pre/2=live/3=final), gameStatusText, period, gameClock,
   homeTeamId, homeTeamAbbr, homeScore, awayTeamId, awayTeamAbbr, awayScore
 
-Start manually:  source ~/venv/bin/activate && python services/flask/runner.py
+Start manually:  source ~/venv/bin/activate && op run --env-file=.env.template -- python services/flask/runner.py
 Managed by:      launchd user agent bet.schnapp.flask on Schnapps-MBP
 Port:            5000
 Auth:            X-Runner-Key header must match RUNNER_API_KEY env var
@@ -42,7 +42,15 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-RUNNER_KEY        = os.environ.get("RUNNER_API_KEY", "runner-Lake4971")
+RUNNER_KEY = os.environ.get("RUNNER_API_KEY")
+if not RUNNER_KEY:
+    raise RuntimeError(
+        "RUNNER_API_KEY is not set. The runner refuses to start without it: "
+        "authenticating with a repo-published default key would let anyone "
+        "reach /scoreboard and /boxscore. Provide it via the 1Password-resolved "
+        "environment (launchd uses services/launchd/op-wrap.sh; local dev uses "
+        "`op run --env-file=.env.template`). See ADR-20260617-1."
+    )
 CDN_SCOREBOARD    = "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json"
 
 

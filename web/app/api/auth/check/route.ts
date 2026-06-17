@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@/lib/db';
 import { createHmac } from 'crypto';
-
-const SECRET = process.env.AUTH_TOKEN_SECRET ?? 'fallback-dev-secret-change-me';
+import { requireSecret } from '@/lib/secrets';
 
 interface DemoDates {
   nba?: string;
@@ -17,11 +16,11 @@ interface TokenPayload {
   demoDates?: DemoDates;
 }
 
-function verifyToken(token: string): TokenPayload | null {
+function verifyToken(token: string, secret: string): TokenPayload | null {
   const parts = token.split('.');
   if (parts.length !== 2) return null;
   const [payload, sig] = parts;
-  const expected = createHmac('sha256', SECRET).update(payload).digest('base64url');
+  const expected = createHmac('sha256', secret).update(payload).digest('base64url');
   if (sig !== expected) return null;
   try {
     return JSON.parse(Buffer.from(payload, 'base64url').toString());
@@ -32,8 +31,12 @@ function verifyToken(token: string): TokenPayload | null {
 
 export async function GET(req: NextRequest) {
   try {
+    // In production a missing AUTH_TOKEN_SECRET throws here (caught below ->
+    // 500). We never verify against a known default string, which would let
+    // anyone forge a valid session. See ADR-20260617-1.
+    const secret = requireSecret('AUTH_TOKEN_SECRET', 'fallback-dev-secret-change-me');
     const token = req.headers.get('x-auth-token') ?? '';
-    const parsed = verifyToken(token);
+    const parsed = verifyToken(token, secret);
     if (!parsed?.code) {
       return NextResponse.json({ valid: false }, { status: 401 });
     }

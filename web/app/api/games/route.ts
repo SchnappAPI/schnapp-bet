@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGames } from '@/lib/queries';
+import { requireSecret } from '@/lib/secrets';
 
 const RUNNER_URL = process.env.RUNNER_URL ?? 'https://mac-flask.schnapp.bet';
-const RUNNER_KEY = process.env.RUNNER_API_KEY ?? 'runner-Lake4971';
 
 function todayCT(): string {
   // Returns today's date in Central time as YYYY-MM-DD.
@@ -36,6 +36,10 @@ export async function GET(req: NextRequest) {
 
   if (isToday && games.length > 0) {
     try {
+      // In production a missing RUNNER_API_KEY throws here and is caught below,
+      // dropping the live overlay (DB data still returns). We never call the
+      // runner with a repo-published default key. See ADR-20260617-1.
+      const RUNNER_KEY = requireSecret('RUNNER_API_KEY', 'runner-Lake4971');
       const res = await fetch(`${RUNNER_URL}/scoreboard`, {
         headers: { 'X-Runner-Key': RUNNER_KEY },
         signal: AbortSignal.timeout(5000),
