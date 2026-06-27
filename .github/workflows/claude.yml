@@ -36,9 +36,9 @@ jobs:
           export-env: true
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          CLAUDE_CODE_OAUTH_TOKEN: op://web-variables/Claude Code/oauth_token
-          GITHUB_PAT: op://web-variables/GitHub/pat_git_credentials
-          MAC_MCP_AUTH_TOKEN: op://web-variables/MCP Tokens/schnapp_mac
+          CLAUDE_CODE_OAUTH_TOKEN: op://web-variables/CLAUDE_CODE_OAUTH_TOKEN/credential
+          GITHUB_PAT: op://web-variables/GITHUB_PAT/token
+          MAC_MCP_AUTH_TOKEN: op://web-variables/MAC_MCP_AUTH_TOKEN/credential
 
       - name: Set up schnapp plugins
         env:

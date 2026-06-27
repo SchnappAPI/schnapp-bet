@@ -74,7 +74,7 @@ Recovery: 1) tunnel — `sudo launchctl kickstart -k system/com.cloudflare.cloud
 - Service: launchd `com.schnapp.obsidian-mcp` (`RunAtLoad=true`, `KeepAlive=true`). Code at `/Users/schnapp/obsidian-mcp/server.py`. Venv `/Users/schnapp/obsidian-mcp/venv`. Port `8767`.
 - Auth: OAuth 2.1 + PKCE + Dynamic Client Registration (RFC 7591) via FastMCP native `OAuthAuthorizationServerProvider`. OAuth state persisted to `/Users/schnapp/obsidian-mcp/oauth_state.json`.
 - Vault: `~/Library/CloudStorage/OneDrive-Schnapp/Obsidian` (synced to OneDrive; `~/Documents/Obsidian` is a symlink).
-- Secrets: `MAC_MCP_AUTH_TOKEN` resolved via `op-wrap.sh` + `/Users/schnapp/obsidian-mcp/.env.template` (`op://web-variables/MCP Tokens/schnapp_mac`).
+- Secrets: `MAC_MCP_AUTH_TOKEN` resolved via `op-wrap.sh` + `/Users/schnapp/obsidian-mcp/.env.template` (`op://web-variables/MAC_MCP_AUTH_TOKEN/credential`).
 - Tools (7): `read_note`, `write_note`, `append_note`, `search_notes`, `list_notes`, `inbox_drop`, `get_index`.
 - Connected in claude.ai. `inbox_drop` triggers the brain agent via FSEvents automatically.
 - Recovery: graceful restart `launchctl kill TERM gui/$(id -u)/com.schnapp.obsidian-mcp` (KeepAlive relaunches; reuse-socket bind, decision 0010). Hard reload only if it will not come up: `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.schnapp.obsidian-mcp.plist && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.schnapp.obsidian-mcp.plist`.
@@ -84,7 +84,7 @@ Recovery: 1) tunnel — `sudo launchctl kickstart -k system/com.cloudflare.cloud
 - Service: launchd `com.schnapp.brain-watcher` (`RunAtLoad=true`, `KeepAlive=true`). Plist at `~/Library/LaunchAgents/com.schnapp.brain-watcher.plist`.
 - Code: `~/Library/CloudStorage/OneDrive-Schnapp/Obsidian/.github/scripts/inbox_watcher.py` (FSEvents watcher) + `brain_agent.py` (Claude API classifier).
 - Watches: `~/Library/CloudStorage/OneDrive-Schnapp/Obsidian/Inbox/` — fires on any `.md` create or modify.
-- Model: `claude-sonnet-4-6`. API key: `op://web-variables/Anthropic/api_key` (dedicated key named `schnapps-mbp-brain-agent` in console.anthropic.com).
+- Model: `claude-sonnet-4-6`. API key: `op://web-variables/ANTHROPIC_API_KEY/credential` (dedicated key named `schnapps-mbp-brain-agent` in console.anthropic.com).
 - Secrets: resolved via `op-wrap.sh` + `Obsidian/.github/.env.template`. `WorkingDirectory` set to `Obsidian/.github/` so op-wrap picks up the local template.
 - Index output: `~/Library/CloudStorage/OneDrive-Schnapp/Obsidian/_brain/_index.json`.
 - Log: `~/Library/Logs/brain-watcher.log`.

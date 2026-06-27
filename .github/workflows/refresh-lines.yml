@@ -24,7 +24,7 @@ jobs:
           export-env: true
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          ODDS_API_KEY: op://web-variables/Web App/odds_api_key
+          ODDS_API_KEY: op://web-variables/ODDS_API_KEY/credential
           SQL_DATABASE: op://web-variables/Database/database
           SQL_PASSWORD: op://web-variables/Database/password
           SQL_SERVER: op://web-variables/Database/server
