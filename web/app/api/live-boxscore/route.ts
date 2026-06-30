@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSecret } from '@/lib/secrets';
 
 // Proxies live box score requests through a Flask runner that calls the NBA
 // CDN endpoints directly (no proxy needed for those CDN URLs).
@@ -11,7 +12,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const RUNNER_URL = process.env.RUNNER_URL ?? 'https://mac-flask.schnapp.bet';
-const RUNNER_KEY = process.env.RUNNER_API_KEY ?? 'runner-Lake4971';
 const TIMEOUT_MS = 10_000;
 
 export async function GET(req: NextRequest) {
@@ -21,6 +21,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // In production a missing RUNNER_API_KEY throws here (caught below -> 503).
+    // We never call the runner with a repo-published default key. See ADR-20260617-1.
+    const RUNNER_KEY = requireSecret('RUNNER_API_KEY', 'runner-Lake4971');
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 

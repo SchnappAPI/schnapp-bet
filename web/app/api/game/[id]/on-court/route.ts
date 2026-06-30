@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireSecret } from "@/lib/secrets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const RUNNER_URL = process.env.RUNNER_URL ?? "https://mac-flask.schnapp.bet";
-const RUNNER_KEY = process.env.RUNNER_API_KEY ?? "runner-Lake4971";
 const TIMEOUT_MS = 8_000;
 
 // On-court is only meaningful while the game is live. Pre-game has no
@@ -21,6 +21,9 @@ export async function GET(
   }
 
   try {
+    // In production a missing RUNNER_API_KEY throws here (caught below). We
+    // never call the runner with a repo-published default key. See ADR-20260617-1.
+    const RUNNER_KEY = requireSecret("RUNNER_API_KEY", "runner-Lake4971");
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     const resp = await fetch(

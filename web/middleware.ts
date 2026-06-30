@@ -22,7 +22,6 @@ const CACHE_MS = 60_000;
 // is the new endpoint flagged by the deliberation as a scrape vector for
 // the players table — that's the one we actually need to protect today.
 const API_AUTH_PATH_RE = /^\/api\/search(\/|$)/;
-const AUTH_SECRET = process.env.AUTH_TOKEN_SECRET ?? 'fallback-dev-secret-change-me';
 
 // Edge-runtime safe HMAC-SHA256 → base64url. The auth/validate route uses
 // node:crypto.createHmac with base64url encoding; we mirror that shape using
@@ -33,7 +32,7 @@ function base64UrlEncode(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function verifyAuthToken(token: string): Promise<boolean> {
+async function verifyAuthToken(token: string, secret: string): Promise<boolean> {
   const parts = token.split('.');
   if (parts.length !== 2) return false;
   const [payload, signature] = parts;
@@ -42,7 +41,7 @@ async function verifyAuthToken(token: string): Promise<boolean> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
-    enc.encode(AUTH_SECRET),
+    enc.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
@@ -183,12 +182,21 @@ async function checkApiAuth(request: NextRequest): Promise<NextResponse> {
   // works. Production always requires the X-Auth-Token header.
   if (process.env.NODE_ENV !== 'production') return NextResponse.next();
 
+  // Fail closed: a missing signing secret in production means we cannot trust
+  // any token. Reject rather than fall back to a known default string, which
+  // would let anyone forge a valid session. See ADR-20260617-1.
+  const secret = process.env.AUTH_TOKEN_SECRET;
+  if (!secret) {
+    console.error('AUTH_TOKEN_SECRET is not set; rejecting authenticated request.');
+    return NextResponse.json({ error: 'server misconfigured' }, { status: 500 });
+  }
+
   const token = request.headers.get('x-auth-token');
   if (!token) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  const ok = await verifyAuthToken(token);
+  const ok = await verifyAuthToken(token, secret);
   if (!ok) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }

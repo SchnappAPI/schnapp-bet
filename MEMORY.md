@@ -37,6 +37,7 @@ Rotation complete: `OP_SERVICE_ACCOUNT_TOKEN` (regenerated in 1Password, propaga
 - **No per-directory CLAUDE.md pointers.** Path-scoped rules under `.claude/rules/` auto-load.
 - **Session lifecycle scales by task size** (ADR-20260517-3): Trivial → commit only. Routine → commit + MEMORY.md. Milestone → commit + MEMORY.md + ADR. Mid-session correction → LEARNED.md immediately.
 - **1Password is the secrets source** (ADR-20260517-5). Vault `web-variables`. Mapping at `.env.template`. Local: `op run --env-file=.env.template -- <cmd>`. Workflows: `1password/load-secrets-action@v2`. Bootstrap token: `OP_SERVICE_ACCOUNT_TOKEN` in `~/.zshrc` (local), only repo-level GH secret in CI. launchd: invoke via `services/launchd/op-wrap.sh`.
+- **Fail closed on missing security secrets in production** (ADR-20260617-1). `web/lib/secrets.ts` `requireSecret(name, devDefault)` throws in prod, returns the dev default otherwise; call it lazily (never at module scope, or `next build` breaks). Auth routes + middleware reject with 500 when `AUTH_TOKEN_SECRET` is unset in prod; runner-proxy routes never send the default `X-Runner-Key`. `services/flask/runner.py` raises at startup if `RUNNER_API_KEY` is unset (removed the `runner-Lake4971` default, fulfilling ADR-20260517-5 D6). No published-default fallbacks remain.
 
 ## Code state
 

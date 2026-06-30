@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool } from '@/lib/db';
 import { createHmac } from 'crypto';
-
-const SECRET = process.env.AUTH_TOKEN_SECRET ?? 'fallback-dev-secret-change-me';
+import { requireSecret } from '@/lib/secrets';
 
 interface DemoDates {
   nba?: string;
@@ -10,11 +9,11 @@ interface DemoDates {
   mlb?: string;
 }
 
-function makeToken(code: string, mode: 'live' | 'demo', demoDates?: DemoDates): string {
+function makeToken(code: string, mode: 'live' | 'demo', secret: string, demoDates?: DemoDates): string {
   const payload = Buffer.from(
     JSON.stringify({ code, ts: Date.now(), mode, ...(demoDates ? { demoDates } : {}) })
   ).toString('base64url');
-  const sig = createHmac('sha256', SECRET).update(payload).digest('base64url');
+  const sig = createHmac('sha256', secret).update(payload).digest('base64url');
   return `${payload}.${sig}`;
 }
 
@@ -24,6 +23,11 @@ export async function POST(req: NextRequest) {
     if (!code || typeof code !== 'string') {
       return NextResponse.json({ error: 'No code provided.' }, { status: 400 });
     }
+
+    // Resolve the signing secret before any DB work so a missing secret in
+    // production fails fast (caught below -> 500) rather than logging a spurious
+    // activation and then failing at token creation. See ADR-20260617-1.
+    const secret = requireSecret('AUTH_TOKEN_SECRET', 'fallback-dev-secret-change-me');
 
     const normalized = code.trim().toUpperCase();
     const pool = await getPool();
@@ -88,7 +92,7 @@ export async function POST(req: NextRequest) {
         .query(`UPDATE common.user_codes SET last_seen_at = @now WHERE code = @code`);
     }
 
-    const token = makeToken(normalized, userMode, demoDates);
+    const token = makeToken(normalized, userMode, secret, demoDates);
     return NextResponse.json({ token, name: row.name, mode: userMode, demoDates });
   } catch (err) {
     console.error('Auth validate error:', err);

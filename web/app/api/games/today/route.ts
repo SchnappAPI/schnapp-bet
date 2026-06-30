@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import mssql from 'mssql';
 import { getPool } from '@/lib/db';
 import { getGames, type GameRow } from '@/lib/queries';
+import { requireSecret } from '@/lib/secrets';
 
 const RUNNER_URL = process.env.RUNNER_URL ?? 'https://mac-flask.schnapp.bet';
-const RUNNER_KEY = process.env.RUNNER_API_KEY ?? 'runner-Lake4971';
 
 function todayCT(): string {
   const now = new Date();
@@ -67,6 +67,10 @@ async function fetchNbaGames(date: string): Promise<{ count: number; games: Spor
   let cdnByGameId: Map<string, { gameStatus?: number; gameStatusText?: string; homeScore?: number; awayScore?: number; period?: string; clock?: string }> = new Map();
   if (date === todayCT()) {
     try {
+      // In production a missing RUNNER_API_KEY throws here and is caught below,
+      // dropping the live overlay (DB data still returns). We never call the
+      // runner with a repo-published default key. See ADR-20260617-1.
+      const RUNNER_KEY = requireSecret('RUNNER_API_KEY', 'runner-Lake4971');
       const res = await fetch(`${RUNNER_URL}/scoreboard`, {
         headers: { 'X-Runner-Key': RUNNER_KEY },
         // Tight timeout: if Flask CDN is slow, drop the live overlay and
