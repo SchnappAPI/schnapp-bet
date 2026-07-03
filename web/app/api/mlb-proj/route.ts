@@ -229,8 +229,8 @@ export async function GET(req: NextRequest) {
       tierLines: tierRes.recordset,
       lineupAvailable: true,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('/api/mlb-proj error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

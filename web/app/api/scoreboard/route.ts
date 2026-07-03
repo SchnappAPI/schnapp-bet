@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { apiError } from '@/lib/apiError';
 import { requireSecret } from '@/lib/secrets';
 
 export const runtime = 'nodejs';
@@ -26,7 +27,6 @@ export async function GET() {
     const data = await resp.json();
     return NextResponse.json(data);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: `Runner unavailable: ${message}` }, { status: 503 });
+    return apiError(err, 'api/scoreboard', { status: 503, message: 'Runner unavailable' });
   }
 }

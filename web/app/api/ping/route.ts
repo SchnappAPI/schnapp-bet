@@ -6,7 +6,10 @@ export async function GET() {
     await ping();
     return NextResponse.json({ status: 'ok', ts: new Date().toISOString() });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ status: 'error', error: message }, { status: 500 });
+    console.error('[api] api/ping:', err);
+    return NextResponse.json(
+      { status: 'error', error: 'Internal server error' },
+      { status: 500 },
+    );
   }
 }

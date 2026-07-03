@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/apiError';
 import { requireSecret } from '@/lib/secrets';
 
 // Proxies live box score requests through a Flask runner that calls the NBA
@@ -48,7 +49,6 @@ export async function GET(req: NextRequest) {
     const data = await resp.json();
     return NextResponse.json(data);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: `Runner unavailable: ${message}` }, { status: 503 });
+    return apiError(err, 'api/live-boxscore', { status: 503, message: 'Runner unavailable' });
   }
 }

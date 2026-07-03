@@ -183,8 +183,8 @@ export async function GET(req: NextRequest) {
       pitcherStats,
       tierLines,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('/api/mlb-player error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

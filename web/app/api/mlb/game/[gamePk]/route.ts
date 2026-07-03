@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError } from '@/lib/apiError';
 import mssql from "mssql";
 import { getPool } from "@/lib/db";
 
@@ -48,7 +49,6 @@ export async function GET(
 
     return NextResponse.json({ game: result.recordset[0] });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError(err, 'api/mlb/game/[gamePk]');
   }
 }

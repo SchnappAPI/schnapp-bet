@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/apiError';
 import { getPool } from '@/lib/db';
 
 // Per-day per-tier accuracy: one row per (grade_date, tier) with n,
@@ -79,7 +80,6 @@ SELECT tp.tier,
     }));
     return NextResponse.json({ points });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError(err, 'api/tier-accuracy-daily');
   }
 }

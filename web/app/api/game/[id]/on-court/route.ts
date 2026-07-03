@@ -74,11 +74,11 @@ export async function GET(
       updated_at: new Date().toISOString(),
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] api/game/[id]/on-court:', err);
     return NextResponse.json({
       game_id: id,
       on_court: null,
-      reason: message,
+      reason: 'unavailable',
       updated_at: new Date().toISOString(),
     });
   }

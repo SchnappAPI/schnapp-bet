@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/apiError';
 import { getGrades, type GradesSport, type GradeRow } from '@/lib/queries';
 import { getAllSignals, type Signal } from '@/lib/signals';
 import { jsonWithEtag } from '@/lib/etag';
@@ -113,7 +114,6 @@ export async function GET(req: NextRequest) {
       params: { sport, n, date },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError(err, 'api/grades/top');
   }
 }

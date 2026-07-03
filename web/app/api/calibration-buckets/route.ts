@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { apiError } from '@/lib/apiError';
 import { getPool } from '@/lib/db';
 
 // Returns the latest snapshot of calibration buckets for the active model.
@@ -39,7 +40,6 @@ export async function GET() {
     const cap = buckets[0]?.max_well_sampled_rate ?? null;
     return NextResponse.json({ buckets, last_updated: lastUpdated, max_well_sampled_rate: cap });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError(err, 'api/calibration-buckets');
   }
 }
