@@ -614,6 +614,14 @@ def ensure_schema(engine):
     with engine.begin() as conn:
         for stmt in DDL_STATEMENTS:
             conn.execute(text(stmt))
+        # NFL players key on string gsis ids ("00-0033873"), which do not fit
+        # player_map.player_id BIGINT. NFL mapping rows carry the numeric tail
+        # in player_id (catalog predicate compatibility) and the full gsis
+        # string here for exact joins. Idempotent add.
+        conn.execute(text("""
+            IF COL_LENGTH('odds.player_map', 'gsis_id') IS NULL
+                ALTER TABLE odds.player_map ADD gsis_id VARCHAR(12) NULL
+        """))
         conn.execute(text(VIEW_DROP))
         conn.execute(text(VIEW_CREATE))
 
@@ -1451,7 +1459,170 @@ def run_mappings(sport, engine):
     elif sport == "mlb":
         _run_mappings_mlb(sport_key, engine)
     elif sport == "nfl":
-        print("  NFL mappings not yet implemented. Skipping.")
+        _run_mappings_nfl(sport_key, engine)
+
+
+# Odds API full team names -> nflverse team codes (as stored in nfl.games).
+NFL_TEAM_NAME_TO_ABBR = {
+    "Arizona Cardinals": "ARI",  "Atlanta Falcons": "ATL",
+    "Baltimore Ravens": "BAL",   "Buffalo Bills": "BUF",
+    "Carolina Panthers": "CAR",  "Chicago Bears": "CHI",
+    "Cincinnati Bengals": "CIN", "Cleveland Browns": "CLE",
+    "Dallas Cowboys": "DAL",     "Denver Broncos": "DEN",
+    "Detroit Lions": "DET",      "Green Bay Packers": "GB",
+    "Houston Texans": "HOU",     "Indianapolis Colts": "IND",
+    "Jacksonville Jaguars": "JAX", "Kansas City Chiefs": "KC",
+    "Las Vegas Raiders": "LV",   "Los Angeles Chargers": "LAC",
+    "Los Angeles Rams": "LA",    "Miami Dolphins": "MIA",
+    "Minnesota Vikings": "MIN",  "New England Patriots": "NE",
+    "New Orleans Saints": "NO",  "New York Giants": "NYG",
+    "New York Jets": "NYJ",      "Philadelphia Eagles": "PHI",
+    "Pittsburgh Steelers": "PIT", "San Francisco 49ers": "SF",
+    "Seattle Seahawks": "SEA",   "Tampa Bay Buccaneers": "TB",
+    "Tennessee Titans": "TEN",   "Washington Commanders": "WAS",
+}
+
+_NFL_PLAYER_ALIASES: dict[str, str] = {
+    # Add odds API name -> nfl.players display_name mismatches here as discovered
+}
+
+
+def _gsis_numeric(gsis_id):
+    """gsis ids are '00-00NNNNN'. The numeric tail fits player_map.player_id
+    BIGINT and is reversible via f'00-{n:07d}'. Returns None on odd shapes."""
+    try:
+        return int(str(gsis_id).split("-")[-1])
+    except (ValueError, AttributeError):
+        return None
+
+
+def _run_mappings_nfl(sport_key, engine):
+    # --- team_map ---
+    team_rows = [
+        {"odds_team_name": name, "sport_key": sport_key,
+         "team_tricode": abbr[:3], "team_id": None}
+        for name, abbr in NFL_TEAM_NAME_TO_ABBR.items()
+    ]
+    upsert(engine, clean_dataframe(pd.DataFrame(team_rows)),
+           schema="odds", table="team_map", keys=["odds_team_name", "sport_key"])
+    print(f"  team_map: {len(team_rows)} rows.")
+
+    # --- player_map (gsis string keys; numeric tail into player_id) ---
+    with engine.connect() as conn:
+        db_players = conn.execute(
+            text("SELECT gsis_id, display_name FROM nfl.players WHERE gsis_id IS NOT NULL")
+        ).fetchall()
+    norm_to_gsis = {_normalize_name(n): g for g, n in db_players if n}
+    norm_to_name = {_normalize_name(n): n for _, n in db_players if n}
+
+    with engine.connect() as conn:
+        hist_names = [r[0] for r in conn.execute(
+            text("SELECT DISTINCT player_name FROM odds.player_props WHERE sport_key = :sk"),
+            {"sk": sport_key},
+        ).fetchall() if r[0]]
+        upco_names = [r[0] for r in conn.execute(
+            text("SELECT DISTINCT player_name FROM odds.upcoming_player_props WHERE sport_key = :sk"),
+            {"sk": sport_key},
+        ).fetchall() if r[0]]
+    all_names = list(set(hist_names + upco_names))
+
+    pm_rows = []
+    matched = unmatched = 0
+    for oname in all_names:
+        lookup_name = _NFL_PLAYER_ALIASES.get(oname, oname)
+        norm  = _normalize_name(lookup_name)
+        gsis  = norm_to_gsis.get(norm)
+        mname = norm_to_name.get(norm)
+        if gsis:
+            matched += 1
+        else:
+            unmatched += 1
+            print(f"  [no_match] {oname!r}")
+        pm_rows.append({
+            "odds_player_name": oname,
+            "sport_key":        sport_key,
+            "player_id":        _gsis_numeric(gsis) if gsis else None,
+            "gsis_id":          gsis,
+            "matched_name":     mname,
+            "match_method":     "exact" if gsis else "no_match",
+        })
+    if pm_rows:
+        pm_rows = validate_and_filter(pm_rows, "odds.player_map", engine, "odds-etl.yml")
+        upsert(engine, clean_dataframe(pd.DataFrame(pm_rows)),
+               schema="odds", table="player_map", keys=["odds_player_name", "sport_key"])
+        print(f"  player_map: {len(pm_rows)} rows ({matched} matched, {unmatched} unmatched).")
+    else:
+        print("  player_map: no odds player names found yet (run upcoming first to populate).")
+
+    # --- event_game_map ---
+    with engine.connect() as conn:
+        all_events = conn.execute(
+            text("""
+                SELECT e.event_id, e.commence_time, e.home_team, e.away_team
+                FROM odds.events e
+                WHERE e.sport_key = :sk
+            """),
+            {"sk": sport_key},
+        ).fetchall()
+
+    if not all_events:
+        print("  event_game_map: no events to map.")
+        return
+
+    with engine.connect() as conn:
+        nfl_games = conn.execute(
+            text("SELECT game_id, game_date, home_team, away_team FROM nfl.games")
+        ).fetchall()
+    game_lookup = {(str(gdate), h, a): gid for gid, gdate, h, a in nfl_games}
+
+    egm_rows = []
+    matched = unmatched = 0
+    for eid, ctime, home_name, away_name in all_events:
+        try:
+            ctime_dt = (
+                datetime.fromisoformat(str(ctime).replace("Z", "+00:00"))
+                if isinstance(ctime, str) else ctime
+            )
+            if hasattr(ctime_dt, "tzinfo") and ctime_dt.tzinfo is None:
+                ctime_dt = ctime_dt.replace(tzinfo=timezone.utc)
+            utc_date      = ctime_dt.date() if hasattr(ctime_dt, "date") else None
+            utc_prev_date = (utc_date - timedelta(days=1)) if utc_date else None
+        except Exception:
+            utc_date = utc_prev_date = None
+
+        home_abbr = NFL_TEAM_NAME_TO_ABBR.get(home_name)
+        away_abbr = NFL_TEAM_NAME_TO_ABBR.get(away_name)
+
+        game_id = None
+        used_date = None
+        if home_abbr and away_abbr:
+            # US evening kickoffs land on the next UTC date; check both.
+            for candidate in [utc_date, utc_prev_date]:
+                if candidate is None:
+                    continue
+                game_id = game_lookup.get((str(candidate), home_abbr, away_abbr))
+                if game_id:
+                    used_date = candidate
+                    break
+
+        if game_id:
+            matched += 1
+        else:
+            unmatched += 1
+
+        egm_rows.append({
+            "event_id":     eid,
+            "sport_key":    sport_key,
+            "game_id":      game_id,
+            "game_date":    str(used_date) if used_date else (str(utc_date) if utc_date else None),
+            "home_tricode": home_abbr,
+            "away_tricode": away_abbr,
+            "match_method": "date_home_away_tricode" if game_id else "unmatched",
+        })
+
+    upsert(engine, clean_dataframe(pd.DataFrame(egm_rows)),
+           schema="odds", table="event_game_map", keys=["event_id"])
+    print(f"  event_game_map: {len(egm_rows)} rows ({matched} matched, {unmatched} unmatched).")
 
 
 def _run_mappings_mlb(sport_key, engine):

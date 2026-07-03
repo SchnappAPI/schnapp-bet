@@ -200,6 +200,37 @@ CRITICAL_FIELDS: Dict[str, Dict[str, Any]] = {
     },
 
     # =================================================================
+    # nfl schema (weekly grain: season/week/season_type, gsis_id players)
+    # =================================================================
+
+    "nfl.games": {
+        "row_key": ["game_id"],
+        "always_required": [
+            "game_id", "season", "week", "game_type", "game_date",
+            "home_team", "away_team",
+        ],
+        "required_when": {
+            # Scores exist only after kickoff; nflverse leaves them NULL for
+            # future games, so requiring them unconditionally would quarantine
+            # the whole upcoming schedule.
+        },
+    },
+
+    "nfl.players": {
+        "row_key": ["gsis_id"],
+        "always_required": ["gsis_id", "display_name"],
+        "required_when": {},
+    },
+
+    "nfl.player_game_stats": {
+        "row_key": ["player_gsis_id", "season", "week", "season_type"],
+        "always_required": [
+            "player_gsis_id", "season", "week", "season_type", "team",
+        ],
+        "required_when": {},
+    },
+
+    # =================================================================
     # odds schema (cross-sport; NBA-primary today, MLB uses same tables)
     # =================================================================
 
@@ -597,6 +628,30 @@ RELATIONAL_CHECKS: Dict[str, Dict[str, Any]] = {
             SELECT COUNT(*) AS player_count
             FROM mlb.players
             HAVING COUNT(*) < 200
+        """,
+        "severity": "error",
+    },
+
+    # NFL is weekly-grain and off-season for ~7 months, so freshness is
+    # checked in weeks against the schedule, not days against game data.
+    "nfl_games_stale": {
+        "description": ("nfl.games should carry the current season's schedule once "
+                        "nflverse publishes it (September onward)"),
+        "query": """
+            SELECT TOP 1 'nfl.games' AS table_name,
+                         MAX(season) AS latest_season
+            FROM nfl.games
+            HAVING MAX(season) < YEAR(GETUTCDATE()) - CASE WHEN MONTH(GETUTCDATE()) >= 9 THEN 0 ELSE 1 END
+        """,
+        "severity": "warn",
+    },
+
+    "nfl_player_count_sanity": {
+        "description": "nfl.players accumulates all-time gsis ids; under 5,000 means a broken load",
+        "query": """
+            SELECT COUNT(*) AS player_count
+            FROM nfl.players
+            HAVING COUNT(*) < 5000
         """,
         "severity": "error",
     },
