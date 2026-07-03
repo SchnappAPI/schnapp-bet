@@ -374,7 +374,7 @@ def get_engine(max_retries=3, retry_wait=60):
             if attempt < max_retries:
                 log.info(f"Waiting {retry_wait}s...")
                 time.sleep(retry_wait)
-    raise RuntimeError("Could not connect to Azure SQL after retries.")
+    raise RuntimeError("Could not connect to SQL Server after retries.")
 
 
 def ensure_tables(engine):

@@ -409,9 +409,9 @@ def get_engine():
         except Exception as exc:
             log.warning(f"DB connection attempt {attempt}/3 failed: {exc}")
             if attempt < 3:
-                log.info("Waiting 60s for Azure SQL to resume...")
+                log.info("Waiting 60s for SQL Server to resume...")
                 time.sleep(60)
-    raise RuntimeError("Could not connect to Azure SQL after 3 attempts.")
+    raise RuntimeError("Could not connect to SQL Server after 3 attempts.")
 
 
 # ---------------------------------------------------------------------------
