@@ -2,6 +2,8 @@
 
 ## Current Focus
 
+**Repo improvement pass (2026-07-03, web session, PR pending).** Full-repo audit + quick-win fixes on branch `claude/schnapp-bet-improvements-fr3bky`: deleted shipped one-shot workflows and dead migration scripts, added `concurrency:` groups to all recurring workflows, stopped 39 API routes leaking raw DB errors (new `web/lib/apiError.ts`), deleted dead `GameTabs.tsx`, fixed `rotate-op-token.sh` to also update `~/.zshenv`, and fixed doc drift (integrity-module path, ADR router, CHANGELOG pointers). Prioritized backlog — CI/testing foundation, `get_engine`/`safe_*` consolidation, NFL integrity gap, grading-v2 Phases 8–9 decision, ops hardening — lives in `docs/reviews/2026-07-03-repo-improvement-review.md`. Two secrets flagged in `grading-v2/memory.md` (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN) still need manual rotation confirmation.
+
 **Cutover complete (2026-05-18).** Full code port plus first-run integration done. End-to-end smoke verified by running `nba-etl.yml` on the new mac-runner-1: 1Password load-secrets-action resolved, Python ETL connected to SQL Server via the Webshare proxy, 30 teams + 1320 schedule rows + 1306 games + 160 usage-stat rows upserted. Two HTTP 503s on `boxscoreadvancedv3` were transient stats.nba.com noise handled by the runner's retry logic.
 
 Live agents on Schnapps-MBP (post-cutover):

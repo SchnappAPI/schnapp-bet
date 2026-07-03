@@ -15,6 +15,7 @@ Documentation router. Session lifecycle (read/write protocols) lives in root `/C
 - `/docs/decisions/ADR-YYYYMMDD-N-slug.md` — ADRs, one per file. See `docs/decisions/README.md` for format. The commit log is the changelog (ADR-20260517-4); see root `CLAUDE.md` "Commit subject format" for filtering commands.
 - `/docs/features/` — feature methodology specs (not Claude skills). Currently: `playoff-supplemental.md`.
 - `/docs/runbooks/` — operational procedures. `deploy-web.md`, `runner-and-services.md`, `tunnels-and-dns.md`.
+- `/docs/reviews/` — point-in-time repo audits with prioritized backlog. Newest first; the backlog sections stay live until superseded by a newer review.
 
 ## Per-component READMEs
 
