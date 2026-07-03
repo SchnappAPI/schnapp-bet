@@ -708,6 +708,15 @@ def _record_quota_headers(headers):
 # API helpers
 # ---------------------------------------------------------------------------
 
+class OddsApiAuthError(RuntimeError):
+    """Fatal auth failure from the Odds API (deactivated/invalid key).
+
+    Must abort the run with a non-zero exit: a dead key is not a transient
+    condition, and treating it as a skip produced months of green-but-empty
+    runs (odds frozen 2026-04-24 while odds-etl.yml reported success).
+    """
+
+
 def _request(url, params, retries=3):
     wait_times = [10, 30, 60]
     last_exc = None
@@ -732,7 +741,15 @@ def _request(url, params, retries=3):
             _check_budget()
             return resp.json(), resp.headers
 
-        if resp.status_code in (401, 403, 404):
+        if resp.status_code in (401, 403):
+            # Key-level failures are fatal, not skippable. The API reports
+            # DEACTIVATED_KEY (payment lapse/cancellation) and similar codes
+            # on every call, so no later request in this run can succeed.
+            raise OddsApiAuthError(
+                f"Odds API auth failure (HTTP {resp.status_code}): {resp.text[:300]}"
+            )
+
+        if resp.status_code == 404:
             print(f"    [skip] HTTP {resp.status_code}: {resp.text[:200]}")
             return None, None
 
@@ -2006,4 +2023,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except OddsApiAuthError as exc:
+        print(f"\nFATAL: {exc}")
+        print("The Odds API key is dead (deactivated/invalid). Restore the key in "
+              "1Password (op://web-variables/ODDS_API_KEY/credential) and re-run. "
+              "Failing loudly so this cannot pass as a green run.")
+        sys.exit(1)

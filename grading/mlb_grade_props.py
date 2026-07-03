@@ -825,7 +825,23 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
 
     props = fetch_upcoming_mlb_props(engine, grade_date_str)
     if props.empty:
-        log.info("No upcoming MLB props found. Exiting.")
+        # Zero props on a day with scheduled MLB games means the odds feed is
+        # broken (dead API key, dead workflow), not that there is nothing to
+        # grade. Exiting 0 here hid a two-month outage (no mlb-v1.0 rows
+        # after 2026-05-01 while the workflow stayed green). Fail loudly.
+        scheduled = pd.read_sql(text(
+            "SELECT COUNT(*) AS n FROM mlb.games WHERE CAST(game_date AS DATE) = :d"
+        ), engine, params={"d": grade_date_str}).iloc[0]["n"]
+        if int(scheduled) > 0:
+            log.error(
+                "No upcoming MLB props for %s but %d games are scheduled. "
+                "The odds pipeline is stale (check ODDS_API_KEY / odds-etl.yml). "
+                "Failing so this cannot pass as a green run.",
+                grade_date_str, int(scheduled),
+            )
+            raise SystemExit(2)
+        log.info("No upcoming MLB props and no scheduled games for %s (offseason/off-day). Exiting.",
+                 grade_date_str)
         return
 
     # Resolve player IDs — Over side only (we'll flip for Under)
