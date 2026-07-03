@@ -2,7 +2,7 @@
 
 A read-only analytical layer that complements `common.daily_grades` with playoff-specific signals the standard model does not consider. Built ad-hoc in chat 2026-05-02 for PHI@BOS Game 7. This document captures the methodology, data contracts, design decisions, and known gaps so it can grow into a proper feature.
 
-This is a feature methodology spec, not a how-to-run README. The current implementation lived at `/tmp/playoff_supplemental_v2.py` on the Mac and is ephemeral. The real artifact is the analytical approach.
+This is a feature methodology spec, not a how-to-run README. The productionized descendant is `grading/generate_supplemental.py` (the original ad-hoc implementation lived at `/tmp/playoff_supplemental_v2.py` on the Mac and is gone). The real artifact is the analytical approach.
 
 This file moved from sports-modeling's `docs/skills/playoff-supplemental.md` to `docs/features/playoff-supplemental.md` because it is a feature spec, not a Claude Code skill.
 

@@ -1,5 +1,19 @@
 # Repo Improvement Review — 2026-07-03
 
+> **Addendum (same day, revamp pass):** a live truth audit (DB + workflow logs)
+> and a follow-up revamp landed on the same branch. Root causes found and fixed:
+> dead Odds API key silently skipped since 4/24 (now fatal, ADR-20260703-1);
+> `mlb-pbp-etl` never scheduled + two latent trend-stats bugs (inverted ternary,
+> missing `_merge_trend_stats`) froze pitch-level data 4/30 (fixed + nightly);
+> NBA grading re-graded a stale June slate daily (now skips); `nfl_etl` season
+> flip 404'd weekly since 6/2 (fixed, green). Shipped beyond the quick wins:
+> MLB markets 4→16 (`mlb-v1.1`), `mlb.batter_context`/`batter_projections`
+> (ADR-0004 complete), `/mlb/grades` surface, NFL foundation (mappings,
+> integrity, `/nfl` page — ADR-20260703-2), universal workflow heartbeats +
+> deduped failure Issues, MLB/NFL integrity coverage. The backlog sections
+> below remain valid for what they still list (CI, consolidation, grading-v2
+> Phases 8–9, ops hardening).
+
 Full-repo analysis (Python ETL/grading, Next.js web, workflows/infra/docs) run 2026-07-03.
 Verdict: architecture and secrets discipline are solid; the biggest structural gaps are
 **zero test/CI gating**, **copy-paste drift across sports**, and **stale ops surface**
@@ -30,11 +44,13 @@ under "Recommended next" is prioritized backlog.
 
 ## Security follow-ups (manual — cannot be done from a repo branch)
 
-1. **Rotate two exposed secrets.** `grading-v2/memory.md` (2026-05-05) records that
-   `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` were pasted into a chat and "must
-   be rotated". No later note or ADR records the rotation happening. Use the vault
-   rotation procedure; if they were already rotated, add a superseding note where the
-   flag lives so the alarm stops firing.
+1. ~~Rotate two exposed secrets.~~ **RESOLVED 2026-07-03** — owner confirmed both
+   were already rotated; the stale flags in `grading-v2/memory.md` and `MEMORY.md`
+   are marked RESOLVED.
+1b. **Restore the Odds API key.** Found in the same-day truth audit: the key is
+   deactivated ("cancelation or failed payment"), which froze odds ingestion on
+   2026-04-24 and silently killed MLB grading from 5/1. Pipelines now fail loudly
+   while it is dead (ADR-20260703-1). New key → `op://web-variables/ODDS_API_KEY/credential`.
 2. **Decide on open-API exposure.** Only `/api/search` is auth-gated
    (`web/middleware.ts`); every other data route (grades, players, games, tier-grid,
    all MLB) is deliberately public. That is a total-scrape exposure of the product's

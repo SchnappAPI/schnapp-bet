@@ -1,6 +1,8 @@
 # NFL Database
 
-**STATUS:** idle (tables populated, not in active use). The `nfl.*` tables were created by the first successful run of `etl/nfl_etl.py` on 2026-04-21 and have not been actively worked on since. As of that first run: `nfl.games` (285 rows), `nfl.players` (24,376), `nfl.player_game_stats` (19,421), `nfl.snap_counts` (26,612), `nfl.ftn_charting` (47,316), `nfl.rosters_weekly` (46,820), `nfl.team_game_stats` (570). Schema will continue to evolve via `add_missing_columns()` on each subsequent scheduled run, but no downstream consumer queries these tables today.
+**STATUS:** live (2026-07-03). The 7 nflreadpy tables are consumed by `/api/nfl/*` (week slate + player stats) and covered by the integrity framework (`nfl.games`, `nfl.players`, `nfl.player_game_stats` in CRITICAL_FIELDS; `nfl_games_stale` + `nfl_player_count_sanity` relational checks). First load 2026-04-21; weekly Tuesday refresh; schema evolves via `add_missing_columns()`.
+
+**Orphan tables**: the live DB (and therefore the generated `bootstrap.sql`) also carries 12 tables nothing in this repo populates — 10 `pff_*` tables, `nfl.seasons`, and `nfl.teams`, all 0 rows, carried over from the sports-modeling-era Azure database. They are inert; dropping them is an owner decision (they cost nothing but confuse the schema snapshot). Until dropped, treat them as historical artifacts, not part of the pipeline.
 
 ## Purpose
 

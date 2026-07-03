@@ -1,13 +1,14 @@
 # etl/mlb/
 
-**STATUS:** design phase in schnapp-bet (live in sports-modeling). ETL scripts land here in the code-port milestone.
+**STATUS:** live. Both scripts shipped in the 2026-05 code port and run on schedules.
 
-## Planned scripts (carry over from sports-modeling)
+## Scripts
 
 All scripts at `etl/` root per ADR-20260420-1:
 
 - `etl/mlb_etl.py` — nightly 7-table load: teams, schedule, players, games + batting_stats + pitching_stats, player_season_batting, pitcher_season_stats. Triggered by `.github/workflows/mlb-etl.yml` at 09:00 UTC.
-- `etl/mlb_play_by_play.py` — on-demand pitch-level loader (`workflow_dispatch` only). In-lockstep materializers for at-bats, career-BvP, player_trend_stats.
+- `etl/mlb_play_by_play.py` — pitch-level loader, nightly at 09:30 UTC since 2026-07-03 (previously `workflow_dispatch` only, which froze the derived tables mid-season). In-lockstep materializers for at-bats, career-BvP, player_trend_stats. Season derives from the current year; `--seasons` overrides.
+- `grading/compute_mlb_projections.py` — batter context + per-market projections (ADR-0004 entities), run as an `mlb-grading.yml` step.
 
 ## Data sources
 
@@ -17,7 +18,7 @@ All scripts at `etl/` root per ADR-20260420-1:
 ## Key design choices
 
 - **Schema inference from API response** (not hand-written DDL). Pandas infers types on first run; subsequent runs use `add_missing_columns()` for ADD COLUMN drift.
-- **Direct INSERT for append-only tables** (`mlb.play_by_play`, `mlb.player_at_bats`) per ADR-0013 in sports-modeling. Staged MERGE for aggregate tables (`career_batter_vs_pitcher`, `player_trend_stats`).
+- **Direct INSERT for append-only tables** (`mlb.play_by_play`, `mlb.player_at_bats`) — a sports-modeling-era decision (its ADR-0013; not renumbered here) carried forward. Staged MERGE for aggregate tables (`career_batter_vs_pitcher`, `player_trend_stats`).
 - **Incremental checkpoint**: `mlb.batting_stats`. All three box-score tables fall together.
 - **Month-by-month schedule fetch** (prevents 503s on wide date ranges).
 - **`mlb.players` is MERGE/accumulate-across-seasons** per ADR-20260501-3, not truncate-and-reload.
