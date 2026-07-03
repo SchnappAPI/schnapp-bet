@@ -177,7 +177,7 @@ Player at-bats shipped 2026-04-21. Career BvP shipped 2026-04-21. Player trend s
 
 ## Recent Changes
 
-See `/docs/CHANGELOG.md` filtered by `[mlb][database]`. Historical entries before the restructure are in the archived `/docs/_archive/CHANGELOG.md`.
+Git log is the changelog (ADR-20260517-4): `git log --grep='\[mlb\]' --grep='\[database\]'`.
 
 ## Open Questions
 

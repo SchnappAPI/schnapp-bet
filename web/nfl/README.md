@@ -35,7 +35,7 @@ None yet. Once work starts, inherit the cross-sport patterns:
 
 ## Recent Changes
 
-See `/docs/CHANGELOG.md` filtered by `[nfl][web]`. Historical entries before the restructure are in the archived `/docs/_archive/CHANGELOG.md`.
+Git log is the changelog (ADR-20260517-4): `git log --grep='\[nfl\]' --grep='\[web\]'`.
 
 ## Open Questions
 

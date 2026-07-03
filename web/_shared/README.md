@@ -23,7 +23,7 @@ The passcode gate wraps protected routes and checks `common.user_codes` before a
 
 ## Recent Changes
 
-See `/docs/CHANGELOG.md` filtered by `[shared][web]`.
+Git log is the changelog (ADR-20260517-4): `git log --grep='\[shared\]' --grep='\[web\]'`.
 
 ## Open Questions
 

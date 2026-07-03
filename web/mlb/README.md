@@ -168,7 +168,7 @@ Do not revert without an ADR.
 
 ## Recent Changes
 
-See `/docs/CHANGELOG.md` filtered by `[mlb][web]`. Historical entries before the restructure are in the archived `/docs/_archive/CHANGELOG.md`.
+Git log is the changelog (ADR-20260517-4): `git log --grep='\[mlb\]' --grep='\[web\]'`.
 
 ## Open Questions
 

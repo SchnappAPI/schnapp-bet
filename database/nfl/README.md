@@ -77,7 +77,7 @@ If a load fails mid-season (e.g. `ftn_charting` is temporarily unavailable), onl
 
 ## Recent Changes
 
-See `/docs/CHANGELOG.md` filtered by `[nfl][database]`. Historical entries before the restructure are in the archived `/docs/_archive/CHANGELOG.md`.
+Git log is the changelog (ADR-20260517-4): `git log --grep='\[nfl\]' --grep='\[database\]'`.
 
 ## Open Questions
 
