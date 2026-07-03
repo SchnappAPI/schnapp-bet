@@ -812,6 +812,60 @@ def load_trend_stats_for_games(engine, game_pks):
     log.info("trend_stats: merged %d rows.", len(records))
 
 
+def _merge_trend_stats(engine, records):
+    """
+    Stage computed trend rows into #stage_trend and MERGE into
+    mlb.player_trend_stats on (batter_id, game_date).
+
+    This is the incremental sibling of rebuild_trend_stats (which merges
+    fully server-side): the nightly flush computes its rows in pandas via
+    _compute_trend_stats_bulk and lands them here. This function was
+    referenced but never defined - the incremental trend path crashed with
+    NameError on every flush until 2026-07-03. Column lists are derived
+    from the record dicts, which mirror the table shape (code-generated
+    keys, never user input).
+    """
+    if not records:
+        return
+    df = pd.DataFrame(records)
+    key_cols = ["batter_id", "game_date"]
+    stat_cols = [c for c in df.columns if c not in key_cols]
+    df = df.astype(object).where(pd.notnull(df), None)
+
+    col_defs    = ",\n                ".join(f"{c} FLOAT NULL" for c in stat_cols)
+    insert_cols = ", ".join(key_cols + stat_cols)
+    param_names = ", ".join(f":{c}" for c in key_cols + stat_cols)
+    set_clause  = ",\n                ".join(f"{c} = src.{c}" for c in stat_cols)
+    src_cols    = ", ".join(f"src.{c}" for c in key_cols + stat_cols)
+
+    with engine.begin() as conn:
+        conn.execute(text(
+            "IF OBJECT_ID('tempdb..#stage_trend') IS NOT NULL DROP TABLE #stage_trend"
+        ))
+        conn.execute(text(f"""
+            CREATE TABLE #stage_trend (
+                batter_id INT NOT NULL,
+                game_date DATE NOT NULL,
+                {col_defs},
+                PRIMARY KEY (batter_id, game_date)
+            )
+        """))
+        conn.execute(
+            text(f"INSERT INTO #stage_trend ({insert_cols}) VALUES ({param_names})"),
+            df.to_dict("records"),
+        )
+        conn.execute(text(f"""
+            MERGE mlb.player_trend_stats AS tgt
+            USING #stage_trend AS src
+              ON tgt.batter_id = src.batter_id AND tgt.game_date = src.game_date
+            WHEN MATCHED THEN UPDATE SET
+                {set_clause},
+                updated_at = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN INSERT ({insert_cols}, updated_at)
+            VALUES ({src_cols}, SYSUTCDATETIME());
+        """))
+
+
 def rebuild_trend_stats(engine):
     """
     Standalone rebuilder for --rebuild-trend-stats mode. Rebuilds
