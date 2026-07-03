@@ -6,6 +6,12 @@ web/*.log
 web/.env*
 web/*.tsbuildinfo
 
+# Playwright E2E artifacts (browsers cache in ~/Library/Caches/ms-playwright)
+web/test-results/
+web/playwright-report/
+web/blob-report/
+web/.playwright/
+
 # Python
 __pycache__/
 *.pyc

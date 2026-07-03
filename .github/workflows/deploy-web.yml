@@ -22,7 +22,10 @@ jobs:
       - name: Install dependencies (staging)
         run: |
           cd /Users/schnapp/code/web-next/web
-          npm ci --no-workspaces
+          npm ci --no-workspaces --include=dev
+          # E2E browser. Installs to ~/Library/Caches/ms-playwright (shared,
+          # persists across deploys), so it is reused after the dir swap.
+          npx playwright install chromium
 
       - name: Inject SW version
         run: |
@@ -47,15 +50,21 @@ jobs:
           launchctl unload "/Users/schnapp/Library/LaunchAgents/bet.schnapp.web-prod.plist"
           launchctl load   "/Users/schnapp/Library/LaunchAgents/bet.schnapp.web-prod.plist"
 
-      - name: Smoke test (rollback on failure)
+      # Route-level E2E gate. Replaces the single-curl homepage smoke test:
+      # exercises /nba /mlb /nfl and the @tanstack grades grid against the
+      # freshly-swapped :3001 process, asserting each route mounts its chrome
+      # with zero console errors. A broken route fails here and triggers the
+      # same rollback the curl used to, so it never finalizes the deploy.
+      - name: E2E route tests (rollback on failure)
         run: |
           BASE=/Users/schnapp/code
           sleep 12
-          if curl -sf http://127.0.0.1:3001 > /dev/null; then
-            echo "Smoke test passed"
+          cd "$BASE/schnapp-bet/web"
+          if npm run test:e2e; then
+            echo "E2E route tests passed"
             rm -rf "$BASE/web-prev"
           else
-            echo "Smoke test failed — rolling back"
+            echo "E2E route tests failed — rolling back"
             launchctl unload "/Users/schnapp/Library/LaunchAgents/bet.schnapp.web-prod.plist"
             rm -rf "$BASE/web-bad"
             mv "$BASE/schnapp-bet" "$BASE/web-bad"
