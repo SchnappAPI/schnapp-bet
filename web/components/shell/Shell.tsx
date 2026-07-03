@@ -96,6 +96,9 @@ function ShellInner({ children }: ShellProps) {
           <CommandItem value="mlb projections" onSelect={() => (window.location.href = '/mlb?view=proj')}>
             MLB · Projections
           </CommandItem>
+          <CommandItem value="nfl games" onSelect={() => (window.location.href = '/nfl')}>
+            NFL · Games
+          </CommandItem>
           <CommandItem value="transparency" onSelect={() => (window.location.href = '/transparency')}>
             Transparency
           </CommandItem>

@@ -93,6 +93,16 @@ export function Sidebar({
             />
           </div>
 
+          <SectionLabel collapsed={collapsed}>NFL</SectionLabel>
+          <div className="px-2">
+            <SidebarLink
+              href="/nfl"
+              icon={<Trophy size={14} className="text-sport-nfl" />}
+              label="Games"
+              collapsed={collapsed}
+            />
+          </div>
+
           {isAdmin && (
             <>
               <div className="my-2 mx-3 border-t border-border-subtle" />
