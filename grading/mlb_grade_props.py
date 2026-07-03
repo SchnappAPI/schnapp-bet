@@ -81,7 +81,7 @@ log = logging.getLogger(__name__)
 BOOKMAKER       = "fanduel"
 MODEL_VERSION   = "mlb-v1.0"
 MIN_SAMPLE      = 5       # minimum PA in a window before using it
-SEASON_START    = "2024-03-20"  # earliest data in player_at_bats
+SEASON_START    = "2024-03-20"  # historical floor of player_at_bats (backfill start), NOT the current season
 
 # Rolling window weights (must sum to 1.0)
 W10_WEIGHT = 0.25

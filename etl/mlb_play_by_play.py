@@ -110,7 +110,16 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-SEASONS = [2025]
+
+def _current_mlb_season():
+    """MLB seasons live inside one calendar year (Mar-Nov)."""
+    from datetime import date
+    return date.today().year
+
+
+# Default when --seasons is omitted. Derived, not hardcoded: the previous
+# literal [2025] silently pinned nightly runs to a finished season.
+SEASONS = [_current_mlb_season()]
 DEFAULT_BATCH = 50
 API_PAUSE = 0.25
 API_BASE  = "https://statsapi.mlb.com/api/v1/game/{game_pk}/withMetrics"
