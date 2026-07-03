@@ -58,6 +58,18 @@ jobs:
       - name: Activate virtualenv
         run: echo "$HOME/venv/bin" >> $GITHUB_PATH
 
+      - name: Compute batter context + projections
+        # ADR-20260420-2 entities: opposing-SP context and per-market
+        # projected values for today's slate. Independent of grading output;
+        # feeds the web Proj/Player views.
+        env:
+          DATE_INPUT: ${{ github.event.inputs.date || '' }}
+        run: |
+          set -euo pipefail
+          ARGS=""
+          [ -n "$DATE_INPUT" ] && ARGS="--date $DATE_INPUT"
+          python grading/compute_mlb_projections.py $ARGS
+
       - name: Run MLB grading
         env:
           DATE_INPUT: ${{ github.event.inputs.date  || '' }}
