@@ -49,16 +49,6 @@ const nextConfig = {
         ],
       },
       {
-        // Today Terminal — Signal Activity panel polls every 60s.
-        source: '/api/grades/signals/today',
-        headers: [
-          {
-            key: 'Cache-Control',
-            value: 'public, s-maxage=30, stale-while-revalidate=60',
-          },
-        ],
-      },
-      {
         // Today Terminal — Games panel polls every 30s; live data, short TTL.
         source: '/api/games/today',
         headers: [

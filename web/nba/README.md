@@ -20,7 +20,6 @@ Components (standalone `.tsx` files):
 - `MatchupDefense.tsx` - VS Defense panel on the player page
 - `LiveBoxScore.tsx` - live score header + starter/bench split, refreshes every 30s
 - `GameStrip.tsx` - game list with live/final scores or spread-and-total for upcoming
-- `GameTabs.tsx` - tab container for the game page (includes Matchups via `MatchupGrid`, Trends via `TrendsGrid`)
 - `PropMatrix.tsx` - At-a-Glance matrix view
 - `HelpPanel.tsx` - `?` button content in the At-a-Glance header
 - `RefreshDataButton.tsx` - admin-only four-step refresh trigger. Requires `ADMIN_REFRESH_CODE`
@@ -29,7 +28,6 @@ Components (standalone `.tsx` files):
 Not standalone components (live inside other files):
 
 - `TodayPropsSection` - horizontal props strip + tap-to-expand panel. Part of `PlayerPageInner.tsx` under `app/nba/player/[playerId]/`
-- `MatchupsTab` - tab wrapper for `MatchupGrid`. Part of `GameTabs.tsx`
 
 Pages:
 
