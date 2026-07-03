@@ -89,9 +89,15 @@ def record_workflow_run(workflow_name: str) -> None:
         """), {"name": workflow_name})
 
 
-def upsert(engine, df, schema, table, keys, dtype=None):
+def upsert(engine, df, schema, table, keys, dtype=None, source_workflow=None):
     """
     Upsert a DataFrame into a permanent table using a SQL Server MERGE statement.
+
+    Tables registered in shared.integrity.CRITICAL_FIELDS are passed through
+    validate_and_filter first (Layer 1/2, ADR-20260424-2): invalid rows are
+    quarantined instead of written. Unregistered tables pass through
+    unchanged, so this stays pure infrastructure — the policy lives in the
+    catalog, not here.
 
     dtype (optional): dict mapping column name -> SQLAlchemy type, passed to
     to_sql for staging table creation. Only effective when engine was created
@@ -102,6 +108,21 @@ def upsert(engine, df, schema, table, keys, dtype=None):
       2. Create fresh via to_sql with if_exists='append'.
       3. MERGE from staging into destination.
     """
+    # Lazy import: integrity pulls in the full catalog; db.py must stay
+    # importable without it in minimal contexts.
+    from shared.integrity import CRITICAL_FIELDS, validate_and_filter
+
+    full_name = f"{schema}.{table}"
+    if full_name in CRITICAL_FIELDS and not df.empty:
+        import pandas as _pd
+        records = df.astype(object).where(_pd.notnull(df), None).to_dict("records")
+        valid = validate_and_filter(records, full_name, engine, source_workflow)
+        if len(valid) != len(records):
+            print(f"  {full_name}: {len(records) - len(valid)} row(s) quarantined by integrity checks")
+        if not valid:
+            return
+        df = _pd.DataFrame(valid, columns=df.columns)
+
     staging = f"#stage_{table}"
 
     with engine.begin() as conn:

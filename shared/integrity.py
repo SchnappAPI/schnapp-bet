@@ -200,6 +200,36 @@ CRITICAL_FIELDS: Dict[str, Dict[str, Any]] = {
     },
 
     # =================================================================
+    # mlb schema (validated centrally via shared.db.upsert's catalog hook;
+    # tables written by other paths — players MERGE, PBP inserts,
+    # truncate-reload snapshots — are deliberately not listed yet)
+    # =================================================================
+
+    "mlb.games": {
+        "row_key": ["game_pk"],
+        "always_required": [
+            "game_pk", "game_date", "away_team_id", "home_team_id",
+        ],
+        "required_when": {},
+    },
+
+    "mlb.batting_stats": {
+        "row_key": ["batter_game_id"],
+        "always_required": [
+            "batter_game_id", "game_pk", "game_date", "player_id", "team_id",
+        ],
+        "required_when": {},
+    },
+
+    "mlb.pitching_stats": {
+        "row_key": ["pitcher_game_id"],
+        "always_required": [
+            "pitcher_game_id", "game_pk", "game_date", "player_id",
+        ],
+        "required_when": {},
+    },
+
+    # =================================================================
     # nfl schema (weekly grain: season/week/season_type, gsis_id players)
     # =================================================================
 

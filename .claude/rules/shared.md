@@ -7,4 +7,5 @@ paths:
 - `record_workflow_run(name)` builds its own engine internally. It is the last call in any workflow that writes data the UI displays.
 - `fast_executemany=True` is the default. Grading callers override to `False` explicitly. ETL callers leave it at default.
 - Do not add business logic here. `db.py` and `integrity.py` are infrastructure only.
+- `shared.db.upsert` routes tables registered in `CRITICAL_FIELDS` through `validate_and_filter` before the MERGE. The policy lives in the catalog; adding a table to the catalog is what turns validation on for `upsert` callers (mlb_etl, odds_etl). Other write paths wire `validate_and_filter` explicitly.
 - Do not duplicate `get_engine` in component packages. Every script imports from `shared.db`.
