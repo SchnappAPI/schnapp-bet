@@ -36,6 +36,9 @@ jobs:
   grade:
     if: always()
     runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
     timeout-minutes: 120
 
     steps:

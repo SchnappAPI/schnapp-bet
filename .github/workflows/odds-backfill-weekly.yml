@@ -39,6 +39,9 @@ concurrency:
 jobs:
   weekly-backfill:
     runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 

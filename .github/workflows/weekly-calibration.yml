@@ -41,6 +41,9 @@ concurrency:
 jobs:
   recalibrate:
     runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
     timeout-minutes: 15
 
     steps:

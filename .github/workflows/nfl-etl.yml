@@ -24,6 +24,9 @@ concurrency:
 jobs:
   etl:
     runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
 
     steps:
       - name: Checkout repository

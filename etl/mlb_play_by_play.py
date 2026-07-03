@@ -606,7 +606,11 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
         splits_df["vs_lhp_hit"]  = (splits_df["vs_lhp"] & splits_df["is_hit"].astype(bool)).astype(int)
         splits_df["vs_rhp"]      = (splits_df["pitcher_hand_code"] == "R").astype(int)
         splits_df["vs_rhp_hit"]  = (splits_df["vs_rhp"] & splits_df["is_hit"].astype(bool)).astype(int)
-        splits_df["home"]        = (splits_df.get("is_top_inning") == 0).astype(int) if "is_top_inning" not in splits_df.columns else pd.Series(0, index=splits_df.index)
+        # Placeholder only — real home/away splits are derived from ab_df
+        # below (is_top_inning lives on the at-bat rows, not the PBP slice).
+        # The previous ternary here was inverted and crashed every trend-stats
+        # flush with AttributeError when is_top_inning was absent.
+        splits_df["home"]        = pd.Series(0, index=splits_df.index)
         splits_df["home_hit"]    = pd.Series(0, index=splits_df.index)
         splits_df["away"]        = pd.Series(0, index=splits_df.index)
         splits_df["away_hit"]    = pd.Series(0, index=splits_df.index)

@@ -42,6 +42,7 @@ jobs:
     timeout-minutes: 12
     permissions:
       actions: write
+      issues: write
       contents: read
 
     steps:

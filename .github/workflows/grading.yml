@@ -49,6 +49,9 @@ jobs:
     if: always()
     runs-on: [self-hosted, mac-runner]
     timeout-minutes: 350
+    permissions:
+      issues: write
+      contents: read
     outputs:
       done: ${{ steps.run.outputs.done }}
       mode: ${{ steps.run.outputs.mode }}
@@ -131,6 +134,12 @@ jobs:
         if: always() && steps.run.outputs.mode != 'backfill' && steps.run.outputs.mode != 'outcomes'
         run: python -c "from shared.db import record_workflow_run; record_workflow_run('nba-grading')"
 
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   redispatch:
     needs: grade
     runs-on: [self-hosted, mac-runner]
@@ -166,9 +175,3 @@ jobs:
           echo "HTTP $HTTP_CODE"
           cat /tmp/redispatch_resp.txt 2>/dev/null || true
           [ "$HTTP_CODE" = "204" ] || exit 1
-
-      - name: Notify failure (deduped GitHub Issue)
-        if: failure()
-        uses: ./.github/actions/notify-failure
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
