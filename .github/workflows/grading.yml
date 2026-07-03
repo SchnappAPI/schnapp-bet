@@ -166,3 +166,9 @@ jobs:
           echo "HTTP $HTTP_CODE"
           cat /tmp/redispatch_resp.txt 2>/dev/null || true
           [ "$HTTP_CODE" = "204" ] || exit 1
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

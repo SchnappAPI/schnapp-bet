@@ -72,3 +72,12 @@ jobs:
             ARGS="$ARGS --dry-run"
           fi
           python grading/weekly_calibration.py $ARGS
+
+      - name: Record workflow run timestamp
+        run: python -c "from shared.db import record_workflow_run; record_workflow_run('weekly-calibration')"
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

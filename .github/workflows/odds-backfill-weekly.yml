@@ -83,3 +83,9 @@ jobs:
           for SPORT in nba mlb; do
             python etl/odds_etl.py --mode mappings --sport $SPORT
           done
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

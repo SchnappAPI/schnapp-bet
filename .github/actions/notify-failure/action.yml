@@ -1,0 +1,37 @@
+name: Notify pipeline failure
+description: >
+  Opens (or comments on) a deduplicated GitHub Issue labeled pipeline-failure
+  when a scheduled workflow fails. One open issue per workflow name; repeat
+  failures add comments instead of new issues. Uses curl because the gh CLI
+  is not installed on the mac-runner.
+inputs:
+  token:
+    description: GitHub token (pass secrets.GITHUB_TOKEN)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Open or update pipeline-failure issue
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        API: ${{ github.api_url }}/repos/${{ github.repository }}
+        WORKFLOW_NAME: ${{ github.workflow }}
+      run: |
+        TITLE="[pipeline-failure] ${WORKFLOW_NAME} failed"
+        BODY="Failure in scheduled run: ${RUN_URL} (UTC $(date -u +%FT%TZ)). Investigate before the next tick; repeated comments here mean the pipeline is still down."
+        EXISTING=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+          "$API/issues?state=open&labels=pipeline-failure&per_page=100" \
+          | python3 -c 'import json,sys; issues=json.load(sys.stdin); print(next((str(i["number"]) for i in issues if i["title"]==sys.argv[1]), ""))' "$TITLE" || true)
+        PAYLOAD=$(python3 -c 'import json,sys; print(json.dumps({"body": sys.argv[1]}))' "$BODY")
+        if [ -n "$EXISTING" ]; then
+          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            "$API/issues/$EXISTING/comments" -d "$PAYLOAD" > /dev/null \
+            && echo "Commented on existing issue #$EXISTING"
+        else
+          CREATE=$(python3 -c 'import json,sys; print(json.dumps({"title": sys.argv[1], "body": sys.argv[2], "labels": ["pipeline-failure"]}))' "$TITLE" "$BODY")
+          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            "$API/issues" -d "$CREATE" > /dev/null \
+            && echo "Opened new pipeline-failure issue"
+        fi

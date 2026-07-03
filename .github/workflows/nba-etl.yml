@@ -66,3 +66,9 @@ jobs:
 
       - name: Run NBA ETL
         run: python etl/nba_etl.py ${{ steps.flags.outputs.flags }}
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

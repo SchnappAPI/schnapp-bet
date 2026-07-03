@@ -66,3 +66,12 @@ jobs:
           [ -n "$DATE_INPUT" ] && ARGS="$ARGS --date $DATE_INPUT"
           [ "$FORCE" = "true" ]  && ARGS="$ARGS --force"
           python grading/mlb_grade_props.py $ARGS
+
+      - name: Record workflow run timestamp
+        run: python -c "from shared.db import record_workflow_run; record_workflow_run('mlb-grading')"
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -266,3 +266,9 @@ jobs:
 
           print(f'resolved={resolved_count} escalated={escalated_count} dry_run={dry_run}')
           "
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
