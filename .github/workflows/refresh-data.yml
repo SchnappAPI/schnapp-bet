@@ -12,6 +12,12 @@ env:
   SQL_TRUST_CERT: "yes"
   PYTHONPATH: /Users/schnapp/code/schnapp-bet
 
+# Prevent overlapping runs (e.g. a slow run vs the next cron tick, or a manual
+# dispatch racing a scheduled one). New runs queue instead of cancelling.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: [self-hosted, mac-runner]
