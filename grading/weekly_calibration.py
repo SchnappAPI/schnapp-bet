@@ -36,7 +36,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# Same threshold as the static calibrator in calibrate_grades.py.
+# Well-sampled bucket qualification: n >= 30 (do not lower).
 WELL_SAMPLED_THRESHOLD = 30
 DEFAULT_WINDOW_DAYS = 30
 BUCKET_WIDTH = 0.05
@@ -149,9 +149,8 @@ def fetch_resolved_corpus(engine, window_days):
 def pav_isotonic(y, w):
     """Pool-adjacent-violators for non-decreasing isotonic regression.
 
-    Identical algorithm to calibrate_grades._pav_isotonic. Inlined here
-    so weekly_calibration.py has no cross-module dependency on grading
-    code (it can run standalone in a thin workflow).
+    Inlined so weekly_calibration.py has no cross-module dependency on
+    grading code (it can run standalone in a thin workflow).
     """
     blocks = [[float(y[i]) * float(w[i]), float(w[i]), 1] for i in range(len(y))]
     i = 0
