@@ -41,10 +41,15 @@ Composite grade formula:
     For HRs: pitcher HR/9 (higher is better for batter), barrel_pct synergy.
     Scored 0-100.
 
-  For pitcher strikeouts:
-    composite = 0.50 * k_rate_grade (pitcher K/9 normalized)
-              + 0.30 * recent_k_form (last 5 game K totals from pitching_stats)
-              + 0.20 * opposing_lineup_k_rate (batters' w30_k_rate average)
+  For pitcher markets (strikeouts / hits allowed / walks / earned runs):
+    composite = 0.50 * season_rate_grade (k_per_9 / h_per_9 / bb_per_9 / era)
+              + 0.30 * recent_form (last 5 starts' stat from pitching_stats)
+              + 0.20 * opposing_lineup_rate (w30_k_rate / w30_hit_rate /
+                       w30_bb_rate average of the opposing starters)
+    All rates oriented so a higher rate = a more likely Over.
+  For batter_walks / batter_strikeouts / batter_stolen_bases the EV-quality
+  term is dropped (0.55 form + 0.45 matchup): quality-of-contact has no or
+  inverted signal for speed/walk-driven markets.
 
 KDE tier lines:
   Identical structure to NBA: KDE fitted over a grade-weighted game log window.
@@ -150,6 +155,8 @@ BATCH_DEFAULT = 20
 #                  opposing-lineup rate (see compute_pitcher_market_grade).
 # "expr" is a trusted SQL expression over the source table (config-only,
 # never user input). standard_line None = line varies, read from odds.
+# NOTE: standard_line is documentation - the authoritative point filter is
+# the hand-written WHERE clause in fetch_upcoming_mlb_props. Change both.
 # batter_first_home_run is deliberately NOT graded: it is an ordering market
 # (first HR of the game), not a counting market, and needs its own model.
 MARKET_CONFIG = {
@@ -664,7 +671,14 @@ def compute_pitcher_market_grade(cfg: dict,
 
 
 def compute_composite(hit_rate_grade: float, ev_grade: float,
-                      matchup_grade: float) -> float:
+                      matchup_grade: float, no_ev: bool = False) -> float:
+    if no_ev:
+        # Markets where quality-of-contact has no (or inverted) signal:
+        # walks, batter strikeouts, stolen bases. Burner/slap-hitter
+        # archetypes have low exit velo, so weighting statcast EV there
+        # pushes the grade the wrong way for exactly the players who steal
+        # bases / draw walks. Redistribute EV's weight to form + matchup.
+        return 0.55 * hit_rate_grade + 0.45 * matchup_grade
     return (GRADE_HIT_RATE_WEIGHT * hit_rate_grade
             + GRADE_EV_WEIGHT * ev_grade
             + GRADE_MATCHUP_WEIGHT * matchup_grade)
@@ -940,13 +954,31 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
             "SELECT COUNT(*) AS n FROM mlb.games WHERE CAST(game_date AS DATE) = :d"
         ), engine, params={"d": grade_date_str}).iloc[0]["n"]
         if int(scheduled) > 0:
-            log.error(
-                "No upcoming MLB props for %s but %d games are scheduled. "
-                "The odds pipeline is stale (check ODDS_API_KEY / odds-etl.yml). "
-                "Failing so this cannot pass as a green run.",
-                grade_date_str, int(scheduled),
+            # mlb.games.game_date is the ET schedule date while props filter
+            # on CAST(commence_time AS DATE) (UTC) - a West-coast-heavy slate
+            # can legitimately land its props on grade_date+1. Only declare
+            # the feed dead when there are no *fresh* MLB props at all.
+            fresh = pd.read_sql(text("""
+                SELECT COUNT(*) AS n
+                FROM odds.upcoming_player_props pp
+                WHERE pp.sport_key = 'baseball_mlb'
+                  AND pp.created_at >= DATEADD(hour, -36, GETUTCDATE())
+            """), engine).iloc[0]["n"]
+            if int(fresh) == 0:
+                log.error(
+                    "No upcoming MLB props for %s, %d games scheduled, and no "
+                    "MLB props ingested in the last 36h. The odds pipeline is "
+                    "stale (check ODDS_API_KEY / odds-etl.yml). Failing so this "
+                    "cannot pass as a green run.",
+                    grade_date_str, int(scheduled),
+                )
+                raise SystemExit(2)
+            log.warning(
+                "No props matched %s but %d fresh MLB props exist (UTC/ET "
+                "date shift?). Skipping without failing; check the date "
+                "conventions if this repeats.",
+                grade_date_str, int(fresh),
             )
-            raise SystemExit(2)
         log.info("No upcoming MLB props and no scheduled games for %s (offseason/off-day). Exiting.",
                  grade_date_str)
         return
@@ -1104,7 +1136,11 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
                 matchup_grade = compute_batter_matchup_grade(
                     pitcher_stats, bvp, ts, market_key, opp_pitcher_hand
                 )
-                composite = compute_composite(form_grade, ev_grade, matchup_grade)
+                composite = compute_composite(
+                    form_grade, ev_grade, matchup_grade,
+                    no_ev=market_key in ("batter_walks", "batter_strikeouts",
+                                         "batter_stolen_bases"),
+                )
             else:  # batter_rate — hits / total bases / home runs
                 hit_grade     = compute_hit_rate_grade(ts, market_key)
                 ev_grade      = compute_ev_grade(ts)
