@@ -37,6 +37,7 @@ from nflreadpy.config import update_config
 from sqlalchemy import text, inspect
 
 from shared.db import get_engine
+from shared.integrity import CRITICAL_FIELDS, ensure_tables, validate_and_filter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -148,6 +149,20 @@ def upsert(engine, df: pd.DataFrame, table: str, schema: str, upsert_key: list) 
     if df.empty:
         log.warning("  Empty dataframe for %s.%s -- skipping", schema, table)
         return 0
+
+    # Layer 1/2 integrity (ADR-20260424-2): tables in CRITICAL_FIELDS pass
+    # through validate_and_filter before any write; invalid rows quarantine
+    # instead of landing. NFL was the only sport bypassing this.
+    full_name = f"{schema}.{table}"
+    if full_name in CRITICAL_FIELDS:
+        records = df.astype(object).where(pd.notnull(df), None).to_dict("records")
+        valid = validate_and_filter(records, full_name, engine, "nfl-etl.yml")
+        if len(valid) != len(records):
+            log.warning("  %s: %d row(s) quarantined by integrity checks",
+                        full_name, len(records) - len(valid))
+        if not valid:
+            return 0
+        df = pd.DataFrame(valid, columns=df.columns)
 
     if not table_exists(engine, schema, table):
         log.info("  Table %s.%s does not exist -- creating from data", schema, table)
@@ -339,12 +354,30 @@ def load_team_game_stats(engine, season: int) -> None:
 # Main
 # ---------------------------------------------------------------------------
 def current_nfl_season() -> int:
+    """Season year as nflverse publishes it.
+
+    Flip in September, not June: nflverse cuts <year> data files around the
+    season opener. The old month >= 6 flip requested season 2026 from June
+    onward and every weekly run 404'd against unpublished assets (failing
+    since 2026-06-02). Off-season runs now target the completed season,
+    which nflreadpy serves fine and keeps the run green until fresh data
+    exists.
+    """
     now = datetime.now(timezone.utc)
-    return now.year if now.month >= 6 else now.year - 1
+    return now.year if now.month >= 9 else now.year - 1
+
+
+def _season_not_published(exc: Exception) -> bool:
+    """True when nflreadpy says this season's asset simply does not exist yet
+    (requested-season-too-new ValueError, or a 404 on the release download).
+    These are expected pre-season conditions, not pipeline failures."""
+    msg = str(exc)
+    return ("Season must be between" in msg
+            or ("404" in msg and "nflverse-data/releases" in msg))
 
 
 def main():
-    parser = argparse.ArgumentParser(description="NFL nflreadpy ETL to Azure SQL")
+    parser = argparse.ArgumentParser(description="NFL nflreadpy ETL to SQL Server")
     parser.add_argument(
         "--season", type=int, default=None,
         help="NFL season year (e.g. 2024). Defaults to current season."
@@ -359,6 +392,7 @@ def main():
 
     engine = get_engine()
     log.info("Database connection established.")
+    ensure_tables(engine)  # integrity framework tables (quarantine etc.)
 
     errors = []
 
@@ -366,6 +400,10 @@ def main():
         try:
             fn()
         except Exception as exc:
+            if _season_not_published(exc):
+                log.info("SKIP: %s | season %d not published by nflverse yet (%s)",
+                         name, season, exc)
+                return
             log.error("FAILED: %s | %s", name, exc, exc_info=True)
             errors.append(name)
 

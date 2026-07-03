@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/apiError';
 import { getPlayerProps } from '@/lib/queries';
 
 export async function GET(req: NextRequest) {
@@ -14,7 +15,6 @@ export async function GET(req: NextRequest) {
     const props = await getPlayerProps(playerId);
     return NextResponse.json({ playerId, props });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError(err, 'api/player-props');
   }
 }

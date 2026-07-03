@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/apiError';
 import mssql from 'mssql';
 import { getPlayerGames } from '@/lib/queries';
 import { getPool } from '@/lib/db';
@@ -104,7 +105,6 @@ export async function GET(req: NextRequest) {
       gameLineupPosition,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError(err, 'api/player');
   }
 }

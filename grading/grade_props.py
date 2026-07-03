@@ -374,7 +374,7 @@ def get_engine(max_retries=3, retry_wait=60):
             if attempt < max_retries:
                 log.info(f"Waiting {retry_wait}s...")
                 time.sleep(retry_wait)
-    raise RuntimeError("Could not connect to Azure SQL after retries.")
+    raise RuntimeError("Could not connect to SQL Server after retries.")
 
 
 def ensure_tables(engine):
@@ -2826,9 +2826,37 @@ def _common_grade_data(engine, all_over, under_props, today):
     return history_df, season_df, opp_info, matchup_cache, opp_history_df, patterns, opp_df, role_context
 
 
-def run_upcoming(engine):
+def _upcoming_slate_is_stale(engine, today):
+    """True when odds.upcoming_events holds no NBA event commencing today or
+    later — i.e. the odds feed stopped and whatever survives in the upcoming
+    tables belongs to games already played.
+
+    Without this guard the daily grading run re-grades the last frozen slate
+    and stamps a fresh grade_date on it (observed: a June playoff game graded
+    daily through July against odds frozen 2026-04-24). Fresh-dated output
+    from stale roots is worse than no output.
+    """
+    row = pd.read_sql(text(
+        "SELECT MAX(commence_time) AS latest FROM odds.upcoming_events"
+        " WHERE sport_key = 'basketball_nba'"
+    ), engine).iloc[0]
+    latest = row["latest"]
+    if latest is None or pd.isna(latest):
+        return True
+    latest_date = pd.Timestamp(latest).date()
+    return str(latest_date) < today
+
+
+def run_upcoming(engine, force=False):
     today = today_et()
     log.info(f"Upcoming mode: {today}")
+    if _upcoming_slate_is_stale(engine, today):
+        if not force:
+            log.info("Upcoming NBA slate is stale (no event commencing today or later) — "
+                     "skipping grade run instead of re-grading old games with a fresh "
+                     "grade_date. Pass --force to grade anyway.")
+            return
+        log.warning("Stale upcoming slate but --force passed; grading anyway.")
     posted    = fetch_posted_props(engine)
     active    = fetch_active_players_today(engine, today)
     event_map = fetch_event_map_today(engine, today)
@@ -2873,9 +2901,13 @@ def run_upcoming(engine):
     log.info(f"  {tier_written} tier rows written. {val_written} value line rows written.")
 
 
-def run_intraday(engine):
+def run_intraday(engine, force=False):
     today = today_et()
     log.info(f"Intraday mode: {today}")
+    if _upcoming_slate_is_stale(engine, today) and not force:
+        log.info("Upcoming NBA slate is stale — skipping intraday re-grade "
+                 "(see run_upcoming guard). Pass --force to grade anyway.")
+        return
     posted     = fetch_posted_props(engine)
     std_posted = posted[posted["market_key"].isin(STANDARD_MARKETS)].copy()
     if std_posted.empty:
@@ -3092,15 +3124,16 @@ def main():
     parser.add_argument("--batch", type=int, default=BATCH_DEFAULT)
     parser.add_argument("--date",  type=str, default=None)
     parser.add_argument("--force", action="store_true",
-                        help="Backfill mode only: regrade dates already in daily_grades.")
+                        help="Backfill: regrade dates already in daily_grades. "
+                             "Upcoming/intraday: grade even when the upcoming slate is stale.")
     args = parser.parse_args()
     engine = get_engine()
     ensure_tables(engine)
     ensure_integrity_tables(engine)
     if args.mode == "upcoming":
-        run_upcoming(engine)
+        run_upcoming(engine, force=args.force)
     elif args.mode == "intraday":
-        run_intraday(engine)
+        run_intraday(engine, force=args.force)
     elif args.mode == "backfill":
         run_backfill(engine, batch_size=args.batch, specific_date=args.date, force=args.force)
     else:

@@ -209,6 +209,29 @@ export async function GET(req: NextRequest) {
     const awayLineup = awayBatters.map((b: any) => enrichBatter(b, game.home_pitcher_hand));
     const homeLineup = homeBatters.map((b: any) => enrichBatter(b, game.away_pitcher_hand));
 
+    // Per-market projected values (mlb.batter_projections, written by the
+    // grading workflow's compute step). Additive: empty until the table has
+    // rows for this game, and a missing table never fails the route.
+    let projections: unknown[] = [];
+    try {
+      const projRes = await pool.request()
+        .input('gamePk', parseInt(gamePk))
+        .query(`
+          SELECT bp.batter_id, bp.market_key, bp.projected_value,
+                 bp.confidence, bp.model_version,
+                 bc.opp_pitcher_hand, bc.lineup_confirmed
+          FROM mlb.batter_projections bp
+          LEFT JOIN mlb.batter_context bc
+            ON bc.game_date = bp.game_date
+           AND bc.game_pk = bp.game_pk
+           AND bc.batter_id = bp.batter_id
+          WHERE bp.game_pk = @gamePk
+        `);
+      projections = projRes.recordset;
+    } catch {
+      projections = [];
+    }
+
     return NextResponse.json({
       gamePk: parseInt(gamePk),
       gameDate,
@@ -228,9 +251,10 @@ export async function GET(req: NextRequest) {
       homeLineup,
       tierLines: tierRes.recordset,
       lineupAvailable: true,
+      projections,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('/api/mlb-proj error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

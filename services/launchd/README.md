@@ -52,7 +52,7 @@ tail /Users/schnapp/code/schnapp-bet/services/flask/flask.err.log
 tail /Users/schnapp/code/schnapp-bet/web/web-prod.err.log
 
 # Quick liveness:
-curl -sf http://127.0.0.1:5000/health     # Flask
+curl -sf http://127.0.0.1:5000/ping       # Flask
 curl -sf http://127.0.0.1:3001            # Next.js
 ```
 

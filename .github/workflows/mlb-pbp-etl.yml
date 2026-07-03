@@ -1,6 +1,12 @@
 name: MLB Play-by-Play ETL
 
+# Nightly at 09:30 UTC, after mlb-etl (09:00) has upserted new Final games.
+# Everything downstream depends on this: player_at_bats -> trend stats ->
+# BvP -> grading matchups and the web VS/EV/Exit-Velo/Proj views. Leaving it
+# manual-only froze the pitch-level tables at 2026-04-30 mid-season.
 on:
+  schedule:
+    - cron: '30 9 * * *'
   workflow_dispatch:
     inputs:
       batch:
@@ -8,9 +14,9 @@ on:
         required: false
         default: '50'
       seasons:
-        description: 'Space-separated season years (e.g. 2025 or 2023 2024 2025)'
+        description: 'Space-separated season years (e.g. 2026 or 2024 2025 2026). Empty = current season.'
         required: false
-        default: '2026'
+        default: ''
       rebuild_at_bats:
         description: 'Skip PBP fetch; rebuild mlb.player_at_bats from existing PBP data'
         required: false
@@ -31,9 +37,18 @@ env:
   SQL_TRUST_CERT: "yes"
   PYTHONPATH: /Users/schnapp/code/schnapp-bet
 
+# Prevent overlapping runs (e.g. a slow run vs the next cron tick, or a manual
+# dispatch racing a scheduled one). New runs queue instead of cancelling.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   pbp:
     runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
 
     steps:
       - name: Checkout repository
@@ -73,7 +88,20 @@ jobs:
             echo "Running rebuild mode with flags:$FLAGS"
             python etl/mlb_play_by_play.py $FLAGS
           else
-            python etl/mlb_play_by_play.py \
-              --batch ${{ github.event.inputs.batch }} \
-              --seasons ${{ github.event.inputs.seasons }}
+            # Scheduled runs have no inputs: default the batch, derive the
+            # season inside the script (omit --seasons entirely).
+            BATCH="${{ github.event.inputs.batch || '50' }}"
+            SEASONS="${{ github.event.inputs.seasons }}"
+            ARGS="--batch $BATCH"
+            [ -n "$SEASONS" ] && ARGS="$ARGS --seasons $SEASONS"
+            python etl/mlb_play_by_play.py $ARGS
           fi
+
+      - name: Record workflow run timestamp
+        run: python -c "from shared.db import record_workflow_run; record_workflow_run('mlb-pbp-etl')"
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

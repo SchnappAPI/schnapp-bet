@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/apiError';
 import { getGrades, type GradesSport } from '@/lib/queries';
 import { jsonWithEtag } from '@/lib/etag';
 
@@ -45,7 +46,6 @@ export async function GET(req: NextRequest) {
 
     return jsonWithEtag(req, payload);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError(err, 'api/grades');
   }
 }

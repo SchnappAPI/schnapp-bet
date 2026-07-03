@@ -16,4 +16,5 @@ paths:
 - `KDE_THIN_SAMPLE_PROB_CAP = 0.85`. Do not remove.
 - Calibrator: n >= 30 for well-sampled bucket qualification. Do not lower.
 - Logistic fitting: minimum 50 resolved outcomes per market group. Skip with warning if below threshold.
-- `MODEL_VERSION` must be set. NBA: `grading-v2.0`. MLB: `mlb-v1.0`. Bump on any logic change that invalidates historical predictions.
+- `MODEL_VERSION` must be set. NBA: `grading-v2.0`. MLB: `mlb-v1.1` (v1.0 = original 4 markets; v1.1 widened to 16). Bump on any logic change that invalidates historical predictions.
+- MLB market families live in `MARKET_CONFIG` (`batter_rate` / `batter_count` / `pitcher`). New markets are added there, never as ad-hoc branches in the grading loop.

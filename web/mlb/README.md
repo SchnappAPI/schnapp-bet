@@ -137,11 +137,11 @@ The ADR-0003 page plan remains the target:
 - **Game** — Live. Date picker, game strip, per-game Box Score + Exit Velo tabs
 - **VS** — Live (2026-04-21). Lineup-wide career matchup against opposing SP. Reads `mlb.career_batter_vs_pitcher` directly
 - **EV** — Live (2026-04-21). Team-wide season-to-date exit velocity for both teams' starters; tap-to-expand per-at-bat detail. Reads `mlb.player_at_bats` directly over `IX_player_at_bats_batter`; no new materialized table
-- **Player Analysis** — consolidation of legacy PBI pages New, Extra, Criteria, and MAIN. Not started; data dependencies partially satisfied (at-bats access path live, career BvP access path live via `/api/mlb-bvp`; player trend/pattern stats still pending)
-- **Proj** — lineup projections. Not started
-- **Pitcher Analysis** — pitcher counterpart to Player Analysis. Not started
+- **Player Analysis** — Live as the Player tab (`MlbPlayerView`) and `/mlb/player/[playerId]` detail page. Depth grows with `mlb.batter_context`/`mlb.batter_projections` (shipped 2026-07-03)
+- **Proj** — Live as the Proj tab (`MlbProjView`). `/api/mlb-proj` now returns a `projections` array from `mlb.batter_projections`; the view renders lineups + tier lines today and can adopt the projections column next
+- **Pitcher Analysis** — Live as the Pitcher tab (`MlbPitcherView`)
 
-Three of six pages are live. Of the remaining three, Proj and Player Analysis need the remaining ADR-0004 entities, and Pitcher Analysis is roughly symmetric with Player Analysis.
+All six ADR-0003 views render. Remaining depth work: MlbProjView adopting the `projections` payload, and the cross-slate grades browse at `/mlb/grades` (added 2026-07-03 behind the `page.mlb.grades` flag).
 
 ## Invariants
 
@@ -168,7 +168,7 @@ Do not revert without an ADR.
 
 ## Recent Changes
 
-See `/docs/CHANGELOG.md` filtered by `[mlb][web]`. Historical entries before the restructure are in the archived `/docs/_archive/CHANGELOG.md`.
+Git log is the changelog (ADR-20260517-4): `git log --grep='\[mlb\]' --grep='\[web\]'`.
 
 ## Open Questions
 

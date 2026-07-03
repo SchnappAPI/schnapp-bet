@@ -1,0 +1,58 @@
+name: Notify pipeline failure
+description: >
+  Opens (or comments on) a deduplicated GitHub Issue labeled pipeline-failure
+  when a scheduled workflow fails. One open issue per workflow name; repeat
+  failures add comments instead of new issues. Best-effort by design: a
+  notification problem must never mask the original failure, so every error
+  here is swallowed with a warning. Requires the calling job to grant
+  `permissions: issues: write` (the default runner token is read-only).
+inputs:
+  token:
+    description: GitHub token (pass secrets.GITHUB_TOKEN)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Open or update pipeline-failure issue
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        API: ${{ github.api_url }}/repos/${{ github.repository }}
+        WORKFLOW_NAME: ${{ github.workflow }}
+      run: |
+        python3 - <<'PYEOF' || echo "::warning::notify-failure could not create/update the issue (see above); the original failure is unaffected"
+        import json, os, urllib.request, urllib.error
+        from datetime import datetime, timezone
+
+        token = os.environ["GH_TOKEN"]
+        api = os.environ["API"]
+        title = f"[pipeline-failure] {os.environ['WORKFLOW_NAME']} failed"
+        body = (f"Failure in scheduled run: {os.environ['RUN_URL']} "
+                f"(UTC {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}). "
+                "Investigate before the next tick; repeated comments here mean the pipeline is still down.")
+
+        def call(url, payload=None):
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode() if payload is not None else None,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "Content-Type": "application/json",
+                    "User-Agent": "schnapp-bet-notify-failure",
+                },
+                method="POST" if payload is not None else "GET",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read() or "{}")
+
+        issues = call(f"{api}/issues?state=open&labels=pipeline-failure&per_page=100")
+        existing = next((i["number"] for i in issues if i["title"] == title), None)
+        if existing:
+            call(f"{api}/issues/{existing}/comments", {"body": body})
+            print(f"Commented on existing issue #{existing}")
+        else:
+            created = call(f"{api}/issues", {"title": title, "body": body, "labels": ["pipeline-failure"]})
+            print(f"Opened pipeline-failure issue #{created.get('number')}")
+        PYEOF

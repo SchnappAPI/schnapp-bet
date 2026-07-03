@@ -3,15 +3,23 @@ mlb_grade_props.py
 
 MLB prop grading model.
 
-Supported markets:
-  batter_hits            — hits >= 0.5 (standard line)
-  batter_total_bases     — total bases >= 1.5 (standard line)
-  batter_home_runs       — home runs >= 0.5
-  pitcher_strikeouts     — strikeouts >= N (standard FD line varies by pitcher)
+Supported markets (16; see MARKET_CONFIG for the authoritative list):
+  batter_rate family  — batter_hits (0.5), batter_total_bases (1.5),
+                        batter_home_runs (0.5). Rolling per-PA rates from
+                        mlb.player_trend_stats windows.
+  batter_count family — batter_rbis, batter_runs_scored, batter_hits_runs_rbis,
+                        batter_singles, batter_doubles, batter_triples,
+                        batter_walks, batter_strikeouts, batter_stolen_bases.
+                        Per-game counts from the mlb.batting_stats boxscore;
+                        form component = recent per-game average.
+  pitcher family      — pitcher_strikeouts, pitcher_hits_allowed,
+                        pitcher_walks, pitcher_earned_runs. Per-start lines
+                        from mlb.pitching_stats (note='SP').
+  Not graded: batter_first_home_run (ordering market, needs its own model).
 
 Composite grade formula:
   For batter markets:
-    composite = 0.40 * rolling_hit_rate_grade
+    composite = 0.40 * form_grade (rolling rate or per-game average)
               + 0.30 * ev_quality_grade
               + 0.30 * matchup_grade
 
@@ -33,10 +41,15 @@ Composite grade formula:
     For HRs: pitcher HR/9 (higher is better for batter), barrel_pct synergy.
     Scored 0-100.
 
-  For pitcher strikeouts:
-    composite = 0.50 * k_rate_grade (pitcher K/9 normalized)
-              + 0.30 * recent_k_form (last 5 game K totals from pitching_stats)
-              + 0.20 * opposing_lineup_k_rate (batters' w30_k_rate average)
+  For pitcher markets (strikeouts / hits allowed / walks / earned runs):
+    composite = 0.50 * season_rate_grade (k_per_9 / h_per_9 / bb_per_9 / era)
+              + 0.30 * recent_form (last 5 starts' stat from pitching_stats)
+              + 0.20 * opposing_lineup_rate (w30_k_rate / w30_hit_rate /
+                       w30_bb_rate average of the opposing starters)
+    All rates oriented so a higher rate = a more likely Over.
+  For batter_walks / batter_strikeouts / batter_stolen_bases the EV-quality
+  term is dropped (0.55 form + 0.45 matchup): quality-of-contact has no or
+  inverted signal for speed/walk-driven markets.
 
 KDE tier lines:
   Identical structure to NBA: KDE fitted over a grade-weighted game log window.
@@ -79,9 +92,11 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 BOOKMAKER       = "fanduel"
-MODEL_VERSION   = "mlb-v1.0"
+# v1.1: market coverage widened 4 -> 16 (batter counting markets + three new
+# pitcher markets); v1.0 rows (the original 4 markets) remain valid history.
+MODEL_VERSION   = "mlb-v1.1"
 MIN_SAMPLE      = 5       # minimum PA in a window before using it
-SEASON_START    = "2024-03-20"  # earliest data in player_at_bats
+SEASON_START    = "2024-03-20"  # historical floor of player_at_bats (backfill start), NOT the current season
 
 # Rolling window weights (must sum to 1.0)
 W10_WEIGHT = 0.25
@@ -126,39 +141,62 @@ TIER_SAFE_EV_FLOOR   = -0.05
 
 BATCH_DEFAULT = 20
 
-# Market config: stat column in player_at_bats, game-log aggregation, ceiling for grade
+# Market config. Three families:
+#   batter_rate  - per-at-bat markets whose rolling rates live in
+#                  mlb.player_trend_stats windows (hits, TB, HR). Game logs
+#                  come from mlb.player_at_bats.
+#   batter_count - per-game counting markets with no trend-window rates
+#                  (RBI, runs, walks, ...). Game logs come straight from the
+#                  mlb.batting_stats boxscore; the form component of the
+#                  composite is the recent per-game average normalized by
+#                  avg_ceil (empirical strong-hitter per-game ceilings).
+#   pitcher      - SP markets. Game logs from mlb.pitching_stats (note='SP');
+#                  composite = 0.50 season rate + 0.30 recent form + 0.20
+#                  opposing-lineup rate (see compute_pitcher_market_grade).
+# "expr" is a trusted SQL expression over the source table (config-only,
+# never user input). standard_line None = line varies, read from odds.
+# NOTE: standard_line is documentation - the authoritative point filter is
+# the hand-written WHERE clause in fetch_upcoming_mlb_props. Change both.
+# batter_first_home_run is deliberately NOT graded: it is an ordering market
+# (first HR of the game), not a counting market, and needs its own model.
 MARKET_CONFIG = {
-    "batter_hits": {
-        "stat":        "hits",
-        "standard_line": 0.5,
-        "rate_col":    "hit_rate",
-        "ceil":        CEIL_HIT_RATE,
-        "game_stat":   lambda ab_df: (ab_df["result_event_type"]
-                                      .isin(["single","double","triple","home_run"])
-                                      .astype(int)),
-    },
-    "batter_total_bases": {
-        "stat":        "total_bases",
-        "standard_line": 1.5,
-        "rate_col":    "tb_per_pa",
-        "ceil":        CEIL_TB_PER_PA,
-        "game_stat":   lambda ab_df: ab_df["result_event_type"].map({
-                            "single": 1, "double": 2, "triple": 3, "home_run": 4
-                       }).fillna(0).astype(int),
-    },
-    "batter_home_runs": {
-        "stat":        "home_runs",
-        "standard_line": 0.5,
-        "rate_col":    "hr_rate",    # derived as home_runs / pa
-        "ceil":        CEIL_HR_RATE,
-        "game_stat":   lambda ab_df: (ab_df["result_event_type"] == "home_run").astype(int),
-    },
+    "batter_hits":         {"family": "batter_rate", "source": "at_bats", "stat": "hits",        "standard_line": 0.5},
+    "batter_total_bases":  {"family": "batter_rate", "source": "at_bats", "stat": "total_bases", "standard_line": 1.5},
+    "batter_home_runs":    {"family": "batter_rate", "source": "at_bats", "stat": "home_runs",   "standard_line": 0.5},
+
+    "batter_rbis":           {"family": "batter_count", "source": "boxscore", "expr": "rbi",                                   "standard_line": 0.5,  "avg_ceil": 1.20},
+    "batter_runs_scored":    {"family": "batter_count", "source": "boxscore", "expr": "runs",                                  "standard_line": 0.5,  "avg_ceil": 1.00},
+    "batter_hits_runs_rbis": {"family": "batter_count", "source": "boxscore", "expr": "(hits + runs + rbi)",                   "standard_line": None, "avg_ceil": 3.20},
+    "batter_singles":        {"family": "batter_count", "source": "boxscore", "expr": "(hits - doubles - triples - home_runs)", "standard_line": 0.5,  "avg_ceil": 1.10},
+    "batter_doubles":        {"family": "batter_count", "source": "boxscore", "expr": "doubles",                               "standard_line": 0.5,  "avg_ceil": 0.45},
+    "batter_triples":        {"family": "batter_count", "source": "boxscore", "expr": "triples",                               "standard_line": 0.5,  "avg_ceil": 0.12},
+    "batter_walks":          {"family": "batter_count", "source": "boxscore", "expr": "walks",                                 "standard_line": 0.5,  "avg_ceil": 0.90},
+    "batter_strikeouts":     {"family": "batter_count", "source": "boxscore", "expr": "strikeouts",                            "standard_line": 0.5,  "avg_ceil": 1.60},
+    "batter_stolen_bases":   {"family": "batter_count", "source": "boxscore", "expr": "stolen_bases",                          "standard_line": 0.5,  "avg_ceil": 0.50},
+
     "pitcher_strikeouts": {
-        "stat":        "strikeouts",
-        "standard_line": None,  # line varies per pitcher; read from odds
-        "rate_col":    "k_per_9",
-        "ceil":        CEIL_K9,
-        "game_stat":   None,    # pulled from pitching_stats, not player_at_bats
+        "family": "pitcher", "source": "pitching", "expr": "strikeouts", "standard_line": None,
+        "season_rate": "k_per_9", "rate_ceil": CEIL_K9, "rate_floor": 5.0,
+        "recent_ceil": 10.0, "recent_floor": 3.0,
+        "opp_rate_col": "w30_k_rate", "opp_ceil": CEIL_LINEUP_K, "opp_floor": 0.10,
+    },
+    "pitcher_hits_allowed": {
+        "family": "pitcher", "source": "pitching", "expr": "hits_allowed", "standard_line": None,
+        "season_rate": "h_per_9", "rate_ceil": 12.0, "rate_floor": 5.0,
+        "recent_ceil": 9.0, "recent_floor": 2.0,
+        "opp_rate_col": "w30_hit_rate", "opp_ceil": CEIL_HIT_RATE, "opp_floor": 0.180,
+    },
+    "pitcher_walks": {
+        "family": "pitcher", "source": "pitching", "expr": "walks", "standard_line": None,
+        "season_rate": "bb_per_9", "rate_ceil": 5.5, "rate_floor": 1.0,
+        "recent_ceil": 5.0, "recent_floor": 0.5,
+        "opp_rate_col": "w30_bb_rate", "opp_ceil": 0.14, "opp_floor": 0.04,
+    },
+    "pitcher_earned_runs": {
+        "family": "pitcher", "source": "pitching", "expr": "earned_runs", "standard_line": None,
+        "season_rate": "era", "rate_ceil": 6.5, "rate_floor": 2.0,
+        "recent_ceil": 6.0, "recent_floor": 1.0,
+        "opp_rate_col": "w30_hit_rate", "opp_ceil": CEIL_HIT_RATE, "opp_floor": 0.180,
     },
 }
 
@@ -222,9 +260,14 @@ def fetch_upcoming_mlb_props(engine, grade_date: str) -> pd.DataFrame:
             e.home_team,
             e.away_team,
             CASE pp.market_key
-                WHEN 'batter_hits_alternate'        THEN 'batter_hits'
+                WHEN 'batter_hits_alternate'         THEN 'batter_hits'
                 WHEN 'batter_total_bases_alternate'  THEN 'batter_total_bases'
                 WHEN 'batter_home_runs_alternate'    THEN 'batter_home_runs'
+                WHEN 'batter_rbis_alternate'         THEN 'batter_rbis'
+                WHEN 'batter_runs_scored_alternate'  THEN 'batter_runs_scored'
+                WHEN 'batter_singles_alternate'      THEN 'batter_singles'
+                WHEN 'batter_doubles_alternate'      THEN 'batter_doubles'
+                WHEN 'batter_triples_alternate'      THEN 'batter_triples'
                 ELSE pp.market_key
             END                AS market_key,
             pp.player_name,
@@ -241,10 +284,21 @@ def fetch_upcoming_mlb_props(engine, grade_date: str) -> pd.DataFrame:
         WHERE e.sport_key = 'baseball_mlb'
           AND pp.bookmaker_key = :bookmaker
           AND (
+              -- FanDuel posts standard batter lines inside _alternate markets;
+              -- take each market's standard point only (KDE tiers cover the
+              -- rest of the ladder). Non-alternate keys carry their own line.
               (pp.market_key = 'batter_hits_alternate'        AND pp.outcome_point = 0.5)
            OR (pp.market_key = 'batter_total_bases_alternate' AND pp.outcome_point = 1.5)
            OR (pp.market_key = 'batter_home_runs_alternate'   AND pp.outcome_point = 0.5)
-           OR  pp.market_key = 'pitcher_strikeouts'
+           OR (pp.market_key = 'batter_rbis_alternate'        AND pp.outcome_point = 0.5)
+           OR (pp.market_key = 'batter_runs_scored_alternate' AND pp.outcome_point = 0.5)
+           OR (pp.market_key = 'batter_singles_alternate'     AND pp.outcome_point = 0.5)
+           OR (pp.market_key = 'batter_doubles_alternate'     AND pp.outcome_point = 0.5)
+           OR (pp.market_key = 'batter_triples_alternate'     AND pp.outcome_point = 0.5)
+           OR  pp.market_key IN ('batter_walks', 'batter_strikeouts',
+                                 'batter_stolen_bases', 'batter_hits_runs_rbis',
+                                 'pitcher_strikeouts', 'pitcher_hits_allowed',
+                                 'pitcher_walks', 'pitcher_earned_runs')
           )
           AND pp.outcome_name IN ('Over','Under')
           AND CAST(e.commence_time AS DATE) = :grade_date
@@ -323,13 +377,19 @@ def fetch_pitcher_season_stats(engine, pitcher_ids: list) -> pd.DataFrame:
 def fetch_game_log(engine, player_id: int, market_key: str, grade_date: str,
                    n_games: int = 60) -> pd.DataFrame:
     """
-    For batter markets: per-game stat totals from player_at_bats.
-    For pitcher_strikeouts: per-game K totals from pitching_stats.
+    Per-game stat history for a market, newest first.
+      at_bats  (batter_rate) - aggregated from mlb.player_at_bats events.
+      boxscore (batter_count) - straight from mlb.batting_stats columns.
+      pitching (pitcher)     - from mlb.pitching_stats, starts only.
     Returns DataFrame with columns [game_date, stat_value].
+    The cfg "expr" values are trusted config constants, never user input.
     """
-    if market_key == "pitcher_strikeouts":
-        df = pd.read_sql(text("""
-            SELECT ps.game_date, ps.strikeouts AS stat_value
+    cfg = MARKET_CONFIG[market_key]
+    source = cfg.get("source", "at_bats")
+
+    if source == "pitching":
+        df = pd.read_sql(text(f"""
+            SELECT ps.game_date, ps.{cfg['expr']} AS stat_value
             FROM mlb.pitching_stats ps
             WHERE ps.player_id = :player_id
               AND ps.game_date < :grade_date
@@ -337,8 +397,16 @@ def fetch_game_log(engine, player_id: int, market_key: str, grade_date: str,
             ORDER BY ps.game_date DESC
         """), engine, params={"player_id": player_id, "grade_date": grade_date})
         return df.head(n_games)
+    elif source == "boxscore":
+        df = pd.read_sql(text(f"""
+            SELECT bs.game_date, {cfg['expr']} AS stat_value
+            FROM mlb.batting_stats bs
+            WHERE bs.player_id = :player_id
+              AND bs.game_date < :grade_date
+            ORDER BY bs.game_date DESC
+        """), engine, params={"player_id": player_id, "grade_date": grade_date})
+        return df.head(n_games)
     else:
-        cfg = MARKET_CONFIG[market_key]
         df = pd.read_sql(text("""
             SELECT ab.game_date,
                    SUM(CASE WHEN ab.result_event_type IN ('single','double','triple','home_run') THEN 1 ELSE 0 END) AS hits,
@@ -362,17 +430,19 @@ def fetch_game_log(engine, player_id: int, market_key: str, grade_date: str,
         return df.head(n_games)[["game_date", "stat_value"]]
 
 
-def fetch_opposing_lineup_k_rate(engine, game_pk: int, is_pitcher_home: bool,
-                                 grade_date: str) -> float | None:
+def fetch_opposing_lineup_rate(engine, game_pk: int, is_pitcher_home: bool,
+                               grade_date: str,
+                               rate_col: str = "w30_k_rate") -> float | None:
     """
-    Average w30_k_rate of the opposing lineup's starters vs the pitcher's team.
-    Used in pitcher strikeout grade.
+    Average of a w30 trend rate across the opposing lineup's starters.
+    rate_col comes from MARKET_CONFIG (trusted constant): w30_k_rate for
+    pitcher Ks, w30_hit_rate for hits-allowed/ERA, w30_bb_rate for walks.
     """
-    side = "home_team_id" if not is_pitcher_home else "away_team_id"
-    opp_side = "away_team_id" if not is_pitcher_home else "home_team_id"
+    if rate_col not in ("w30_k_rate", "w30_hit_rate", "w30_bb_rate"):
+        raise ValueError(f"unsupported lineup rate column: {rate_col}")
 
     df = pd.read_sql(text(f"""
-        SELECT AVG(ts.w30_k_rate) AS avg_k_rate
+        SELECT AVG(ts.{rate_col}) AS avg_k_rate
         FROM mlb.player_trend_stats ts
         INNER JOIN (
             SELECT batter_id, MAX(game_date) AS latest_date
@@ -387,7 +457,7 @@ def fetch_opposing_lineup_k_rate(engine, game_pk: int, is_pitcher_home: bool,
             WHERE bs.game_pk = :game_pk
               AND bs.batting_order % 100 = 0
         ) starters ON starters.player_id = ts.batter_id
-        WHERE ts.w30_k_rate IS NOT NULL
+        WHERE ts.{rate_col} IS NOT NULL
     """), engine, params={"game_pk": game_pk, "grade_date": grade_date})
 
     val = df["avg_k_rate"].iloc[0] if not df.empty else None
@@ -456,6 +526,20 @@ def compute_hit_rate_grade(ts: pd.Series, market_key: str) -> float:
     return normalize(rate, ceil) if rate is not None else 50.0
 
 
+def compute_game_avg_grade(game_log: pd.DataFrame, cfg: dict,
+                           n_games: int = 30) -> float:
+    """
+    Form grade for batter_count markets (no trend-window rates exist for
+    RBI/runs/walks/etc). Recent per-game average over the last n_games,
+    normalized against the market's empirical strong-hitter ceiling.
+    Neutral 50 when the log is too thin to mean anything.
+    """
+    if game_log.empty or len(game_log) < MIN_SAMPLE:
+        return 50.0
+    avg = pd.to_numeric(game_log["stat_value"].head(n_games), errors="coerce").mean()
+    return normalize(avg, cfg["avg_ceil"])
+
+
 def compute_ev_grade(ts: pd.Series) -> float:
     """EV quality grade from w30 hard-hit %, barrel %, and xBA."""
     hh  = ts.get("w30_hard_hit_pct")
@@ -481,8 +565,28 @@ def compute_batter_matchup_grade(pitcher_stats: pd.Series | None,
     """
     components = []
 
+    # Market groups sharing a pitcher-quality signal. Contact-driven counting
+    # markets (RBI/runs/singles/doubles/triples/H+R+RBI) follow the hits
+    # signal (H/9 + OBP-against); home runs keep their own HR/9 + OPS branch.
+    _HITS_LIKE = ("batter_hits", "batter_total_bases", "batter_rbis",
+                  "batter_runs_scored", "batter_hits_runs_rbis",
+                  "batter_singles", "batter_doubles", "batter_triples")
+
     if pitcher_stats is not None:
-        if market_key in ("batter_hits", "batter_total_bases"):
+        if market_key == "batter_walks":
+            # Walk-prone pitcher raises the Over.
+            bb9 = pitcher_stats.get("bb_per_9")
+            if bb9 is not None and not pd.isna(bb9):
+                components.append(normalize(float(bb9), ceiling=5.5, floor=1.0) * 0.60)
+        elif market_key == "batter_strikeouts":
+            # High-K pitcher raises the batter-strikeout Over.
+            k9 = pitcher_stats.get("k_per_9")
+            if k9 is not None and not pd.isna(k9):
+                components.append(normalize(float(k9), ceiling=CEIL_K9, floor=5.0) * 0.60)
+        elif market_key == "batter_stolen_bases":
+            # No reliable pitcher signal ingested for SB; leave to form + EV.
+            pass
+        elif market_key in _HITS_LIKE:
             # H/9 inverted: lower H/9 = tougher pitcher = lower grade
             h9 = pitcher_stats.get("h_per_9")
             if h9 is not None and not pd.isna(h9):
@@ -533,31 +637,48 @@ def compute_batter_matchup_grade(pitcher_stats: pd.Series | None,
     return clamp(sum(components) / total_w * 100.0) if total_w > 0 else 50.0
 
 
-def compute_pitcher_k_grade(pitcher_stats: pd.Series | None,
-                            recent_k_form: pd.DataFrame,
-                            opp_lineup_k_rate: float | None) -> float:
-    """Composite grade for pitcher strikeout props."""
-    k9_grade = 50.0
+def compute_pitcher_market_grade(cfg: dict,
+                                 pitcher_stats: pd.Series | None,
+                                 recent_form: pd.DataFrame,
+                                 opp_lineup_rate: float | None) -> float:
+    """
+    Composite grade for pitcher props (Ks, hits allowed, walks, earned runs).
+    0.50 season rate (k_per_9 / h_per_9 / bb_per_9 / era) + 0.30 recent
+    per-start form + 0.20 opposing-lineup rate. All rates are oriented so a
+    higher rate means a more likely Over (a hittable pitcher allows more
+    hits; a wild one more walks), matching the original K-grade orientation.
+    """
+    season_grade = 50.0
     if pitcher_stats is not None:
-        k9 = pitcher_stats.get("k_per_9")
-        if k9 is not None and not pd.isna(k9):
-            k9_grade = normalize(float(k9), ceiling=CEIL_K9, floor=5.0)
+        rate = pitcher_stats.get(cfg["season_rate"])
+        if rate is not None and not pd.isna(rate):
+            season_grade = normalize(float(rate), ceiling=cfg["rate_ceil"],
+                                     floor=cfg["rate_floor"])
 
     recent_grade = 50.0
-    if not recent_k_form.empty and len(recent_k_form) >= 3:
-        recent_k_avg = recent_k_form["stat_value"].head(5).mean()
-        # Normalize: 10+ K = 100, 3 K = 0
-        recent_grade = normalize(recent_k_avg, ceiling=10.0, floor=3.0)
+    if not recent_form.empty and len(recent_form) >= 3:
+        recent_avg = pd.to_numeric(recent_form["stat_value"].head(5),
+                                   errors="coerce").mean()
+        recent_grade = normalize(recent_avg, ceiling=cfg["recent_ceil"],
+                                 floor=cfg["recent_floor"])
 
     opp_grade = 50.0
-    if opp_lineup_k_rate is not None:
-        opp_grade = normalize(opp_lineup_k_rate, ceiling=CEIL_LINEUP_K, floor=0.10)
+    if opp_lineup_rate is not None:
+        opp_grade = normalize(opp_lineup_rate, ceiling=cfg["opp_ceil"],
+                              floor=cfg["opp_floor"])
 
-    return 0.50 * k9_grade + 0.30 * recent_grade + 0.20 * opp_grade
+    return 0.50 * season_grade + 0.30 * recent_grade + 0.20 * opp_grade
 
 
 def compute_composite(hit_rate_grade: float, ev_grade: float,
-                      matchup_grade: float) -> float:
+                      matchup_grade: float, no_ev: bool = False) -> float:
+    if no_ev:
+        # Markets where quality-of-contact has no (or inverted) signal:
+        # walks, batter strikeouts, stolen bases. Burner/slap-hitter
+        # archetypes have low exit velo, so weighting statcast EV there
+        # pushes the grade the wrong way for exactly the players who steal
+        # bases / draw walks. Redistribute EV's weight to form + matchup.
+        return 0.55 * hit_rate_grade + 0.45 * matchup_grade
     return (GRADE_HIT_RATE_WEIGHT * hit_rate_grade
             + GRADE_EV_WEIGHT * ev_grade
             + GRADE_MATCHUP_WEIGHT * matchup_grade)
@@ -825,7 +946,41 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
 
     props = fetch_upcoming_mlb_props(engine, grade_date_str)
     if props.empty:
-        log.info("No upcoming MLB props found. Exiting.")
+        # Zero props on a day with scheduled MLB games means the odds feed is
+        # broken (dead API key, dead workflow), not that there is nothing to
+        # grade. Exiting 0 here hid a two-month outage (no mlb-v1.0 rows
+        # after 2026-05-01 while the workflow stayed green). Fail loudly.
+        scheduled = pd.read_sql(text(
+            "SELECT COUNT(*) AS n FROM mlb.games WHERE CAST(game_date AS DATE) = :d"
+        ), engine, params={"d": grade_date_str}).iloc[0]["n"]
+        if int(scheduled) > 0:
+            # mlb.games.game_date is the ET schedule date while props filter
+            # on CAST(commence_time AS DATE) (UTC) - a West-coast-heavy slate
+            # can legitimately land its props on grade_date+1. Only declare
+            # the feed dead when there are no *fresh* MLB props at all.
+            fresh = pd.read_sql(text("""
+                SELECT COUNT(*) AS n
+                FROM odds.upcoming_player_props pp
+                WHERE pp.sport_key = 'baseball_mlb'
+                  AND pp.created_at >= DATEADD(hour, -36, GETUTCDATE())
+            """), engine).iloc[0]["n"]
+            if int(fresh) == 0:
+                log.error(
+                    "No upcoming MLB props for %s, %d games scheduled, and no "
+                    "MLB props ingested in the last 36h. The odds pipeline is "
+                    "stale (check ODDS_API_KEY / odds-etl.yml). Failing so this "
+                    "cannot pass as a green run.",
+                    grade_date_str, int(scheduled),
+                )
+                raise SystemExit(2)
+            log.warning(
+                "No props matched %s but %d fresh MLB props exist (UTC/ET "
+                "date shift?). Skipping without failing; check the date "
+                "conventions if this repeats.",
+                grade_date_str, int(fresh),
+            )
+        log.info("No upcoming MLB props and no scheduled games for %s (offseason/off-day). Exiting.",
+                 grade_date_str)
         return
 
     # Resolve player IDs — Over side only (we'll flip for Under)
@@ -837,16 +992,6 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
     if player_ids:
         ts_df = fetch_trend_stats(engine, player_ids, grade_date_str)
         trend_map = {int(r["batter_id"]): r for _, r in ts_df.iterrows()}
-
-    # Identify all (batter_id, opposing_pitcher_id) matchups from batting_stats
-    matchup_rows = []
-    for game_pk in game_pks:
-        gp_props = over_props[over_props["game_pk"] == game_pk]
-        game_players = [int(p) for p in gp_props["player_id"].dropna().unique()]
-        for pid in game_players:
-            # Get the pitcher facing this batter (from games table, SP)
-            # We use the home/away pitcher from mlb.games
-            pass  # populated below per-row
 
     # Collect unique pitcher IDs from games
     pitcher_ids_set = set()
@@ -883,7 +1028,8 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
     # Build BvP lookup for batter props
     batter_matchups = []
     for _, row in over_props.iterrows():
-        if row["market_key"] == "pitcher_strikeouts":
+        row_cfg = MARKET_CONFIG.get(row["market_key"])
+        if row_cfg is None or row_cfg["family"] == "pitcher":
             continue
         pid = row["player_id"]
         gp  = row["game_pk"]
@@ -932,7 +1078,14 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
             opp_pitcher_id   = None
             opp_pitcher_hand = None
 
-            if market_key != "pitcher_strikeouts":
+            cfg = MARKET_CONFIG.get(market_key)
+            if cfg is None:
+                log.debug("Skipping %s — market %s not in MARKET_CONFIG.",
+                          player_name, market_key)
+                continue
+            family = cfg["family"]
+
+            if family != "pitcher":
                 # Check both sides; use the one with more recent BvP or just away SP
                 away_sp = ginfo.get("away_pitcher_id")
                 home_sp = ginfo.get("home_pitcher_id")
@@ -960,29 +1113,41 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
             pitcher_stats = pitcher_stats_map.get(opp_pitcher_id) if opp_pitcher_id else None
             bvp = bvp_map.get((player_id, int(opp_pitcher_id))) if opp_pitcher_id else None
 
-            # Compute grade
-            if market_key == "pitcher_strikeouts":
-                recent_log = fetch_game_log(engine, player_id, market_key, grade_date_str)
-                opp_k_rate = None
+            # Game log once per prop: recent form for the composite AND the
+            # KDE tier fit below (previously fetched twice for pitchers).
+            game_log = fetch_game_log(engine, player_id, market_key, grade_date_str)
+
+            # Compute grade by market family
+            if family == "pitcher":
+                opp_rate = None
                 if _game_pk_valid:
                     # pitcher is away or home — determine from pitcher map
                     ap_id = ginfo.get("away_pitcher_id")
                     is_home = (ap_id != player_id)
-                    opp_k_rate = fetch_opposing_lineup_k_rate(
-                        engine, int(game_pk), is_home, grade_date_str
+                    opp_rate = fetch_opposing_lineup_rate(
+                        engine, int(game_pk), is_home, grade_date_str,
+                        rate_col=cfg["opp_rate_col"],
                     )
                 ps = pitcher_stats_map.get(player_id)
-                composite = compute_pitcher_k_grade(ps, recent_log, opp_k_rate)
-            else:
+                composite = compute_pitcher_market_grade(cfg, ps, game_log, opp_rate)
+            elif family == "batter_count":
+                form_grade    = compute_game_avg_grade(game_log, cfg)
+                ev_grade      = compute_ev_grade(ts)
+                matchup_grade = compute_batter_matchup_grade(
+                    pitcher_stats, bvp, ts, market_key, opp_pitcher_hand
+                )
+                composite = compute_composite(
+                    form_grade, ev_grade, matchup_grade,
+                    no_ev=market_key in ("batter_walks", "batter_strikeouts",
+                                         "batter_stolen_bases"),
+                )
+            else:  # batter_rate — hits / total bases / home runs
                 hit_grade     = compute_hit_rate_grade(ts, market_key)
                 ev_grade      = compute_ev_grade(ts)
                 matchup_grade = compute_batter_matchup_grade(
                     pitcher_stats, bvp, ts, market_key, opp_pitcher_hand
                 )
                 composite = compute_composite(hit_grade, ev_grade, matchup_grade)
-
-            # Game log for KDE
-            game_log = fetch_game_log(engine, player_id, market_key, grade_date_str)
 
             # KDE tier lines
             tiers = compute_kde_tier_lines(game_log, composite, market_key)

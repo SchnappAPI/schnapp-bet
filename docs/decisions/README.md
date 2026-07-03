@@ -58,3 +58,13 @@ ADR-XXXXXXXX-N — one-line reason this replaces it.
 | [ADR-20260506-1](ADR-20260506-1-bloomberg-linear-redesign.md)  | Bloomberg × Linear redesign.                                                      |
 | [ADR-20260517-1](ADR-20260517-1-bootstrap-strategy.md)         | Hybrid bootstrap strategy: regenerate sport schemas, migrate `common.*`.          |
 | [ADR-20260517-2](ADR-20260517-2-scaffolding-milestone.md)      | schnapp-bet structure-and-scaffolding milestone disposition.                      |
+| [ADR-20260517-3](ADR-20260517-3-doc-commit-policy.md)          | Atomic logical commits; session ceremony scaled by task size.                     |
+| [ADR-20260517-4](ADR-20260517-4-changelog-is-git-log.md)       | Commit log is the changelog; mandatory subject format.                            |
+| [ADR-20260517-5](ADR-20260517-5-secrets-from-1password.md)     | 1Password is the single source of truth for runtime secrets.                      |
+| [ADR-20260524-1](ADR-20260524-1-mechanize-non-negotiables.md)  | CLAUDE.md non-negotiables mechanized as PreToolUse Bash hook.                     |
+| [ADR-20260617-1](ADR-20260617-1-fail-closed-secrets.md)        | Fail closed on missing security secrets in production.                            |
+
+Known gap: `ADR-20260425-3` is cited by `weekly-calibration.yml`, `grading/grade_props.py`,
+`grading/weekly_calibration.py`, and `web/app/api/calibration-buckets/route.ts`, but the file
+was never committed (lost in the sports-modeling port). Treat those citations as pointing at
+the weekly-calibration design described in the citing code's comments.

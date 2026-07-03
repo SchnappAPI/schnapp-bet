@@ -18,9 +18,18 @@ env:
   SQL_TRUST_CERT: "yes"
   PYTHONPATH: /Users/schnapp/code/schnapp-bet
 
+# Prevent overlapping runs (e.g. a slow run vs the next cron tick, or a manual
+# dispatch racing a scheduled one). New runs queue instead of cancelling.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   etl:
     runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
 
     steps:
       - name: Checkout repository
@@ -47,3 +56,12 @@ jobs:
           else
             python etl/mlb_etl.py
           fi
+
+      - name: Record workflow run timestamp
+        run: python -c "from shared.db import record_workflow_run; record_workflow_run('mlb-etl')"
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

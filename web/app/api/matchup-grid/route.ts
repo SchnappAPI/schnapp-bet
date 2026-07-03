@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/apiError';
 import { getPool } from '@/lib/db';
 import mssql from 'mssql';
 
@@ -308,7 +309,6 @@ export async function GET(req: NextRequest) {
       gameId,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError(err, 'api/matchup-grid');
   }
 }

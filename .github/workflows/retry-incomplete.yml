@@ -2,7 +2,7 @@ name: Retry Incomplete Data
 
 # Re-attempts fetching data for rows flagged in common.data_completeness_log
 # where resolved_at IS NULL and attempt_count < 3. Runs at 14:00 UTC daily
-# (after daily-health-report at 13:00). Escalates to a GitHub Issue
+# (after the morning ETL and grading runs). Escalates to a GitHub Issue
 # (label: data-integrity:incomplete) after 3 failed attempts.
 # See ADR-20260424-2.
 #
@@ -33,6 +33,12 @@ on:
 env:
   SQL_TRUST_CERT: "yes"
   PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+# Prevent overlapping runs (e.g. a slow run vs the next cron tick, or a manual
+# dispatch racing a scheduled one). New runs queue instead of cancelling.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   retry:
@@ -240,3 +246,9 @@ jobs:
 
           print(f'retried={retried_count} resolved={resolved_count} escalated={escalated_count} skipped={skipped_count} dry_run={dry_run}')
           PYEOF
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

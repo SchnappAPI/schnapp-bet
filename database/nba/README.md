@@ -153,7 +153,7 @@ Do not revert without an ADR.
 
 ## Recent Changes
 
-See `/docs/CHANGELOG.md` filtered by `[nba][database]`. Historical entries before the restructure are in the archived `/docs/_archive/CHANGELOG.md`.
+Git log is the changelog (ADR-20260517-4): `git log --grep='\[nba\]' --grep='\[database\]'`.
 
 ## Open Questions
 

@@ -11,7 +11,7 @@ Do not make the same mistake twice.
 - Python runs only in GitHub Actions (mac-runner). Never suggest running Python locally on the corporate machine (ThreatLocker blocks it).
 - All DB writes go to local SQL Server 2022 on Schnapps-MBP (Docker/Colima, localhost:1433). Azure is fully decommissioned.
 - ETL env vars: SQL_SERVER, SQL_DATABASE, SQL_USERNAME, SQL_PASSWORD, SQL_TRUST_CERT. Not AZURE_SQL_*.
-- Python venv: `/Users/schnapp/venv`. PYTHONPATH must be set to `/Users/schnapp/sports-modeling` in all mac-runner workflows.
+- Python venv: `/Users/schnapp/venv`. PYTHONPATH must be set to `/Users/schnapp/code/schnapp-bet` in all mac-runner workflows. (Updated 2026-07-03; the pre-cutover `/Users/schnapp/sports-modeling` path is retired.)
 - `create_or_update_file` requires a fresh SHA fetched immediately before the call. Never use a SHA from earlier in the session — it may be stale after a prior commit.
 - Never use `push_files` for .py files (corrupts newlines). Always use `create_or_update_file`.
 - Never use `push_files` for TSX with non-ASCII Unicode. Safe only for strict-ASCII TypeScript, JSON, YAML.
@@ -75,5 +75,5 @@ Do not make the same mistake twice.
 
 ## API key (do not log values here — log only metadata)
 
-- ANTHROPIC_API_KEY: set as GitHub Actions secret 2026-05-05. Key was exposed in chat — must be rotated at console.anthropic.com.
-- CLAUDE_CODE_OAUTH_TOKEN: exposed in a prior chat transcript — must be rotated.
+- ANTHROPIC_API_KEY: was exposed in chat 2026-05-05. RESOLVED — rotated (owner confirmed 2026-07-03).
+- CLAUDE_CODE_OAUTH_TOKEN: was exposed in a prior chat transcript. RESOLVED — rotated (owner confirmed 2026-07-03).

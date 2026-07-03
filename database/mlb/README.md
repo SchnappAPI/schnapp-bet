@@ -1,6 +1,6 @@
 # MLB Database
 
-**STATUS:** in development. 7 tables populated nightly (reference, games, per-game box scores, season snapshots). 1 pitch-level table populated on demand. 3 derived tables materialized in-lockstep with pitch-level (at-bat grain, career batter-vs-pitcher grain, and rolling trend stats time-series). Remaining ADR-0004 entities: batter context per game, batter projections per game. Tables are present and queryable; the MLB product itself is in development and not considered fully live.
+**STATUS:** in development. 7 tables populated nightly (reference, games, per-game box scores, season snapshots). 1 pitch-level table populated nightly at 09:30 (scheduled 2026-07-03; previously on-demand). 3 derived tables materialized in-lockstep with pitch-level (at-bat grain, career batter-vs-pitcher grain, and rolling trend stats time-series). 2 projection-layer tables (`batter_context`, `batter_projections`) written by the grading workflow — all nine ADR-0004 entities exist. The MLB product itself is in development and not considered fully live.
 
 ## Purpose
 
@@ -8,12 +8,12 @@ The `mlb` schema holds the current MLB dataset. Seven tables populate from the n
 
 ## Files
 
-- `/etl/mlb_batting_stats_migration.sql` — one-time column migration for `mlb.batting_stats` (kept for reference; do not re-run)
-
-Live DDL sources:
+Live DDL sources (the one-time `mlb_batting_stats_migration.sql` shipped and
+was deleted with its workflow on 2026-07-03; see git history if needed):
 
 - `etl/mlb_etl.py` — implicit DDL via pandas `to_sql` for truncate-and-reload tables. Permanent tables' columns are defined by the row dict keys in each loader function
 - `etl/mlb_play_by_play.py` — explicit `CREATE TABLE IF NOT EXISTS` and `ALTER COLUMN` statements in `DDL_CREATE`, `DDL_ALTER_DESCRIPTIONS`, `DDL_CREATE_AT_BATS`, `DDL_DROP_NAME_COLUMNS`, `DDL_CREATE_AT_BATS_INDEXES`, `DDL_CREATE_BVP`, and `DDL_CREATE_BVP_INDEXES`
+- `grading/compute_mlb_projections.py` — `IF OBJECT_ID ... CREATE TABLE` DDL for `mlb.batter_context` and `mlb.batter_projections`
 
 ## Key Concepts
 
@@ -147,12 +147,19 @@ Indexed by `IX_trend_stats_date` on `(game_date, batter_id)` for date-range read
 
 DDL owned by `mlb_play_by_play.py` (`DDL_CREATE_TREND_STATS`, `DDL_CREATE_TREND_STATS_INDEXES`). Rebuild mode: `--rebuild-trend-stats` flag chunks by batter_id (50 per chunk; lighter per-row computation than BvP rebuild's 200).
 
-### Tables from ADR-0004 that do not exist yet
+### ADR-0004 entity status
 
-Two ADR-0004 entities remain unimplemented:
+All nine ADR-0004 entities now exist. The final two shipped 2026-07-03:
 
-- Batter context per game (game-day lineup, weather, park factors)
-- Batter projections per game (model output separate from trend stats)
+- `mlb.batter_context` — one row per (game_date, game_pk, batter_id): side,
+  opposing probable SP + hand, venue, day/night, recent batting-order slot,
+  and `lineup_confirmed` (1 when boxscore lineup rows exist; 0 when the pool
+  is projected from recent appearances). No weather yet — no weather source
+  is ingested; add a column + source when one is.
+- `mlb.batter_projections` — one row per (game_date, game_pk, batter_id,
+  market_key): deterministic `proj-v1.0` projected value + 0-1 confidence.
+  Written by `grading/compute_mlb_projections.py` as a step in
+  `mlb-grading.yml` before grading; idempotent per (game_date, game_pk).
 
 Player at-bats shipped 2026-04-21. Career BvP shipped 2026-04-21. Player trend stats (combining rolling windows and platoon splits in a single time-series table) shipped 2026-05-01.
 
@@ -177,7 +184,7 @@ Player at-bats shipped 2026-04-21. Career BvP shipped 2026-04-21. Player trend s
 
 ## Recent Changes
 
-See `/docs/CHANGELOG.md` filtered by `[mlb][database]`. Historical entries before the restructure are in the archived `/docs/_archive/CHANGELOG.md`.
+Git log is the changelog (ADR-20260517-4): `git log --grep='\[mlb\]' --grep='\[database\]'`.
 
 ## Open Questions
 

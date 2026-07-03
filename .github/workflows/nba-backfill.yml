@@ -16,6 +16,11 @@ env:
   SQL_TRUST_CERT: "yes"
   PYTHONPATH: /Users/schnapp/code/schnapp-bet
 
+# Serialize per backfill date; different dates may run in parallel.
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.date }}
+  cancel-in-progress: false
+
 jobs:
   backfill:
     runs-on: [self-hosted, mac-runner]

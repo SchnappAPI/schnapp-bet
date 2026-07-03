@@ -12,7 +12,7 @@ Area router for the schemas inside the `schnapp-bet` database. The canonical dat
 
 ## Files
 
-DDL currently lives inside Python ETL migration scripts under `/etl/` (for example, table-create logic inside `nba_etl.py` and `mlb_etl.py`, plus `db_inventory.py` which lists schemas and tables). Whether to introduce dedicated `.sql` DDL files per schema alongside the Python ETL is an open question (see Open Questions below); today, Python ETL is the source of truth for DDL.
+Each schema directory carries a generated `bootstrap.sql` full-schema snapshot (regenerate via `/skill regenerate-bootstrap-sql`; never hand-edit — see ADR-20260517-1). Runtime table-create/alter logic still lives in the Python ETL scripts (`nba_etl.py`, `mlb_etl.py`, `shared/integrity.py`'s `ensure_tables()`), so Python remains the source of truth for evolution; the snapshots are for rebuild-on-empty-DB and reference. `common.*` changes are supposed to go in numbered migrations under `database/migrations/` (per `.claude/rules/database.md`) — that directory does not exist yet.
 
 ## Key Concepts
 
@@ -25,8 +25,8 @@ Naming: schemas are lowercase (`nba`, `mlb`). Table and column names are snake_c
 
 ## Recent Changes
 
-See `/docs/CHANGELOG.md` filtered by `[database]`.
+Git log is the changelog (ADR-20260517-4): `git log --grep='\[database\]'`.
 
 ## Open Questions
 
-Whether to introduce dedicated `.sql` DDL files per schema alongside the Python ETL, or continue with DDL-in-Python.
+The bootstrap-snapshot question is settled (ADR-20260517-1: regenerate sport schemas, migrate `common.*`). Still open: the numbered-migrations mechanism for `common.*` referenced by `.claude/rules/database.md` has no `database/migrations/` directory or runner yet.

@@ -1,7 +1,9 @@
 #!/bin/bash
 # Rotate OP_SERVICE_ACCOUNT_TOKEN: reads new token from clipboard, updates
-# ~/.zshrc, pushes to GitHub repo secret, cycles launchd agents (which also
-# picks up any new admin_passcode from the vault). Safe to re-run.
+# ~/.zshrc and ~/.zshenv (com.schnapp.environment reads the latter at login),
+# refreshes the live launchd environment, pushes to GitHub repo secret, and
+# cycles launchd agents (which also picks up any new admin_passcode from the
+# vault). Safe to re-run.
 #
 # Usage: bash /tmp/rotate-op-token.sh
 
@@ -15,10 +17,24 @@ if [[ "$NEW_OP_TOKEN" != ops_* ]]; then
   exit 1
 fi
 
-# --- Update ~/.zshrc ---
-sed -i.bak "s|^export OP_SERVICE_ACCOUNT_TOKEN=.*|export OP_SERVICE_ACCOUNT_TOKEN=$NEW_OP_TOKEN|" "$HOME/.zshrc"
-rm "$HOME/.zshrc.bak"
-echo "✓ ~/.zshrc updated"
+# --- Update ~/.zshrc and ~/.zshenv ---
+# Both copies matter: op-wrap.sh reads ~/.zshrc when launchd services start;
+# com.schnapp.environment reads ~/.zshenv at login to launchctl-setenv the
+# token. Missing either leaves a stale token that surfaces on next reboot.
+for rcfile in "$HOME/.zshrc" "$HOME/.zshenv"; do
+  if grep -q '^export OP_SERVICE_ACCOUNT_TOKEN=' "$rcfile" 2>/dev/null; then
+    sed -i.bak "s|^export OP_SERVICE_ACCOUNT_TOKEN=.*|export OP_SERVICE_ACCOUNT_TOKEN=$NEW_OP_TOKEN|" "$rcfile"
+    rm "$rcfile.bak"
+  else
+    echo "export OP_SERVICE_ACCOUNT_TOKEN=$NEW_OP_TOKEN" >> "$rcfile"
+  fi
+  echo "✓ $rcfile updated"
+done
+
+# --- Refresh the live launchd environment (same call com.schnapp.environment
+# makes at login) so service loads before the next reboot see the new token ---
+launchctl setenv OP_SERVICE_ACCOUNT_TOKEN "$NEW_OP_TOKEN"
+echo "✓ launchd environment refreshed"
 
 # --- Push to GitHub Actions repo secret ---
 echo "$NEW_OP_TOKEN" | gh secret set OP_SERVICE_ACCOUNT_TOKEN --repo SchnappAPI/schnapp-bet

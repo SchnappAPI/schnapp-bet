@@ -1,0 +1,56 @@
+name: CI
+
+# The repo's first pre-merge gate (previously the only automated check was
+# next build inside deploy-web.yml, post-merge). Pure static: no DB, no
+# secrets, runs on GitHub-hosted runners — the one sanctioned ubuntu-latest
+# use per .claude/rules/workflows.md.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r etl/requirements.txt -r grading/requirements.txt
+          pip install pytest ruff
+      - name: Ruff (fatal classes only)
+        run: ruff check etl grading shared tests
+      - name: Compile all modules
+        run: python -m compileall -q etl grading shared
+      - name: Pytest
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest tests -q
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npx --no-install tsc --noEmit -p .
+      - name: Build
+        run: npm run build

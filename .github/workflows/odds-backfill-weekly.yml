@@ -30,9 +30,18 @@ env:
   SQL_TRUST_CERT: "yes"
   PYTHONPATH: /Users/schnapp/code/schnapp-bet
 
+# Prevent overlapping runs (e.g. a slow run vs the next cron tick, or a manual
+# dispatch racing a scheduled one). New runs queue instead of cancelling.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   weekly-backfill:
     runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -77,3 +86,9 @@ jobs:
           for SPORT in nba mlb; do
             python etl/odds_etl.py --mode mappings --sport $SPORT
           done
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,10 +1,11 @@
 # etl/nfl/
 
-**STATUS:** idle. ETL pipeline exists in sports-modeling; no active development, no downstream web consumer. Ports to schnapp-bet only when NFL web work resumes.
+**STATUS:** live foundation (2026-07-03; ADR-20260703-2). Weekly ETL green with offseason-aware season derivation, odds name-mapping implemented, integrity coverage on games/players/player_game_stats, and the `/nfl` web page consuming the tables. Grading lands when NFL odds flow (~September).
 
-## Planned script (carry over from sports-modeling)
+## Scripts
 
-- `etl/nfl_etl.py` — 7-table complete ETL (games, players, player_game_stats, snap_counts, ftn_charting, rosters_weekly, team_game_stats). Triggered by `.github/workflows/nfl-etl.yml` Tuesday 09:00 UTC.
+- `etl/nfl_etl.py` — 7-table complete ETL (games, players, player_game_stats, snap_counts, ftn_charting, rosters_weekly, team_game_stats). Triggered by `.github/workflows/nfl-etl.yml` Tuesday 09:00 UTC. Season flips in September; not-yet-published nflverse assets log SKIP instead of failing.
+- `etl/odds_etl.py --mode mappings --sport nfl` — `_run_mappings_nfl`: 32-team name map, player map against `nfl.players` (full gsis string in `odds.player_map.gsis_id`), event↔game map on (date, home, away).
 
 ## Data source
 
@@ -22,5 +23,5 @@ See `.claude/rules/etl.md` for the auto-loaded ruleset.
 
 ## Open questions
 
-- **NFL web surface** — no web layer yet. Parallel design session like the MLB visual catalog: identify what visuals matter, what stats feed them, what the pre-aggregation layer needs.
-- **NFL odds ingestion** — `odds_etl.py` reportedly mentions NFL sport keys but is unverified. Decide whether to extend it or add a dedicated `nfl_odds_etl.py`.
+- **NFL grading** — `nfl_grade_props.py` is contracted in ADR-20260703-2 (weekly keys, gsis settlement, TD markets as binary); implement at first live NFL odds.
+- **Per-game web detail** — the week slate + player stats shipped; a per-game detail page is the next web layer.

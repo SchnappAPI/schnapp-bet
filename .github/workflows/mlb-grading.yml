@@ -26,10 +26,19 @@ env:
   SQL_TRUST_CERT: "yes"
   PYTHONPATH: /Users/schnapp/code/schnapp-bet
 
+# Prevent overlapping runs (e.g. a slow run vs the next cron tick, or a manual
+# dispatch racing a scheduled one). New runs queue instead of cancelling.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   grade:
     if: always()
     runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
     timeout-minutes: 120
 
     steps:
@@ -49,6 +58,18 @@ jobs:
       - name: Activate virtualenv
         run: echo "$HOME/venv/bin" >> $GITHUB_PATH
 
+      - name: Compute batter context + projections
+        # ADR-20260420-2 entities: opposing-SP context and per-market
+        # projected values for today's slate. Independent of grading output;
+        # feeds the web Proj/Player views.
+        env:
+          DATE_INPUT: ${{ github.event.inputs.date || '' }}
+        run: |
+          set -euo pipefail
+          ARGS=""
+          [ -n "$DATE_INPUT" ] && ARGS="--date $DATE_INPUT"
+          python grading/compute_mlb_projections.py $ARGS
+
       - name: Run MLB grading
         env:
           DATE_INPUT: ${{ github.event.inputs.date  || '' }}
@@ -60,3 +81,12 @@ jobs:
           [ -n "$DATE_INPUT" ] && ARGS="$ARGS --date $DATE_INPUT"
           [ "$FORCE" = "true" ]  && ARGS="$ARGS --force"
           python grading/mlb_grade_props.py $ARGS
+
+      - name: Record workflow run timestamp
+        run: python -c "from shared.db import record_workflow_run; record_workflow_run('mlb-grading')"
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
