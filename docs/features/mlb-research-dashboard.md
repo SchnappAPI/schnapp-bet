@@ -151,6 +151,38 @@ games_since_hr, hr_pattern_early, hr_pattern_late, hr_hot` — computed nightly 
 2. `compute_mlb_projections.py` adds `hit_prob` / `hr_prob` market keys (model layer on
    entities 4–7). HR pattern card + projections row light up on the player page.
 
+### Phase 4.5 — Gamefeed adoptions (2026-07-04)
+
+Reviewed Baseball Savant's Gamefeed (per-game tab strip, day-level leaderboard rails,
+EV-table chip format) as design input. Adopted formats below; rejects appended to
+"Explicitly cut". Bias: pregame batter research + postgame review, not broadcast
+companion. Data note: nightly `mlb.play_by_play` is pitch-grain (`pitch_start_speed`,
+`pitch_call_code`, `pitch_type_code`), so pitch-velocity/whiff aggregates are feedable
+postgame — only Savant tracking data (spin, movement, 3D, true xBA) waits for Phase 5.
+
+1. **Day-level "Top ..." leaderboard rails on `/mlb`** — Savant's Top Exit Velocity /
+   Top Distances / Top Pitch Velocity / Swing & Misses as small ranked slate-wide
+   tables. Ours: one `GET /api/mlb/research/leaders?date=` route; EV / distance / bat
+   speed / HR-Park near-misses from `mlb.player_at_bats`, pitch velo + whiffs from
+   `mlb.play_by_play`. Nightly grain — rails read "yesterday" until the day's pbp lands;
+   label the date, never imply live.
+2. **Named-threshold chips + once-per-page legend** — Savant chips hard-hit (EV >= 95),
+   barrel, fast swing (bat speed >= 75). Where a threshold has a name, chip it instead of
+   bare percentile shading. Chip defs live beside the D3 constants in
+   `web/app/mlb/statcastFormat.ts`; one shared legend component used by the Exit Velo
+   game tab, the research per-PA log, and the player Statcast section.
+3. **HR/Park + Bat Speed columns** — `home_run_ballparks` (render `n/30` like Savant)
+   and `hit_bat_speed` already land per AB. Surface in the three at-bat tables:
+   `web/app/mlb/MlbGameTabs.tsx` (Exit Velo tab), `web/app/mlb/research/MlbResearchView.tsx`
+   (per-PA log), `web/app/mlb/player/[playerId]/MlbStatcastSection.tsx` (already fetches
+   both fields, renders neither).
+4. **Status-keyed tab set + pregame Matchups framing** — Savant swaps one slot by
+   `codedGameState` (Live At Bat while live, Matchups when final) and suppresses stat
+   tabs pregame. Adapt: `MlbGameTabs.tsx` keys tab availability off
+   `web/app/mlb/gameStatus.ts` — pregame shows Lineups + a new Matchups tab
+   (lineup-vs-probable BvP, data already served for the research page); final shows
+   Box Score + Exit Velo.
+
 ### Phase 5 (optional, later) — true Savant enrichment
 
 Loader that lands Azure Parquet Statcast (2024→) into a `mlb.statcast_pitches` table
@@ -167,6 +199,19 @@ ADR when we get here.
   covers live; per-AB live data waits for pbp-during-games.
 - Venue/park-factor table — `common.game_supplemental` + venue fields already exist;
   no BP park model.
+
+From the Gamefeed review (2026-07-04, see Phase 4.5):
+
+- Illustrator / Pitch 3D / Film Room / Vizcast — broadcast spectacle, zero prop-research
+  signal.
+- Win Probability tab + the scoreboard WPA sparkline — we have no win-probability model
+  and game-level WP is not a prop input.
+- ABS challenge tracking — no data source, no prop relevance.
+- Live At Bat tab — live per-AB Statcast stays out until pbp-during-games (extends the
+  existing live-boxscore cut above).
+- Pitch Velocity game tab + Player Breakdowns (per-pitch-type splits) — pitcher-centric
+  grain; nightly pbp could feed a crude version, but Savant-quality classification/spin
+  is Phase 5 material. Revisit after Phase 5 if pitcher research becomes a goal.
 
 ## Sequencing note
 
