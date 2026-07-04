@@ -25,14 +25,14 @@ If unsure, the rule of thumb: if the change must apply to existing rows in produ
 ## Procedure: regenerate a sport bootstrap
 
 1. Ensure the live container has the new schema. Run the relevant ETL or migration against `localhost,1433` first.
-2. Run the generator script. The script lives at `/tmp/gen_ddl.py` (regenerate from `git log --grep='\[database\]'` history if missing — see commits tagged `[database]` for prior generator versions).
+2. Run the generator script `database/_shared/gen_ddl.py` (checked in since 2026-07-04; the old `/tmp/gen_ddl.py` copy was lost to a reboot's tmp wipe).
 
 ```bash
 SQL_PASS=$(grep MSSQL_SA_PASSWORD /Users/schnapp/sql-server.env | cut -d= -f2)
 SQL_SERVER="localhost,1433" SQL_DATABASE="schnapp-bet" \
 SQL_USERNAME="sa" SQL_PASSWORD="$SQL_PASS" \
 SQL_TARGET_SCHEMA="nba" \
-/Users/schnapp/venv/bin/python /tmp/gen_ddl.py --target-empty-db
+/Users/schnapp/venv/bin/python /Users/schnapp/code/schnapp-bet/database/_shared/gen_ddl.py --target-empty-db
 ```
 
 The `--target-empty-db` flag asserts the script will emit bare `CREATE TABLE` (not `IF NOT EXISTS`). Running these against a populated DB would fail loudly, which is what we want.
