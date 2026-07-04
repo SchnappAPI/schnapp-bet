@@ -1866,8 +1866,17 @@ def load_player_game_statcast_for_games(engine, game_pks, force=False):
 
     if has_box:
         runs_select = "bs.runs"
+        # Grouped subquery, not a direct join: batter_game_id embeds team_id
+        # (mlb_etl.py), so a player whose team attribution changed between
+        # ETL runs has two box rows for one (game_pk, player_id). A direct
+        # join fans out and violates PK_player_game_statcast (seen on the
+        # first backfill at batter 643376 / game 746942).
         box_join = """
-            LEFT JOIN mlb.batting_stats bs
+            LEFT JOIN (
+                SELECT game_pk, player_id, MAX(runs) AS runs
+                FROM mlb.batting_stats
+                GROUP BY game_pk, player_id
+            ) bs
                 ON bs.game_pk = a.game_pk AND bs.player_id = a.batter_id"""
     else:
         runs_select = "CAST(NULL AS INT) AS runs"
