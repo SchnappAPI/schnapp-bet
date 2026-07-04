@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import MlbLineupsTab from "./MlbLineupsTab";
+import { resultColor, resultLabel, veloColor } from "./statcastFormat";
 
 interface MlbGame {
   gameId: number;
@@ -90,7 +92,7 @@ interface AtBat {
   homeTeamId: number;
 }
 
-type TabKey = "boxscore" | "exitvelo";
+type TabKey = "lineups" | "boxscore" | "exitvelo";
 
 function fmt(val: number | null, decimals = 0): string {
   if (val == null) return "-";
@@ -110,28 +112,6 @@ function fmtIp(val: number | null): string {
   return outs === 0 ? `${whole}.0` : `${whole}.${outs}`;
 }
 
-function resultColor(resultType: string | null): string {
-  if (!resultType) return "text-fg-subtle";
-  const t = resultType.toLowerCase();
-  if (t.includes("home_run")) return "text-warn";
-  if (t.includes("hit") || t === "single" || t === "double" || t === "triple")
-    return "text-pos";
-  if (t.includes("strikeout")) return "text-neg";
-  return "text-fg-subtle";
-}
-
-function resultLabel(resultType: string | null): string {
-  if (!resultType) return "-";
-  return resultType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function veloColor(velo: number | null): string {
-  if (velo == null) return "text-fg-subtle";
-  if (velo >= 100) return "text-neg";
-  if (velo >= 95) return "text-warn";
-  if (velo >= 90) return "text-warn";
-  return "text-fg-muted";
-}
 
 // ---------------------------------------------------------------------------
 // Linescore
@@ -543,7 +523,12 @@ function ExitVeloTable({
 // ---------------------------------------------------------------------------
 
 export default function MlbGameTabs({ game }: { game: MlbGame }) {
-  const [activeTab, setActiveTab] = useState<TabKey>("boxscore");
+  // Pregame the lineups are the story; final games open on the box score.
+  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+    game.gameStatus === "F" || game.gameStatus === "Final"
+      ? "boxscore"
+      : "lineups",
+  );
   const [batters, setBatters] = useState<Batter[]>([]);
   const [pitchers, setPitchers] = useState<Pitcher[]>([]);
   const [innings, setInnings] = useState<InningLine[]>([]);
@@ -586,6 +571,7 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
   const homePitchers = pitchers.filter((p) => p.side === "H");
 
   const tabs: { key: TabKey; label: string }[] = [
+    { key: "lineups", label: "Lineups" },
     { key: "boxscore", label: "Box Score" },
     { key: "exitvelo", label: "Exit Velo" },
   ];
@@ -662,77 +648,75 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
             />
           )}
 
-          {batters.length === 0 && (
-            <div className="text-sm text-fg-subtle">
-              Box score not yet available for this game.
-            </div>
-          )}
+          {/* Tabs render regardless of box-score availability so pregame
+              games surface the Lineups tab instead of an empty page. */}
+          <div className="flex gap-1 mb-4 border-b border-border">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setActiveTab(t.key)}
+                className={[
+                  "px-4 py-2 text-sm font-medium transition-colors",
+                  activeTab === t.key
+                    ? "text-fg border-b-2 border-brand -mb-px"
+                    : "text-fg-subtle hover:text-fg-muted",
+                ].join(" ")}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
 
-          {batters.length > 0 && (
-            <>
-              {/* Tabs */}
-              <div className="flex gap-1 mb-4 border-b border-border">
-                {tabs.map((t) => (
-                  <button
-                    key={t.key}
-                    onClick={() => setActiveTab(t.key)}
-                    className={[
-                      "px-4 py-2 text-sm font-medium transition-colors",
-                      activeTab === t.key
-                        ? "text-fg border-b-2 border-brand -mb-px"
-                        : "text-fg-subtle hover:text-fg-muted",
-                    ].join(" ")}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+          {activeTab === "lineups" && <MlbLineupsTab gamePk={game.gameId} />}
+
+          {activeTab === "boxscore" &&
+            (batters.length === 0 ? (
+              <div className="text-sm text-fg-subtle">
+                Box score not yet available for this game.
               </div>
+            ) : (
+              <>
+                <BatterTable
+                  batters={awayBatters}
+                  teamAbbr={game.awayTeamAbbr}
+                />
+                <BatterTable
+                  batters={homeBatters}
+                  teamAbbr={game.homeTeamAbbr}
+                />
+                <PitcherTable
+                  pitchers={awayPitchers}
+                  teamAbbr={game.awayTeamAbbr}
+                />
+                <PitcherTable
+                  pitchers={homePitchers}
+                  teamAbbr={game.homeTeamAbbr}
+                />
+              </>
+            ))}
 
-              {activeTab === "boxscore" && (
-                <>
-                  <BatterTable
-                    batters={awayBatters}
-                    teamAbbr={game.awayTeamAbbr}
-                  />
-                  <BatterTable
-                    batters={homeBatters}
-                    teamAbbr={game.homeTeamAbbr}
-                  />
-                  <PitcherTable
-                    pitchers={awayPitchers}
-                    teamAbbr={game.awayTeamAbbr}
-                  />
-                  <PitcherTable
-                    pitchers={homePitchers}
-                    teamAbbr={game.homeTeamAbbr}
-                  />
-                </>
-              )}
-
-              {activeTab === "exitvelo" &&
-                (atBats.length === 0 ? (
-                  <div className="text-sm text-fg-subtle">
-                    Exit velocity data not yet available for this game. Run the
-                    play-by-play ETL to load it.
-                  </div>
-                ) : (
-                  <>
-                    <ExitVeloTable
-                      atBats={atBats}
-                      teamId={game.awayTeamId}
-                      teamAbbr={game.awayTeamAbbr}
-                      awayTeamId={game.awayTeamId}
-                    />
-                    <ExitVeloTable
-                      atBats={atBats}
-                      teamId={game.homeTeamId}
-                      teamAbbr={game.homeTeamAbbr}
-                      awayTeamId={game.awayTeamId}
-                    />
-                  </>
-                ))}
-            </>
-          )}
+          {activeTab === "exitvelo" &&
+            (atBats.length === 0 ? (
+              <div className="text-sm text-fg-subtle">
+                Exit velocity data not yet available for this game. Run the
+                play-by-play ETL to load it.
+              </div>
+            ) : (
+              <>
+                <ExitVeloTable
+                  atBats={atBats}
+                  teamId={game.awayTeamId}
+                  teamAbbr={game.awayTeamAbbr}
+                  awayTeamId={game.awayTeamId}
+                />
+                <ExitVeloTable
+                  atBats={atBats}
+                  teamId={game.homeTeamId}
+                  teamAbbr={game.homeTeamAbbr}
+                  awayTeamId={game.awayTeamId}
+                />
+              </>
+            ))}
         </>
       )}
     </div>

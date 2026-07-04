@@ -26,6 +26,8 @@ interface MlbGame {
   gameDateTime: string | null;
   awayPitcher: string | null;
   homePitcher: string | null;
+  awayPitcherHand: string | null;
+  homePitcherHand: string | null;
 }
 
 interface RecentMlbPlayer {
@@ -151,11 +153,13 @@ function GameCard({ game }: { game: MlbGame }) {
             {game.awayPitcher && (
               <div>
                 {game.awayTeamAbbr}: {game.awayPitcher}
+                {game.awayPitcherHand ? ` (${game.awayPitcherHand})` : ""}
               </div>
             )}
             {game.homePitcher && (
               <div>
                 {game.homeTeamAbbr}: {game.homePitcher}
+                {game.homePitcherHand ? ` (${game.homePitcherHand})` : ""}
               </div>
             )}
           </div>

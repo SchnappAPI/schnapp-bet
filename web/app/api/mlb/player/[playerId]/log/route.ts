@@ -37,6 +37,34 @@ export interface MlbLogRow {
   k: number;
 }
 
+export interface UpcomingGame {
+  gamePk: number;
+  gameDate: string;
+  gameDateTime: string | null;
+  side: string;
+  oppAbbr: string | null;
+  oppPitcherId: number | null;
+  oppPitcherName: string | null;
+  oppPitcherHand: string | null;
+}
+
+export interface BvpLine {
+  pa: number | null;
+  ab: number | null;
+  h: number | null;
+  doubles: number | null;
+  triples: number | null;
+  hr: number | null;
+  rbi: number | null;
+  bb: number | null;
+  k: number | null;
+  avg: number | null;
+  obp: number | null;
+  slg: number | null;
+  ops: number | null;
+  lastFaced: string | null;
+}
+
 export interface MlbLogAverages {
   gp: number;
   ab: number;
@@ -125,6 +153,7 @@ export async function GET(
           p.player_name AS playerName,
           t.team_abbreviation AS teamAbbr,
           t.full_name AS teamName,
+          t.team_id AS teamId,
           bs.position
         FROM mlb.players p
         LEFT JOIN (
@@ -204,6 +233,66 @@ export async function GET(
     else if (fRange === "l20") rows = ranked.filter((r) => r.recencyRank <= 20);
     else rows = ranked;
 
+    // Upcoming game for the player's team, with the opposing probable SP.
+    let upcoming: UpcomingGame | null = null;
+    let bvp: BvpLine | null = null;
+    if (meta?.teamId != null) {
+      const upRes = await pool
+        .request()
+        .input("teamId", mssql.Int, meta.teamId)
+        .query<UpcomingGame>(`
+          SELECT TOP 1
+            g.game_pk AS gamePk,
+            CONVERT(VARCHAR(10), g.game_date, 120) AS gameDate,
+            g.game_datetime AS gameDateTime,
+            CASE WHEN g.home_team_id = @teamId THEN 'H' ELSE 'A' END AS side,
+            CASE WHEN g.home_team_id = @teamId
+                 THEN at.team_abbreviation
+                 ELSE ht.team_abbreviation END AS oppAbbr,
+            CASE WHEN g.home_team_id = @teamId
+                 THEN g.away_pitcher_id ELSE g.home_pitcher_id END AS oppPitcherId,
+            CASE WHEN g.home_team_id = @teamId
+                 THEN g.away_pitcher_name ELSE g.home_pitcher_name END AS oppPitcherName,
+            CASE WHEN g.home_team_id = @teamId
+                 THEN g.away_pitcher_hand ELSE g.home_pitcher_hand END AS oppPitcherHand
+          FROM mlb.games g
+          JOIN mlb.teams at ON at.team_id = g.away_team_id
+          JOIN mlb.teams ht ON ht.team_id = g.home_team_id
+          WHERE (g.home_team_id = @teamId OR g.away_team_id = @teamId)
+            AND (g.game_status IS NULL OR g.game_status <> 'F')
+            AND g.game_date >= CAST(DATEADD(HOUR, -6, GETUTCDATE()) AS DATE)
+          ORDER BY g.game_date ASC, g.game_datetime ASC
+        `);
+      upcoming = upRes.recordset[0] ?? null;
+
+      // Career batter-vs-pitcher line against that probable, if any history.
+      if (upcoming?.oppPitcherId != null) {
+        const bvpRes = await pool
+          .request()
+          .input("playerId", mssql.Int, playerId)
+          .input("pitcherId", mssql.Int, upcoming.oppPitcherId)
+          .query<BvpLine>(`
+            SELECT plate_appearances AS pa,
+                   at_bats AS ab,
+                   hits AS h,
+                   doubles,
+                   triples,
+                   home_runs AS hr,
+                   rbi,
+                   walks AS bb,
+                   strikeouts AS k,
+                   batting_avg AS avg,
+                   obp,
+                   slg,
+                   ops,
+                   CONVERT(VARCHAR(10), last_faced_date, 120) AS lastFaced
+            FROM mlb.career_batter_vs_pitcher
+            WHERE batter_id = @playerId AND pitcher_id = @pitcherId
+          `);
+        bvp = bvpRes.recordset[0] ?? null;
+      }
+    }
+
     return NextResponse.json({
       playerId,
       playerName: meta?.playerName ?? null,
@@ -212,6 +301,8 @@ export async function GET(
       position: meta?.position ?? null,
       rows,
       averages: computeAverages(rows),
+      upcoming,
+      bvp,
     });
   } catch (err) {
     return apiError(err, 'api/mlb/player/[playerId]/log');
