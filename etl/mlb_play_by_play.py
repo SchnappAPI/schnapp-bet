@@ -97,9 +97,7 @@ import requests
 import pandas as pd
 import numpy as np
 from sqlalchemy import text
-from sqlalchemy.types import (
-    VARCHAR, Integer, Date, SmallInteger, Float, Boolean, NVARCHAR, DATETIME
-)
+from sqlalchemy.types import VARCHAR, Integer, Date, SmallInteger, Float, Boolean, NVARCHAR, DATETIME
 
 from shared.db import get_engine
 
@@ -114,6 +112,7 @@ log = logging.getLogger(__name__)
 def _current_mlb_season():
     """MLB seasons live inside one calendar year (Mar-Nov)."""
     from datetime import date
+
     return date.today().year
 
 
@@ -122,59 +121,76 @@ def _current_mlb_season():
 SEASONS = [_current_mlb_season()]
 DEFAULT_BATCH = 50
 API_PAUSE = 0.25
-API_BASE  = "https://statsapi.mlb.com/api/v1/game/{game_pk}/withMetrics"
-FLUSH_EVERY = 25    # games per DB write; raised from 5 to reduce flush overhead
-FETCH_WORKERS = 8   # concurrent HTTP fetch threads
+API_BASE = "https://statsapi.mlb.com/api/v1/game/{game_pk}/withMetrics"
+FLUSH_EVERY = 25  # games per DB write; raised from 5 to reduce flush overhead
+FETCH_WORKERS = 8  # concurrent HTTP fetch threads
 
 # Event types that are NOT plate appearances (baserunning / pickoff noise).
-_NON_PA_EVENTS = frozenset([
-    'caught_stealing_2b', 'caught_stealing_3b', 'caught_stealing_home',
-    'pickoff_1b', 'pickoff_2b', 'pickoff_caught_stealing_2b',
-    'pickoff_caught_stealing_3b', 'pickoff_caught_stealing_home',
-    'pickoff_error_1b', 'stolen_base_2b', 'wild_pitch',
-])
+_NON_PA_EVENTS = frozenset(
+    [
+        "caught_stealing_2b",
+        "caught_stealing_3b",
+        "caught_stealing_home",
+        "pickoff_1b",
+        "pickoff_2b",
+        "pickoff_caught_stealing_2b",
+        "pickoff_caught_stealing_3b",
+        "pickoff_caught_stealing_home",
+        "pickoff_error_1b",
+        "stolen_base_2b",
+        "wild_pitch",
+    ]
+)
 
 # Event types that are NOT at-bats (count as PA but not AB).
-_NON_AB_EVENTS = frozenset([
-    'walk', 'intent_walk', 'hit_by_pitch', 'sac_fly', 'sac_fly_double_play',
-    'sac_bunt', 'sac_bunt_double_play', 'catcher_interf',
-])
+_NON_AB_EVENTS = frozenset(
+    [
+        "walk",
+        "intent_walk",
+        "hit_by_pitch",
+        "sac_fly",
+        "sac_fly_double_play",
+        "sac_bunt",
+        "sac_bunt_double_play",
+        "catcher_interf",
+    ]
+)
 
-_HIT_EVENTS = frozenset(['single', 'double', 'triple', 'home_run'])
-_WALK_EVENTS = frozenset(['walk', 'intent_walk'])
-_K_EVENTS = frozenset(['strikeout', 'strikeout_double_play'])
+_HIT_EVENTS = frozenset(["single", "double", "triple", "home_run"])
+_WALK_EVENTS = frozenset(["walk", "intent_walk"])
+_K_EVENTS = frozenset(["strikeout", "strikeout_double_play"])
 
 # Explicit column types for to_sql. Prevents pandas from inferring VARCHAR(N)
 # from batch data, which causes right-truncation when a later row is longer.
 INSERT_DTYPES = {
-    "play_event_id":          VARCHAR(50),
-    "game_date":              Date(),
-    "result_event_type":      VARCHAR(50),
-    "result_description":     VARCHAR(1000),
-    "batter_hand_code":       VARCHAR(1),
-    "batter_split":           VARCHAR(30),
-    "pitcher_hand_code":      VARCHAR(1),
-    "pitcher_split":          VARCHAR(30),
-    "play_id":                VARCHAR(50),
-    "play_event_type":        VARCHAR(30),
-    "pitch_call_code":        VARCHAR(5),
-    "pitch_type_code":        VARCHAR(5),
+    "play_event_id": VARCHAR(50),
+    "game_date": Date(),
+    "result_event_type": VARCHAR(50),
+    "result_description": VARCHAR(1000),
+    "batter_hand_code": VARCHAR(1),
+    "batter_split": VARCHAR(30),
+    "pitcher_hand_code": VARCHAR(1),
+    "pitcher_split": VARCHAR(30),
+    "play_id": VARCHAR(50),
+    "play_event_type": VARCHAR(30),
+    "pitch_call_code": VARCHAR(5),
+    "pitch_type_code": VARCHAR(5),
     "play_event_description": VARCHAR(1000),
-    "count_balls_strikes":    VARCHAR(5),
-    "hit_trajectory":         VARCHAR(30),
-    "hit_hardness":           VARCHAR(20),
-    "at_bat_end_time":        DATETIME(),
-    "play_end_time":          DATETIME(),
-    "play_event_end_time":    DATETIME(),
+    "count_balls_strikes": VARCHAR(5),
+    "hit_trajectory": VARCHAR(30),
+    "hit_hardness": VARCHAR(20),
+    "at_bat_end_time": DATETIME(),
+    "play_end_time": DATETIME(),
+    "play_event_end_time": DATETIME(),
 }
 
 AB_INSERT_DTYPES = {
-    "at_bat_id":          VARCHAR(30),
-    "game_date":          Date(),
-    "result_event_type":  VARCHAR(50),
+    "at_bat_id": VARCHAR(30),
+    "game_date": Date(),
+    "result_event_type": VARCHAR(50),
     "result_description": VARCHAR(1000),
-    "hit_trajectory":     VARCHAR(30),
-    "hit_hardness":       VARCHAR(20),
+    "hit_trajectory": VARCHAR(30),
+    "hit_hardness": VARCHAR(20),
 }
 
 DDL_CREATE = """
@@ -504,6 +520,7 @@ IF NOT EXISTS (
 # Trend-stats: set-based computation (replaces per-row _compute_trend_row loop)
 # ---------------------------------------------------------------------------
 
+
 def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
     """
     Compute mlb.player_trend_stats rows for all (batter_id, game_date) pairs
@@ -525,7 +542,8 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
 
     # Pull every at-bat for these batters, all time.
     # We need all history to support the w60 window for any target_date.
-    ab_df = pd.read_sql(f"""
+    ab_df = pd.read_sql(
+        f"""
         SELECT
             batter_id,
             game_date,
@@ -544,7 +562,9 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
             'pickoff_error_1b','stolen_base_2b','wild_pitch'
           )
         ORDER BY batter_id, game_date
-    """, engine)
+    """,
+        engine,
+    )
 
     if ab_df.empty:
         return []
@@ -553,7 +573,8 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
 
     # Pull platoon splits: pitcher hand from PBP last-pitch join.
     # One bulk read for all affected batters.
-    splits_df = pd.read_sql(f"""
+    splits_df = pd.read_sql(
+        f"""
         SELECT
             ab.batter_id,
             ab.game_date,
@@ -573,57 +594,59 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
             'pickoff_error_1b','stolen_base_2b','wild_pitch'
           )
         ORDER BY ab.batter_id, ab.game_date
-    """, engine)
+    """,
+        engine,
+    )
 
     if not splits_df.empty:
         splits_df["game_date"] = pd.to_datetime(splits_df["game_date"]).dt.date
 
     # Precompute per-at-bat indicator columns once, reused across all targets.
-    ab_df["is_hit"]    = ab_df["result_event_type"].isin(_HIT_EVENTS).astype(int)
-    ab_df["is_ab"]     = (~ab_df["result_event_type"].isin(_NON_AB_EVENTS)).astype(int)
-    ab_df["is_bb"]     = ab_df["result_event_type"].isin(_WALK_EVENTS).astype(int)
-    ab_df["is_k"]      = ab_df["result_event_type"].isin(_K_EVENTS).astype(int)
-    ab_df["tb"] = ab_df["result_event_type"].map(
-        {"single": 1, "double": 2, "triple": 3, "home_run": 4}
-    ).fillna(0).astype(int)
-    ab_df["is_hr"]     = (ab_df["result_event_type"] == "home_run").astype(int)
-    ab_df["ev"]        = pd.to_numeric(ab_df["hit_launch_speed"], errors="coerce")
-    ab_df["has_ev"]    = ab_df["ev"].notna().astype(int)
-    ab_df["ev_val"]    = ab_df["ev"].fillna(0.0)
-    ab_df["hard_hit"]  = ((ab_df["ev"] >= 95)).astype(int)
-    ab_df["barrel"]    = (
-        (ab_df["ev"] >= 95) &
-        (pd.to_numeric(ab_df["hit_launch_angle"], errors="coerce").between(8, 32))
+    ab_df["is_hit"] = ab_df["result_event_type"].isin(_HIT_EVENTS).astype(int)
+    ab_df["is_ab"] = (~ab_df["result_event_type"].isin(_NON_AB_EVENTS)).astype(int)
+    ab_df["is_bb"] = ab_df["result_event_type"].isin(_WALK_EVENTS).astype(int)
+    ab_df["is_k"] = ab_df["result_event_type"].isin(_K_EVENTS).astype(int)
+    ab_df["tb"] = (
+        ab_df["result_event_type"].map({"single": 1, "double": 2, "triple": 3, "home_run": 4}).fillna(0).astype(int)
+    )
+    ab_df["is_hr"] = (ab_df["result_event_type"] == "home_run").astype(int)
+    ab_df["ev"] = pd.to_numeric(ab_df["hit_launch_speed"], errors="coerce")
+    ab_df["has_ev"] = ab_df["ev"].notna().astype(int)
+    ab_df["ev_val"] = ab_df["ev"].fillna(0.0)
+    ab_df["hard_hit"] = (ab_df["ev"] >= 95).astype(int)
+    ab_df["barrel"] = (
+        (ab_df["ev"] >= 95) & (pd.to_numeric(ab_df["hit_launch_angle"], errors="coerce").between(8, 32))
     ).astype(int)
-    ab_df["xba"]       = pd.to_numeric(ab_df["hit_probability"], errors="coerce")
-    ab_df["has_xba"]   = ab_df["xba"].notna().astype(int)
-    ab_df["xba_val"]   = ab_df["xba"].fillna(0.0)
+    ab_df["xba"] = pd.to_numeric(ab_df["hit_probability"], errors="coerce")
+    ab_df["has_xba"] = ab_df["xba"].notna().astype(int)
+    ab_df["xba_val"] = ab_df["xba"].fillna(0.0)
 
     # Group by (batter_id, game_date) to get per-game aggregates once.
     # The rolling windows operate over games, not individual at-bats.
-    gpg = ab_df.groupby(["batter_id", "game_date"]).agg(
-        pa        =("is_hit", "count"),   # all rows = PA
-        ab        =("is_ab", "sum"),
-        hits      =("is_hit", "sum"),
-        bbs       =("is_bb", "sum"),
-        ks        =("is_k", "sum"),
-        tb        =("tb", "sum"),
-        hrs       =("is_hr", "sum"),
-        bbe       =("has_ev", "sum"),
-        ev_sum    =("ev_val", "sum"),
-        hard_hit  =("hard_hit", "sum"),
-        barrels   =("barrel", "sum"),
-        xba_cnt   =("has_xba", "sum"),
-        xba_sum   =("xba_val", "sum"),
-    ).reset_index()
+    gpg = (
+        ab_df.groupby(["batter_id", "game_date"])
+        .agg(
+            pa=("is_hit", "count"),  # all rows = PA
+            ab=("is_ab", "sum"),
+            hits=("is_hit", "sum"),
+            bbs=("is_bb", "sum"),
+            ks=("is_k", "sum"),
+            tb=("tb", "sum"),
+            hrs=("is_hr", "sum"),
+            bbe=("has_ev", "sum"),
+            ev_sum=("ev_val", "sum"),
+            hard_hit=("hard_hit", "sum"),
+            barrels=("barrel", "sum"),
+            xba_cnt=("has_xba", "sum"),
+            xba_sum=("xba_val", "sum"),
+        )
+        .reset_index()
+    )
     gpg = gpg.sort_values(["batter_id", "game_date"])
 
     # Build a lookup: batter_id -> sorted array of (game_date, row_index) so
     # we can efficiently slice prior games for any target_date.
-    batter_groups = {
-        bid: grp.reset_index(drop=True)
-        for bid, grp in gpg.groupby("batter_id")
-    }
+    batter_groups = {bid: grp.reset_index(drop=True) for bid, grp in gpg.groupby("batter_id")}
 
     # Precompute full-history splits per (batter_id, game_date) using the
     # splits_df. We compute cumulative sums sorted by date so that for any
@@ -633,19 +656,19 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
     splits_records = {}  # (batter_id, game_date) -> dict of split counts (all prior)
 
     if not splits_df.empty:
-        splits_df["is_hit"]      = splits_df["result_event_type"].isin(_HIT_EVENTS).astype(int)
-        splits_df["vs_lhp"]      = (splits_df["pitcher_hand_code"] == "L").astype(int)
-        splits_df["vs_lhp_hit"]  = (splits_df["vs_lhp"] & splits_df["is_hit"].astype(bool)).astype(int)
-        splits_df["vs_rhp"]      = (splits_df["pitcher_hand_code"] == "R").astype(int)
-        splits_df["vs_rhp_hit"]  = (splits_df["vs_rhp"] & splits_df["is_hit"].astype(bool)).astype(int)
+        splits_df["is_hit"] = splits_df["result_event_type"].isin(_HIT_EVENTS).astype(int)
+        splits_df["vs_lhp"] = (splits_df["pitcher_hand_code"] == "L").astype(int)
+        splits_df["vs_lhp_hit"] = (splits_df["vs_lhp"] & splits_df["is_hit"].astype(bool)).astype(int)
+        splits_df["vs_rhp"] = (splits_df["pitcher_hand_code"] == "R").astype(int)
+        splits_df["vs_rhp_hit"] = (splits_df["vs_rhp"] & splits_df["is_hit"].astype(bool)).astype(int)
         # Placeholder only — real home/away splits are derived from ab_df
         # below (is_top_inning lives on the at-bat rows, not the PBP slice).
         # The previous ternary here was inverted and crashed every trend-stats
         # flush with AttributeError when is_top_inning was absent.
-        splits_df["home"]        = pd.Series(0, index=splits_df.index)
-        splits_df["home_hit"]    = pd.Series(0, index=splits_df.index)
-        splits_df["away"]        = pd.Series(0, index=splits_df.index)
-        splits_df["away_hit"]    = pd.Series(0, index=splits_df.index)
+        splits_df["home"] = pd.Series(0, index=splits_df.index)
+        splits_df["home_hit"] = pd.Series(0, index=splits_df.index)
+        splits_df["away"] = pd.Series(0, index=splits_df.index)
+        splits_df["away_hit"] = pd.Series(0, index=splits_df.index)
 
         # home/away from ab_df (is_top_inning), joined back via (batter_id, game_date, result_event_type)
         # Simpler: re-derive from ab_df directly since we have is_top_inning there.
@@ -660,38 +683,42 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
     ab_df["away"] = (ab_df["is_top_inning"] == 1).astype(int)
     ab_df["away_hit"] = (ab_df["away"].astype(bool) & ab_df["is_hit"].astype(bool)).astype(int)
 
-    ha_gpg = ab_df.groupby(["batter_id", "game_date"]).agg(
-        home_pa   =("home", "sum"),
-        home_hits =("home_hit", "sum"),
-        away_pa   =("away", "sum"),
-        away_hits =("away_hit", "sum"),
-    ).reset_index().sort_values(["batter_id", "game_date"])
+    ha_gpg = (
+        ab_df.groupby(["batter_id", "game_date"])
+        .agg(
+            home_pa=("home", "sum"),
+            home_hits=("home_hit", "sum"),
+            away_pa=("away", "sum"),
+            away_hits=("away_hit", "sum"),
+        )
+        .reset_index()
+        .sort_values(["batter_id", "game_date"])
+    )
 
-    ha_batter_groups = {
-        bid: grp.reset_index(drop=True)
-        for bid, grp in ha_gpg.groupby("batter_id")
-    }
+    ha_batter_groups = {bid: grp.reset_index(drop=True) for bid, grp in ha_gpg.groupby("batter_id")}
 
     # Build platoon (LHP/RHP) cumulative data per batter.
     platoon_batter_groups = {}
     if not splits_df.empty:
         splits_df["is_hit2"] = splits_df["result_event_type"].isin(_HIT_EVENTS).astype(int)
-        splits_df["vs_lhp"]     = (splits_df["pitcher_hand_code"] == "L").astype(int)
+        splits_df["vs_lhp"] = (splits_df["pitcher_hand_code"] == "L").astype(int)
         splits_df["vs_lhp_hit"] = (splits_df["vs_lhp"].astype(bool) & splits_df["is_hit2"].astype(bool)).astype(int)
-        splits_df["vs_rhp"]     = (splits_df["pitcher_hand_code"] == "R").astype(int)
+        splits_df["vs_rhp"] = (splits_df["pitcher_hand_code"] == "R").astype(int)
         splits_df["vs_rhp_hit"] = (splits_df["vs_rhp"].astype(bool) & splits_df["is_hit2"].astype(bool)).astype(int)
 
-        pl_gpg = splits_df.groupby(["batter_id", "game_date"]).agg(
-            vs_lhp_pa   =("vs_lhp", "sum"),
-            vs_lhp_hits =("vs_lhp_hit", "sum"),
-            vs_rhp_pa   =("vs_rhp", "sum"),
-            vs_rhp_hits =("vs_rhp_hit", "sum"),
-        ).reset_index().sort_values(["batter_id", "game_date"])
+        pl_gpg = (
+            splits_df.groupby(["batter_id", "game_date"])
+            .agg(
+                vs_lhp_pa=("vs_lhp", "sum"),
+                vs_lhp_hits=("vs_lhp_hit", "sum"),
+                vs_rhp_pa=("vs_rhp", "sum"),
+                vs_rhp_hits=("vs_rhp_hit", "sum"),
+            )
+            .reset_index()
+            .sort_values(["batter_id", "game_date"])
+        )
 
-        platoon_batter_groups = {
-            bid: grp.reset_index(drop=True)
-            for bid, grp in pl_gpg.groupby("batter_id")
-        }
+        platoon_batter_groups = {bid: grp.reset_index(drop=True) for bid, grp in pl_gpg.groupby("batter_id")}
 
     def _sum_prior(grp, target_date):
         """Sum all rows where game_date < target_date."""
@@ -723,44 +750,44 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
 
         for n, prefix in [(10, "w10"), (30, "w30"), (60, "w60")]:
             w = prior_desc.head(n)
-            pa   = int(w["pa"].sum())
-            ab   = int(w["ab"].sum())
+            pa = int(w["pa"].sum())
+            ab = int(w["ab"].sum())
             hits = int(w["hits"].sum())
-            bbs  = int(w["bbs"].sum())
-            ks   = int(w["ks"].sum())
-            tb   = int(w["tb"].sum())
-            hrs  = int(w["hrs"].sum())
-            bbe  = int(w["bbe"].sum())
+            bbs = int(w["bbs"].sum())
+            ks = int(w["ks"].sum())
+            tb = int(w["tb"].sum())
+            hrs = int(w["hrs"].sum())
+            bbe = int(w["bbe"].sum())
             ev_s = float(w["ev_sum"].sum())
-            hh   = int(w["hard_hit"].sum())
-            bar  = int(w["barrels"].sum())
-            xc   = int(w["xba_cnt"].sum())
-            xs   = float(w["xba_sum"].sum())
+            hh = int(w["hard_hit"].sum())
+            bar = int(w["barrels"].sum())
+            xc = int(w["xba_cnt"].sum())
+            xs = float(w["xba_sum"].sum())
 
-            rec[f"{prefix}_pa"]           = pa
-            rec[f"{prefix}_ab"]           = ab
-            rec[f"{prefix}_hits"]         = hits
-            rec[f"{prefix}_hit_rate"]     = _safe_rate(hits, pa)
-            rec[f"{prefix}_bb_rate"]      = _safe_rate(bbs, pa)
-            rec[f"{prefix}_k_rate"]       = _safe_rate(ks, pa)
-            rec[f"{prefix}_total_bases"]  = tb
-            rec[f"{prefix}_tb_per_pa"]    = _safe_rate(tb, pa)
-            rec[f"{prefix}_home_runs"]    = hrs
-            rec[f"{prefix}_avg_ev"]       = _safe_ev(ev_s, bbe)
+            rec[f"{prefix}_pa"] = pa
+            rec[f"{prefix}_ab"] = ab
+            rec[f"{prefix}_hits"] = hits
+            rec[f"{prefix}_hit_rate"] = _safe_rate(hits, pa)
+            rec[f"{prefix}_bb_rate"] = _safe_rate(bbs, pa)
+            rec[f"{prefix}_k_rate"] = _safe_rate(ks, pa)
+            rec[f"{prefix}_total_bases"] = tb
+            rec[f"{prefix}_tb_per_pa"] = _safe_rate(tb, pa)
+            rec[f"{prefix}_home_runs"] = hrs
+            rec[f"{prefix}_avg_ev"] = _safe_ev(ev_s, bbe)
             rec[f"{prefix}_hard_hit_pct"] = _safe_rate(hh, bbe)
-            rec[f"{prefix}_barrel_pct"]   = _safe_rate(bar, bbe)
+            rec[f"{prefix}_barrel_pct"] = _safe_rate(bar, bbe)
             # xba stored as probability (0-1 range); divide sum by count
-            rec[f"{prefix}_avg_xba"]      = round(xs / xc / 100, 3) if xc > 0 else None
+            rec[f"{prefix}_avg_xba"] = round(xs / xc / 100, 3) if xc > 0 else None
 
         # Home/away splits (full history before game_date)
         ha_grp = ha_batter_groups.get(batter_id)
         if ha_grp is not None:
             ha = ha_grp[ha_grp["game_date"] < game_date]
-            rec["home_pa"]       = int(ha["home_pa"].sum())
-            rec["home_hits"]     = int(ha["home_hits"].sum())
+            rec["home_pa"] = int(ha["home_pa"].sum())
+            rec["home_hits"] = int(ha["home_hits"].sum())
             rec["home_hit_rate"] = _safe_rate(rec["home_hits"], rec["home_pa"])
-            rec["away_pa"]       = int(ha["away_pa"].sum())
-            rec["away_hits"]     = int(ha["away_hits"].sum())
+            rec["away_pa"] = int(ha["away_pa"].sum())
+            rec["away_hits"] = int(ha["away_hits"].sum())
             rec["away_hit_rate"] = _safe_rate(rec["away_hits"], rec["away_pa"])
         else:
             rec["home_pa"] = rec["home_hits"] = rec["home_hit_rate"] = None
@@ -770,11 +797,11 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
         pl_grp = platoon_batter_groups.get(batter_id)
         if pl_grp is not None:
             pl = pl_grp[pl_grp["game_date"] < game_date]
-            rec["vs_lhp_pa"]       = int(pl["vs_lhp_pa"].sum())
-            rec["vs_lhp_hits"]     = int(pl["vs_lhp_hits"].sum())
+            rec["vs_lhp_pa"] = int(pl["vs_lhp_pa"].sum())
+            rec["vs_lhp_hits"] = int(pl["vs_lhp_hits"].sum())
             rec["vs_lhp_hit_rate"] = _safe_rate(rec["vs_lhp_hits"], rec["vs_lhp_pa"])
-            rec["vs_rhp_pa"]       = int(pl["vs_rhp_pa"].sum())
-            rec["vs_rhp_hits"]     = int(pl["vs_rhp_hits"].sum())
+            rec["vs_rhp_pa"] = int(pl["vs_rhp_pa"].sum())
+            rec["vs_rhp_hits"] = int(pl["vs_rhp_hits"].sum())
             rec["vs_rhp_hit_rate"] = _safe_rate(rec["vs_rhp_hits"], rec["vs_rhp_pa"])
         else:
             rec["vs_lhp_pa"] = rec["vs_lhp_hits"] = rec["vs_lhp_hit_rate"] = None
@@ -800,19 +827,23 @@ def load_trend_stats_for_games(engine, game_pks):
     placeholders = ", ".join(str(g) for g in game_pks)
 
     with engine.connect() as conn:
-        pairs = conn.execute(text(f"""
+        pairs = conn.execute(
+            text(f"""
             SELECT DISTINCT batter_id, game_date
             FROM mlb.player_at_bats
             WHERE game_pk IN ({placeholders})
               AND batter_id IS NOT NULL
               AND game_date IS NOT NULL
-        """)).fetchall()
+        """)
+        ).fetchall()
 
         if not pairs:
             log.info("trend_stats: no batter/date pairs for %d games.", len(game_pks))
             return
 
-        existing = set(conn.execute(text(f"""
+        existing = set(
+            conn.execute(
+                text(f"""
             SELECT batter_id, game_date
             FROM mlb.player_trend_stats
             WHERE batter_id IN (
@@ -823,15 +854,18 @@ def load_trend_stats_for_games(engine, game_pks):
                 SELECT DISTINCT game_date FROM mlb.player_at_bats
                 WHERE game_pk IN ({placeholders}) AND game_date IS NOT NULL
             )
-        """)).fetchall())
+        """)
+            ).fetchall()
+        )
 
     targets = [(b, d) for b, d in pairs if (b, d) not in existing]
     if not targets:
         log.info("trend_stats: all %d pairs already present.", len(pairs))
         return
 
-    log.info("trend_stats: computing %d (batter, date) rows (%d already present).",
-             len(targets), len(pairs) - len(targets))
+    log.info(
+        "trend_stats: computing %d (batter, date) rows (%d already present).", len(targets), len(pairs) - len(targets)
+    )
 
     batter_ids = {int(b) for b, _ in targets}
     records = _compute_trend_stats_bulk(engine, batter_ids, targets)
@@ -864,29 +898,30 @@ def _merge_trend_stats(engine, records):
     stat_cols = [c for c in df.columns if c not in key_cols]
     df = df.astype(object).where(pd.notnull(df), None)
 
-    col_defs    = ",\n                ".join(f"{c} FLOAT NULL" for c in stat_cols)
+    col_defs = ",\n                ".join(f"{c} FLOAT NULL" for c in stat_cols)
     insert_cols = ", ".join(key_cols + stat_cols)
     param_names = ", ".join(f":{c}" for c in key_cols + stat_cols)
-    set_clause  = ",\n                ".join(f"{c} = src.{c}" for c in stat_cols)
-    src_cols    = ", ".join(f"src.{c}" for c in key_cols + stat_cols)
+    set_clause = ",\n                ".join(f"{c} = src.{c}" for c in stat_cols)
+    src_cols = ", ".join(f"src.{c}" for c in key_cols + stat_cols)
 
     with engine.begin() as conn:
-        conn.execute(text(
-            "IF OBJECT_ID('tempdb..#stage_trend') IS NOT NULL DROP TABLE #stage_trend"
-        ))
-        conn.execute(text(f"""
+        conn.execute(text("IF OBJECT_ID('tempdb..#stage_trend') IS NOT NULL DROP TABLE #stage_trend"))
+        conn.execute(
+            text(f"""
             CREATE TABLE #stage_trend (
                 batter_id INT NOT NULL,
                 game_date DATE NOT NULL,
                 {col_defs},
                 PRIMARY KEY (batter_id, game_date)
             )
-        """))
+        """)
+        )
         conn.execute(
             text(f"INSERT INTO #stage_trend ({insert_cols}) VALUES ({param_names})"),
             df.to_dict("records"),
         )
-        conn.execute(text(f"""
+        conn.execute(
+            text(f"""
             MERGE mlb.player_trend_stats AS tgt
             USING #stage_trend AS src
               ON tgt.batter_id = src.batter_id AND tgt.game_date = src.game_date
@@ -895,7 +930,8 @@ def _merge_trend_stats(engine, records):
                 updated_at = SYSUTCDATETIME()
             WHEN NOT MATCHED THEN INSERT ({insert_cols}, updated_at)
             VALUES ({src_cols}, SYSUTCDATETIME());
-        """))
+        """)
+        )
 
 
 def rebuild_trend_stats(engine):
@@ -912,29 +948,32 @@ def rebuild_trend_stats(engine):
     """
     with engine.connect() as conn:
         batters = [
-            row[0] for row in conn.execute(text(
-                "SELECT DISTINCT batter_id FROM mlb.player_at_bats "
-                "WHERE batter_id IS NOT NULL ORDER BY batter_id"
-            )).fetchall()
+            row[0]
+            for row in conn.execute(
+                text("SELECT DISTINCT batter_id FROM mlb.player_at_bats WHERE batter_id IS NOT NULL ORDER BY batter_id")
+            ).fetchall()
         ]
 
     log.info("rebuild-trend-stats: %d distinct batters.", len(batters))
     if not batters:
         return
 
-    EXCL = ("'caught_stealing_2b','caught_stealing_3b','caught_stealing_home',"
-            "'pickoff_1b','pickoff_2b','pickoff_caught_stealing_2b',"
-            "'pickoff_caught_stealing_3b','pickoff_caught_stealing_home',"
-            "'pickoff_error_1b','stolen_base_2b','wild_pitch'")
+    EXCL = (
+        "'caught_stealing_2b','caught_stealing_3b','caught_stealing_home',"
+        "'pickoff_1b','pickoff_2b','pickoff_caught_stealing_2b',"
+        "'pickoff_caught_stealing_3b','pickoff_caught_stealing_home',"
+        "'pickoff_error_1b','stolen_base_2b','wild_pitch'"
+    )
 
     CHUNK = 50
     total_rows = 0
     for start in range(0, len(batters), CHUNK):
-        chunk = batters[start:start + CHUNK]
+        chunk = batters[start : start + CHUNK]
         plist = ", ".join(str(b) for b in chunk)
 
         with engine.begin() as conn:
-            rows_merged = conn.execute(text(f"""
+            rows_merged = conn.execute(
+                text(f"""
                 WITH game_stats AS (
                     SELECT
                         batter_id, game_date,
@@ -1158,13 +1197,21 @@ def rebuild_trend_stats(engine):
                     src.home_pa, src.home_hits, src.home_hit_rate,
                     src.away_pa, src.away_hits, src.away_hit_rate
                 );
-            """)).rowcount
+            """)
+            ).rowcount
 
         total_rows += rows_merged
-        log.info("rebuild-trend-stats: batters %d-%d of %d (%d rows merged).",
-                 start + 1, start + len(chunk), len(batters), rows_merged)
+        log.info(
+            "rebuild-trend-stats: batters %d-%d of %d (%d rows merged).",
+            start + 1,
+            start + len(chunk),
+            len(batters),
+            rows_merged,
+        )
 
     log.info("rebuild-trend-stats: done. %d total rows merged.", total_rows)
+
+
 def ensure_table(engine):
     with engine.begin() as conn:
         conn.execute(text(DDL_CREATE))
@@ -1178,13 +1225,15 @@ def ensure_table(engine):
         conn.execute(text(DDL_CREATE_BVP_INDEXES))
         conn.execute(text(DDL_CREATE_TREND_STATS))
         conn.execute(text(DDL_CREATE_TREND_STATS_INDEXES))
-    log.info("mlb.play_by_play, mlb.player_at_bats, mlb.career_batter_vs_pitcher, "
-             "and mlb.player_trend_stats tables ensured.")
+    log.info(
+        "mlb.play_by_play, mlb.player_at_bats, mlb.career_batter_vs_pitcher, and mlb.player_trend_stats tables ensured."
+    )
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def safe_int(val):
     try:
@@ -1246,8 +1295,7 @@ def fetch_game_json(game_pk, retries=3, pause=5):
             resp.raise_for_status()
             return resp.json()
         except Exception as exc:
-            log.warning("Fetch failed for game_pk %d (attempt %d/%d): %s",
-                        game_pk, attempt, retries, exc)
+            log.warning("Fetch failed for game_pk %d (attempt %d/%d): %s", game_pk, attempt, retries, exc)
             if attempt < retries:
                 time.sleep(pause)
     return None
@@ -1260,29 +1308,29 @@ def parse_play_by_play(game_json, game_pk, game_date):
         return []
 
     game_data = game_json.get("gameData", {})
-    away_id   = game_data.get("teams", {}).get("away", {}).get("id")
-    home_id   = game_data.get("teams", {}).get("home", {}).get("id")
-    venue_id  = game_data.get("venue", {}).get("id")
+    away_id = game_data.get("teams", {}).get("away", {}).get("id")
+    home_id = game_data.get("teams", {}).get("home", {}).get("id")
+    venue_id = game_data.get("venue", {}).get("id")
 
     rows = []
 
     for play in all_plays:
-        about   = play.get("about", {})
+        about = play.get("about", {})
         matchup = play.get("matchup", {})
-        result  = play.get("result", {})
+        result = play.get("result", {})
         credits = [c.get("credit") for c in play.get("credits", [])]
 
-        is_top     = about.get("isTopInning")
+        is_top = about.get("isTopInning")
         at_bat_num = safe_int(about.get("atBatIndex", -1)) + 1 if about.get("atBatIndex") is not None else None
-        batter_id  = matchup.get("batter", {}).get("id")
+        batter_id = matchup.get("batter", {}).get("id")
         pitcher_id = matchup.get("pitcher", {}).get("id")
-        team_id    = away_id if is_top else home_id
+        team_id = away_id if is_top else home_id
         vs_team_id = home_id if is_top else away_id
-        is_ab      = 1 if "b_ab" in credits else 0
-        is_pa      = 1 if "b_pa" in credits else 0
+        is_ab = 1 if "b_ab" in credits else 0
+        is_pa = 1 if "b_pa" in credits else 0
 
         play_events = play.get("playEvents", [])
-        max_index   = max((e.get("index", -1) for e in play_events), default=-1)
+        max_index = max((e.get("index", -1) for e in play_events), default=-1)
 
         for event in play_events:
             play_id = event.get("playId")
@@ -1290,76 +1338,82 @@ def parse_play_by_play(game_json, game_pk, game_date):
                 continue
 
             ev_index = event.get("index")
-            is_last  = (ev_index == max_index)
+            is_last = ev_index == max_index
 
-            details    = event.get("details", {})
+            details = event.get("details", {})
             pitch_data = event.get("pitchData", {})
-            hit_data   = event.get("hitData", {})
-            ctx        = event.get("contextMetrics", {})
-            count      = event.get("count", {})
+            hit_data = event.get("hitData", {})
+            ctx = event.get("contextMetrics", {})
+            count = event.get("count", {})
 
-            rows.append({
-                "play_event_id":          f"{game_pk}-{at_bat_num}-{ev_index}",
-                "game_pk":                game_pk,
-                "game_date":              pd.Timestamp(game_date).date() if game_date else None,
-                "at_bat_number":          at_bat_num,
-                "play_event_index":       ev_index,
-                "inning":                 safe_int(about.get("inning")),
-                "is_top_inning":          safe_bool(is_top),
-                "team_id":                team_id,
-                "vs_team_id":             vs_team_id,
-                "away_team_id":           away_id,
-                "home_team_id":           home_id,
-                "venue_id":               venue_id,
-                "result_event_type":      trunc(result.get("eventType"), 50)     if is_last else None,
-                "result_description":     trunc(result.get("description"), 1000) if is_last else None,
-                "result_rbi":             safe_int(result.get("rbi"))            if is_last else None,
-                "result_is_out":          safe_bool(result.get("isOut"))         if is_last else None,
-                "at_bat_is_complete":     safe_bool(about.get("isComplete"))     if is_last else None,
-                "at_bat_is_scoring_play": safe_bool(about.get("isScoringPlay"))  if is_last else None,
-                "at_bat_has_out":         safe_bool(about.get("hasOut"))         if is_last else None,
-                "at_bat_end_time":        safe_datetime(about.get("endTime"))    if is_last else None,
-                "play_end_time":          safe_datetime(play.get("playEndTime")) if is_last else None,
-                "is_at_bat":              is_ab                                  if is_last else None,
-                "is_plate_appearance":    is_pa                                  if is_last else None,
-                "batter_id":              batter_id,
-                "batter_hand_code":       trunc(matchup.get("batSide", {}).get("code"), 1),
-                "batter_split":           trunc(matchup.get("splits", {}).get("batter"), 30),
-                "pitcher_id":             pitcher_id,
-                "pitcher_hand_code":      trunc(matchup.get("pitchHand", {}).get("code"), 1),
-                "pitcher_split":          trunc(matchup.get("splits", {}).get("pitcher"), 30),
-                "play_id":                trunc(play_id, 50),
-                "play_event_type":        trunc(event.get("type"), 30),
-                "is_pitch":               safe_bool(event.get("isPitch")),
-                "is_base_running_play":   safe_bool(event.get("isBaseRunningPlay")),
-                "pitch_number":           safe_int(event.get("pitchNumber")),
-                "pitch_call_code":        trunc(details.get("call", {}).get("code") if isinstance(details.get("call"), dict) else None, 5),
-                "pitch_type_code":        trunc(details.get("type", {}).get("code") if isinstance(details.get("type"), dict) else None, 5),
-                "play_event_description": trunc(details.get("description"), 1000),
-                "is_hit_into_play":       safe_bool(details.get("isInPlay")),
-                "is_strike":              safe_bool(details.get("isStrike")),
-                "is_ball":                safe_bool(details.get("isBall")),
-                "is_out":                 safe_bool(details.get("isOut")),
-                "runner_going":           safe_bool(details.get("runnerGoing")),
-                "count_balls_strikes":    f"{count.get('balls', '')}-{count.get('strikes', '')}" if count else None,
-                "count_outs":             safe_int(count.get("outs")),
-                "is_last_pitch":          safe_bool(is_last),
-                "play_event_end_time":    safe_datetime(event.get("endTime")),
-                "pitch_start_speed":      safe_float(pitch_data.get("startSpeed")),
-                "pitch_end_speed":        safe_float(pitch_data.get("endSpeed")),
-                "pitch_zone":             safe_int(pitch_data.get("zone")),
-                "strike_zone_top":        safe_float(pitch_data.get("strikeZoneTop")),
-                "strike_zone_bottom":     safe_float(pitch_data.get("strikeZoneBottom")),
-                "hit_launch_speed":       safe_float(hit_data.get("launchSpeed")),
-                "hit_launch_angle":       safe_int(hit_data.get("launchAngle")),
-                "hit_total_distance":     safe_int(hit_data.get("totalDistance")),
-                "hit_trajectory":         trunc(hit_data.get("trajectory"), 30),
-                "hit_hardness":           trunc(hit_data.get("hardness"), 20),
-                "hit_location":           safe_int(hit_data.get("location")),
-                "hit_probability":        safe_float(hit_data.get("hitProbability")),
-                "hit_bat_speed":          safe_float(hit_data.get("batSpeed")),
-                "home_run_ballparks":     safe_int(ctx.get("homeRunBallparks")),
-            })
+            rows.append(
+                {
+                    "play_event_id": f"{game_pk}-{at_bat_num}-{ev_index}",
+                    "game_pk": game_pk,
+                    "game_date": pd.Timestamp(game_date).date() if game_date else None,
+                    "at_bat_number": at_bat_num,
+                    "play_event_index": ev_index,
+                    "inning": safe_int(about.get("inning")),
+                    "is_top_inning": safe_bool(is_top),
+                    "team_id": team_id,
+                    "vs_team_id": vs_team_id,
+                    "away_team_id": away_id,
+                    "home_team_id": home_id,
+                    "venue_id": venue_id,
+                    "result_event_type": trunc(result.get("eventType"), 50) if is_last else None,
+                    "result_description": trunc(result.get("description"), 1000) if is_last else None,
+                    "result_rbi": safe_int(result.get("rbi")) if is_last else None,
+                    "result_is_out": safe_bool(result.get("isOut")) if is_last else None,
+                    "at_bat_is_complete": safe_bool(about.get("isComplete")) if is_last else None,
+                    "at_bat_is_scoring_play": safe_bool(about.get("isScoringPlay")) if is_last else None,
+                    "at_bat_has_out": safe_bool(about.get("hasOut")) if is_last else None,
+                    "at_bat_end_time": safe_datetime(about.get("endTime")) if is_last else None,
+                    "play_end_time": safe_datetime(play.get("playEndTime")) if is_last else None,
+                    "is_at_bat": is_ab if is_last else None,
+                    "is_plate_appearance": is_pa if is_last else None,
+                    "batter_id": batter_id,
+                    "batter_hand_code": trunc(matchup.get("batSide", {}).get("code"), 1),
+                    "batter_split": trunc(matchup.get("splits", {}).get("batter"), 30),
+                    "pitcher_id": pitcher_id,
+                    "pitcher_hand_code": trunc(matchup.get("pitchHand", {}).get("code"), 1),
+                    "pitcher_split": trunc(matchup.get("splits", {}).get("pitcher"), 30),
+                    "play_id": trunc(play_id, 50),
+                    "play_event_type": trunc(event.get("type"), 30),
+                    "is_pitch": safe_bool(event.get("isPitch")),
+                    "is_base_running_play": safe_bool(event.get("isBaseRunningPlay")),
+                    "pitch_number": safe_int(event.get("pitchNumber")),
+                    "pitch_call_code": trunc(
+                        details.get("call", {}).get("code") if isinstance(details.get("call"), dict) else None, 5
+                    ),
+                    "pitch_type_code": trunc(
+                        details.get("type", {}).get("code") if isinstance(details.get("type"), dict) else None, 5
+                    ),
+                    "play_event_description": trunc(details.get("description"), 1000),
+                    "is_hit_into_play": safe_bool(details.get("isInPlay")),
+                    "is_strike": safe_bool(details.get("isStrike")),
+                    "is_ball": safe_bool(details.get("isBall")),
+                    "is_out": safe_bool(details.get("isOut")),
+                    "runner_going": safe_bool(details.get("runnerGoing")),
+                    "count_balls_strikes": f"{count.get('balls', '')}-{count.get('strikes', '')}" if count else None,
+                    "count_outs": safe_int(count.get("outs")),
+                    "is_last_pitch": safe_bool(is_last),
+                    "play_event_end_time": safe_datetime(event.get("endTime")),
+                    "pitch_start_speed": safe_float(pitch_data.get("startSpeed")),
+                    "pitch_end_speed": safe_float(pitch_data.get("endSpeed")),
+                    "pitch_zone": safe_int(pitch_data.get("zone")),
+                    "strike_zone_top": safe_float(pitch_data.get("strikeZoneTop")),
+                    "strike_zone_bottom": safe_float(pitch_data.get("strikeZoneBottom")),
+                    "hit_launch_speed": safe_float(hit_data.get("launchSpeed")),
+                    "hit_launch_angle": safe_int(hit_data.get("launchAngle")),
+                    "hit_total_distance": safe_int(hit_data.get("totalDistance")),
+                    "hit_trajectory": trunc(hit_data.get("trajectory"), 30),
+                    "hit_hardness": trunc(hit_data.get("hardness"), 20),
+                    "hit_location": safe_int(hit_data.get("location")),
+                    "hit_probability": safe_float(hit_data.get("hitProbability")),
+                    "hit_bat_speed": safe_float(hit_data.get("batSpeed")),
+                    "home_run_ballparks": safe_int(ctx.get("homeRunBallparks")),
+                }
+            )
 
     return rows
 
@@ -1401,11 +1455,7 @@ def load_player_at_bats_for_games(engine, game_pks):
     game_pks = list(set(int(g) for g in game_pks))
 
     with engine.connect() as conn:
-        existing = {
-            row[0] for row in conn.execute(
-                text("SELECT DISTINCT game_pk FROM mlb.player_at_bats")
-            ).fetchall()
-        }
+        existing = {row[0] for row in conn.execute(text("SELECT DISTINCT game_pk FROM mlb.player_at_bats")).fetchall()}
 
     target = [g for g in game_pks if g not in existing]
     if not target:
@@ -1460,7 +1510,9 @@ def load_player_at_bats_for_games(engine, game_pks):
     )
     log.info(
         "at_bats: wrote %d rows across %d games (%d skipped as already present).",
-        len(df), len(target), len(game_pks) - len(target)
+        len(df),
+        len(target),
+        len(game_pks) - len(target),
     )
 
 
@@ -1473,11 +1525,7 @@ def rebuild_player_at_bats(engine):
     a gap fill, manually DELETE FROM mlb.player_at_bats first.
     """
     with engine.connect() as conn:
-        pbp_games = [
-            row[0] for row in conn.execute(
-                text("SELECT DISTINCT game_pk FROM mlb.play_by_play")
-            ).fetchall()
-        ]
+        pbp_games = [row[0] for row in conn.execute(text("SELECT DISTINCT game_pk FROM mlb.play_by_play")).fetchall()]
 
     log.info("rebuild: %d distinct game_pks in mlb.play_by_play.", len(pbp_games))
     if not pbp_games:
@@ -1485,9 +1533,8 @@ def rebuild_player_at_bats(engine):
 
     CHUNK = 100
     for start in range(0, len(pbp_games), CHUNK):
-        chunk = pbp_games[start:start + CHUNK]
-        log.info("rebuild: processing games %d-%d of %d.",
-                 start + 1, start + len(chunk), len(pbp_games))
+        chunk = pbp_games[start : start + CHUNK]
+        log.info("rebuild: processing games %d-%d of %d.", start + 1, start + len(chunk), len(pbp_games))
         load_player_at_bats_for_games(engine, chunk)
 
 
@@ -1532,7 +1579,8 @@ def _merge_bvp_from_temp(conn, temp_table):
     into mlb.career_batter_vs_pitcher. Called by both the incremental loader
     and the full rebuilder once staging is populated.
     """
-    conn.execute(text(f"""
+    conn.execute(
+        text(f"""
         MERGE mlb.career_batter_vs_pitcher AS tgt
         USING {temp_table} AS src
         ON tgt.batter_id = src.batter_id AND tgt.pitcher_id = src.pitcher_id
@@ -1598,7 +1646,8 @@ def _merge_bvp_from_temp(conn, temp_table):
                  ELSE NULL END,
             src.last_faced_date
         );
-    """))
+    """)
+    )
 
 
 def load_career_bvp_for_games(engine, game_pks):
@@ -1628,7 +1677,8 @@ def load_career_bvp_for_games(engine, game_pks):
     placeholders = ", ".join(str(g) for g in game_pks)
 
     with engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             IF OBJECT_ID('tempdb..#affected_pairs') IS NOT NULL DROP TABLE #affected_pairs;
             IF OBJECT_ID('tempdb..#stage_bvp') IS NOT NULL DROP TABLE #stage_bvp;
 
@@ -1657,18 +1707,22 @@ def load_career_bvp_for_games(engine, game_pks):
                 last_faced_date   DATE NULL,
                 PRIMARY KEY (batter_id, pitcher_id)
             );
-        """))
+        """)
+        )
 
-        conn.execute(text(f"""
+        conn.execute(
+            text(f"""
             INSERT INTO #affected_pairs (batter_id, pitcher_id)
             SELECT DISTINCT batter_id, pitcher_id
             FROM mlb.player_at_bats
             WHERE game_pk IN ({placeholders})
               AND batter_id IS NOT NULL
               AND pitcher_id IS NOT NULL;
-        """))
+        """)
+        )
 
-        conn.execute(text(f"""
+        conn.execute(
+            text(f"""
             INSERT INTO #stage_bvp (
                 batter_id, pitcher_id, plate_appearances, at_bats, hits,
                 singles, doubles, triples, home_runs,
@@ -1680,7 +1734,8 @@ def load_career_bvp_for_games(engine, game_pks):
             INNER JOIN #affected_pairs AS ap
                 ON ab.batter_id = ap.batter_id AND ab.pitcher_id = ap.pitcher_id
             GROUP BY ab.batter_id, ab.pitcher_id;
-        """))
+        """)
+        )
 
         result = conn.execute(text("SELECT COUNT(*) FROM #stage_bvp")).fetchone()
         staged = result[0] if result else 0
@@ -1689,8 +1744,7 @@ def load_career_bvp_for_games(engine, game_pks):
             return
 
         _merge_bvp_from_temp(conn, "#stage_bvp")
-        log.info("career_bvp: merged %d (batter, pitcher) pairs from %d games.",
-                 staged, len(game_pks))
+        log.info("career_bvp: merged %d (batter, pitcher) pairs from %d games.", staged, len(game_pks))
 
 
 def rebuild_career_bvp(engine):
@@ -1710,10 +1764,10 @@ def rebuild_career_bvp(engine):
     """
     with engine.connect() as conn:
         batters = [
-            row[0] for row in conn.execute(text(
-                "SELECT DISTINCT batter_id FROM mlb.player_at_bats "
-                "WHERE batter_id IS NOT NULL ORDER BY batter_id"
-            )).fetchall()
+            row[0]
+            for row in conn.execute(
+                text("SELECT DISTINCT batter_id FROM mlb.player_at_bats WHERE batter_id IS NOT NULL ORDER BY batter_id")
+            ).fetchall()
         ]
 
     log.info("rebuild-bvp: %d distinct batters in mlb.player_at_bats.", len(batters))
@@ -1723,11 +1777,12 @@ def rebuild_career_bvp(engine):
     CHUNK = 200
     total_pairs = 0
     for start in range(0, len(batters), CHUNK):
-        chunk = batters[start:start + CHUNK]
+        chunk = batters[start : start + CHUNK]
         placeholders = ", ".join(str(b) for b in chunk)
 
         with engine.begin() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 IF OBJECT_ID('tempdb..#stage_bvp') IS NOT NULL DROP TABLE #stage_bvp;
                 CREATE TABLE #stage_bvp (
                     batter_id         INT NOT NULL,
@@ -1748,9 +1803,11 @@ def rebuild_career_bvp(engine):
                     last_faced_date   DATE NULL,
                     PRIMARY KEY (batter_id, pitcher_id)
                 );
-            """))
+            """)
+            )
 
-            conn.execute(text(f"""
+            conn.execute(
+                text(f"""
                 INSERT INTO #stage_bvp (
                     batter_id, pitcher_id, plate_appearances, at_bats, hits,
                     singles, doubles, triples, home_runs,
@@ -1762,7 +1819,8 @@ def rebuild_career_bvp(engine):
                 WHERE ab.batter_id IN ({placeholders})
                   AND ab.pitcher_id IS NOT NULL
                 GROUP BY ab.batter_id, ab.pitcher_id;
-            """))
+            """)
+            )
 
             result = conn.execute(text("SELECT COUNT(*) FROM #stage_bvp")).fetchone()
             staged = result[0] if result else 0
@@ -1771,8 +1829,13 @@ def rebuild_career_bvp(engine):
             if staged > 0:
                 _merge_bvp_from_temp(conn, "#stage_bvp")
 
-        log.info("rebuild-bvp: batters %d-%d of %d (%d pairs merged this chunk).",
-                 start + 1, start + len(chunk), len(batters), staged)
+        log.info(
+            "rebuild-bvp: batters %d-%d of %d (%d pairs merged this chunk).",
+            start + 1,
+            start + len(chunk),
+            len(batters),
+            staged,
+        )
 
     log.info("rebuild-bvp: done. %d total pairs merged.", total_pairs)
 
@@ -1781,12 +1844,15 @@ def rebuild_career_bvp(engine):
 # Main PBP fetch loop (concurrent HTTP, sequential DB writes)
 # ---------------------------------------------------------------------------
 
+
 def load_play_by_play(engine, seasons, batch_size):
     season_list = ", ".join(str(s) for s in seasons)
     with engine.connect() as conn:
         desired = [
-            (row[0], row[1]) for row in conn.execute(text(
-                f"""
+            (row[0], row[1])
+            for row in conn.execute(
+                text(
+                    f"""
                 SELECT game_pk, game_date
                 FROM mlb.games
                 WHERE game_status = 'F'
@@ -1794,7 +1860,8 @@ def load_play_by_play(engine, seasons, batch_size):
                   AND YEAR(game_date) IN ({season_list})
                 ORDER BY game_date ASC
                 """
-            )).fetchall()
+                )
+            ).fetchall()
         ]
 
     if not desired:
@@ -1802,16 +1869,15 @@ def load_play_by_play(engine, seasons, batch_size):
         return
 
     with engine.connect() as conn:
-        existing = {
-            row[0] for row in conn.execute(
-                text("SELECT DISTINCT game_pk FROM mlb.play_by_play")
-            ).fetchall()
-        }
+        existing = {row[0] for row in conn.execute(text("SELECT DISTINCT game_pk FROM mlb.play_by_play")).fetchall()}
 
     new_games = [(pk, gd) for pk, gd in desired if pk not in existing]
     log.info(
         "play_by_play: %d desired, %d existing, %d new. Processing oldest %d.",
-        len(desired), len(existing), len(new_games), min(batch_size, len(new_games))
+        len(desired),
+        len(existing),
+        len(new_games),
+        min(batch_size, len(new_games)),
     )
 
     if not new_games:
@@ -1825,10 +1891,7 @@ def load_play_by_play(engine, seasons, batch_size):
     fetched = {}  # game_pk -> (game_json or None, game_date)
 
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
-        future_to_pk = {
-            executor.submit(fetch_game_json, pk): (pk, gd)
-            for pk, gd in work
-        }
+        future_to_pk = {executor.submit(fetch_game_json, pk): (pk, gd) for pk, gd in work}
         for future in as_completed(future_to_pk):
             pk, gd = future_to_pk[future]
             try:
@@ -1838,7 +1901,7 @@ def load_play_by_play(engine, seasons, batch_size):
                 fetched[pk] = (None, gd)
 
     # Process in original game_date order for deterministic flush ordering.
-    flush_rows  = []
+    flush_rows = []
     flush_games = []
 
     for i, (game_pk, game_date) in enumerate(work, 1):
@@ -1863,7 +1926,7 @@ def load_play_by_play(engine, seasons, batch_size):
             load_player_at_bats_for_games(engine, flush_games)
             load_career_bvp_for_games(engine, flush_games)
             load_trend_stats_for_games(engine, flush_games)
-            flush_rows  = []
+            flush_rows = []
             flush_games = []
 
     log.info("play_by_play load complete.")
@@ -1871,8 +1934,9 @@ def load_play_by_play(engine, seasons, batch_size):
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch",   type=int, default=DEFAULT_BATCH)
+    parser.add_argument("--batch", type=int, default=DEFAULT_BATCH)
     parser.add_argument("--seasons", type=int, nargs="+", default=None)
     parser.add_argument(
         "--rebuild-at-bats",
@@ -1893,8 +1957,14 @@ def main():
 
     seasons = args.seasons or SEASONS
     log.info("=== MLB Play-by-Play ETL started ===")
-    log.info("Seasons: %s  Batch: %d  Rebuild at-bats: %s  Rebuild BvP: %s  Rebuild trend: %s",
-             seasons, args.batch, args.rebuild_at_bats, args.rebuild_bvp, args.rebuild_trend_stats)
+    log.info(
+        "Seasons: %s  Batch: %d  Rebuild at-bats: %s  Rebuild BvP: %s  Rebuild trend: %s",
+        seasons,
+        args.batch,
+        args.rebuild_at_bats,
+        args.rebuild_bvp,
+        args.rebuild_trend_stats,
+    )
 
     engine = get_engine()
     ensure_table(engine)
