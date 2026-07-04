@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import MlbLineupsTab from "./MlbLineupsTab";
 import { fmtXba, resultColor, resultLabel } from "./statcastFormat";
+import { StatcastChips, StatcastLegend } from "./StatcastChips";
 import { isFinalStatus, isLiveStatus } from "./gameStatus";
 import HeatCell from "@/components/HeatCell";
 
@@ -501,6 +502,11 @@ function ExitVeloTable({
                   className={`py-1 px-1.5 whitespace-nowrap ${resultColor(ab.resultType)}`}
                 >
                   {resultLabel(ab.resultType)}
+                  <StatcastChips
+                    ev={ab.exitVelo}
+                    la={ab.launchAngle}
+                    batSpeed={ab.batSpeed}
+                  />
                 </td>
                 <HeatCell
                   value={ab.exitVelo}
@@ -740,6 +746,7 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
               </div>
             ) : (
               <>
+                <StatcastLegend className="mb-3" />
                 <ExitVeloTable
                   atBats={atBats}
                   teamId={game.awayTeamId}
