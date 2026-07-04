@@ -34,6 +34,14 @@ export function fmtXba(hitProbability: number | null): string {
   return (Number(hitProbability) / 100).toFixed(3).replace(/^0/, "");
 }
 
+// home_run_ballparks counts the MLB parks (of 30) where the batted ball
+// leaves the yard — Savant renders it n/30. 0/30 is meaningful (out
+// everywhere); null means no batted ball or no tracking.
+export function fmtHrParks(n: number | null): string {
+  if (n == null) return "-";
+  return `${n}/30`;
+}
+
 export const HARD_HIT_EV = 95;
 export const BARREL_LA_MIN = 8;
 export const BARREL_LA_MAX = 32;

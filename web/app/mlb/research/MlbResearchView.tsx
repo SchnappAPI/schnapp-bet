@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import HeatCell from "@/components/HeatCell";
 import ResearchFilters, { RANGE_OPTIONS } from "./ResearchFilters";
-import { resultColor, resultLabel } from "@/app/mlb/statcastFormat";
+import { fmtHrParks, resultColor, resultLabel } from "@/app/mlb/statcastFormat";
 import { StatcastChips, StatcastLegend } from "@/app/mlb/StatcastChips";
 import type { SlateGame } from "@/app/api/mlb/research/slate/route";
 import type { GridBatter, GridTeam } from "@/app/api/mlb/research/grid/route";
@@ -336,6 +336,8 @@ function BatterDetail({
                 <th className="text-center pb-1 px-1.5 font-normal">LA</th>
                 <th className="text-center pb-1 px-1.5 font-normal">Dist</th>
                 <th className="text-center pb-1 px-1.5 font-normal">xBA*</th>
+                <th className="text-center pb-1 px-1.5 font-normal">Bat Spd</th>
+                <th className="text-center pb-1 px-1.5 font-normal">HR/Pk</th>
               </tr>
             </thead>
             <tbody>
@@ -382,6 +384,12 @@ function BatterDetail({
                   </td>
                   <td className="text-center py-1 px-1.5 tabular-nums text-fg-subtle">
                     {ab.xba != null ? fmtAvg(ab.xba / 100) : "-"}
+                  </td>
+                  <td className="text-center py-1 px-1.5 tabular-nums">
+                    {ab.batSpeed != null ? fmt1(ab.batSpeed) : "-"}
+                  </td>
+                  <td className="text-center py-1 px-1.5 tabular-nums">
+                    {fmtHrParks(ab.hrParks)}
                   </td>
                 </tr>
               ))}
