@@ -1,5 +1,34 @@
 -- Generated 2026-07-04. Apply in order: common/odds schemas first, then sport schemas.
 
+CREATE TABLE [mlb].[batter_context] (
+    [game_date] DATE NOT NULL,
+    [game_pk] INT NOT NULL,
+    [batter_id] INT NOT NULL,
+    [team_id] INT,
+    [is_home] BIT,
+    [opp_pitcher_id] INT,
+    [opp_pitcher_hand] CHAR(1),
+    [venue_id] INT,
+    [venue_name] NVARCHAR(120),
+    [day_night] VARCHAR(10),
+    [recent_batting_order] INT,
+    [lineup_confirmed] BIT DEFAULT ((0)) NOT NULL,
+    [updated_at] DATETIME2 DEFAULT (sysutcdatetime()) NOT NULL,
+    CONSTRAINT [PK_batter_context] PRIMARY KEY ([game_date], [game_pk], [batter_id])
+);
+
+CREATE TABLE [mlb].[batter_projections] (
+    [game_date] DATE NOT NULL,
+    [game_pk] INT NOT NULL,
+    [batter_id] INT NOT NULL,
+    [market_key] VARCHAR(40) NOT NULL,
+    [projected_value] FLOAT,
+    [confidence] FLOAT,
+    [model_version] VARCHAR(20) NOT NULL,
+    [updated_at] DATETIME2 DEFAULT (sysutcdatetime()) NOT NULL,
+    CONSTRAINT [PK_batter_projections] PRIMARY KEY ([game_date], [game_pk], [batter_id], [market_key])
+);
+
 CREATE TABLE [mlb].[batting_stats] (
     [batter_game_id] VARCHAR(30) NOT NULL,
     [game_pk] INT NOT NULL,
@@ -63,6 +92,13 @@ CREATE TABLE [mlb].[career_batter_vs_pitcher] (
     [ops] DECIMAL(5,3),
     [last_faced_date] DATE,
     [updated_at] DATETIME2 DEFAULT (getutcdate()) NOT NULL,
+    [bbe] INT,
+    [avg_ev] DECIMAL(5,1),
+    [avg_la] DECIMAL(5,1),
+    [avg_dist] DECIMAL(6,1),
+    [avg_xba] DECIMAL(5,3),
+    [hard_hit_ct] INT,
+    [barrel_ct] INT,
     CONSTRAINT [PK_career_batter_vs_pitcher] PRIMARY KEY ([batter_id], [pitcher_id])
 );
 CREATE INDEX [IX_bvp_pitcher] ON [mlb].[career_batter_vs_pitcher] ([pitcher_id], [batter_id]);
@@ -303,6 +339,51 @@ CREATE TABLE [mlb].[player_at_bats] (
 CREATE INDEX [IX_player_at_bats_batter] ON [mlb].[player_at_bats] ([batter_id], [game_date]);
 CREATE INDEX [IX_player_at_bats_game_pk] ON [mlb].[player_at_bats] ([game_pk]);
 
+CREATE TABLE [mlb].[player_game_statcast] (
+    [batter_id] INT NOT NULL,
+    [game_pk] INT NOT NULL,
+    [game_date] DATE,
+    [team_id] INT,
+    [opp_team_id] INT,
+    [opp_pitcher_id] INT,
+    [is_home] BIT,
+    [pa] INT,
+    [ab] INT,
+    [hits] INT,
+    [singles] INT,
+    [doubles] INT,
+    [triples] INT,
+    [home_runs] INT,
+    [xbh] INT,
+    [total_bases] INT,
+    [runs] INT,
+    [rbi] INT,
+    [strikeouts] INT,
+    [walks] INT,
+    [hit_by_pitch] INT,
+    [sac_flies] INT,
+    [hip] INT,
+    [bbe] INT,
+    [ev_sum] FLOAT,
+    [avg_ev] DECIMAL(5,1),
+    [max_ev] DECIMAL(5,1),
+    [la_cnt] INT,
+    [la_sum] FLOAT,
+    [avg_la] DECIMAL(5,1),
+    [dist_cnt] INT,
+    [dist_sum] FLOAT,
+    [avg_dist] DECIMAL(6,1),
+    [xba_cnt] INT,
+    [xba_sum] FLOAT,
+    [avg_xba] DECIMAL(5,3),
+    [hard_hit] INT,
+    [barrels] INT,
+    [created_at] DATETIME2 DEFAULT (getutcdate()) NOT NULL,
+    CONSTRAINT [PK_player_game_statcast] PRIMARY KEY ([batter_id], [game_pk])
+);
+CREATE INDEX [IX_player_game_statcast_date] ON [mlb].[player_game_statcast] ([game_date], [batter_id]);
+CREATE INDEX [IX_player_game_statcast_game] ON [mlb].[player_game_statcast] ([game_pk]);
+
 CREATE TABLE [mlb].[player_season_batting] (
     [player_season_id] INT NOT NULL,
     [player_id] INT NOT NULL,
@@ -402,6 +483,16 @@ CREATE TABLE [mlb].[player_trend_stats] (
     [away_hits] INT,
     [away_hit_rate] DECIMAL(5,3),
     [updated_at] DATETIME2 DEFAULT (getutcdate()) NOT NULL,
+    [vs_lhp_xbh] INT,
+    [vs_lhp_avg_ev] DECIMAL(5,1),
+    [vs_lhp_hard_hit_pct] DECIMAL(5,3),
+    [vs_lhp_avg_xba] DECIMAL(5,3),
+    [vs_lhp_babip] DECIMAL(5,3),
+    [vs_rhp_xbh] INT,
+    [vs_rhp_avg_ev] DECIMAL(5,1),
+    [vs_rhp_hard_hit_pct] DECIMAL(5,3),
+    [vs_rhp_avg_xba] DECIMAL(5,3),
+    [vs_rhp_babip] DECIMAL(5,3),
     CONSTRAINT [PK_player_trend_stats] PRIMARY KEY ([batter_id], [game_date])
 );
 CREATE INDEX [IX_trend_stats_date] ON [mlb].[player_trend_stats] ([game_date], [batter_id]);
