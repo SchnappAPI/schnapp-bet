@@ -1,4 +1,4 @@
--- Generated 2026-05-05. Apply in order: common/odds schemas first, then sport schemas.
+-- Generated 2026-07-04. Apply in order: common/odds schemas first, then sport schemas.
 
 CREATE TABLE [mlb].[batting_stats] (
     [batter_game_id] VARCHAR(30) NOT NULL,
@@ -39,6 +39,7 @@ CREATE TABLE [mlb].[batting_stats] (
     [sac_flies] INT,
     CONSTRAINT [PK_batting_stats] PRIMARY KEY ([batter_game_id])
 );
+CREATE INDEX [IX_batting_stats_game_pk] ON [mlb].[batting_stats] ([game_pk]);
 
 CREATE TABLE [mlb].[career_batter_vs_pitcher] (
     [batter_id] INT NOT NULL,
@@ -65,6 +66,20 @@ CREATE TABLE [mlb].[career_batter_vs_pitcher] (
     CONSTRAINT [PK_career_batter_vs_pitcher] PRIMARY KEY ([batter_id], [pitcher_id])
 );
 CREATE INDEX [IX_bvp_pitcher] ON [mlb].[career_batter_vs_pitcher] ([pitcher_id], [batter_id]);
+
+CREATE TABLE [mlb].[daily_lineups] (
+    [game_pk] INT NOT NULL,
+    [team_id] INT NOT NULL,
+    [player_id] INT NOT NULL,
+    [game_date] DATE NOT NULL,
+    [batting_order] INT NOT NULL,
+    [position] VARCHAR(5),
+    [is_confirmed] BIT DEFAULT ((1)) NOT NULL,
+    [source] VARCHAR(20) DEFAULT ('lineups-hydrate') NOT NULL,
+    [updated_at] DATETIME2 DEFAULT (sysutcdatetime()) NOT NULL,
+    CONSTRAINT [PK_daily_lineups] PRIMARY KEY ([game_pk], [team_id], [player_id])
+);
+CREATE INDEX [IX_daily_lineups_date] ON [mlb].[daily_lineups] ([game_date]);
 
 CREATE TABLE [mlb].[games] (
     [game_pk] INT NOT NULL,
@@ -192,6 +207,7 @@ CREATE TABLE [mlb].[pitching_stats] (
     [created_at] DATETIME2 DEFAULT (getutcdate()) NOT NULL,
     CONSTRAINT [PK_pitching_stats] PRIMARY KEY ([pitcher_game_id])
 );
+CREATE INDEX [IX_pitching_stats_game_pk] ON [mlb].[pitching_stats] ([game_pk]);
 
 CREATE TABLE [mlb].[play_by_play] (
     [play_event_id] VARCHAR(50) NOT NULL,
@@ -257,6 +273,7 @@ CREATE TABLE [mlb].[play_by_play] (
     [created_at] DATETIME2 DEFAULT (getutcdate()) NOT NULL,
     CONSTRAINT [PK_play_by_play] PRIMARY KEY ([play_event_id])
 );
+CREATE INDEX [IX_play_by_play_game_pk] ON [mlb].[play_by_play] ([game_pk]);
 
 CREATE TABLE [mlb].[player_at_bats] (
     [at_bat_id] VARCHAR(30) NOT NULL,

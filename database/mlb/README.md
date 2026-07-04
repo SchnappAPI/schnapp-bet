@@ -12,7 +12,7 @@ Live DDL sources (the one-time `mlb_batting_stats_migration.sql` shipped and
 was deleted with its workflow on 2026-07-03; see git history if needed):
 
 - `etl/mlb_etl.py` — implicit DDL via pandas `to_sql` for truncate-and-reload tables. Permanent tables' columns are defined by the row dict keys in each loader function
-- `etl/mlb_play_by_play.py` — explicit `CREATE TABLE IF NOT EXISTS` and `ALTER COLUMN` statements in `DDL_CREATE`, `DDL_ALTER_DESCRIPTIONS`, `DDL_CREATE_AT_BATS`, `DDL_DROP_NAME_COLUMNS`, `DDL_CREATE_AT_BATS_INDEXES`, `DDL_CREATE_BVP`, and `DDL_CREATE_BVP_INDEXES`
+- `etl/mlb_play_by_play.py` — explicit `CREATE TABLE IF NOT EXISTS` and `ALTER COLUMN` statements in `DDL_CREATE`, `DDL_ALTER_DESCRIPTIONS`, `DDL_CREATE_PBP_INDEXES`, `DDL_CREATE_BOXSCORE_INDEXES` (game_pk indexes for the mlb_etl-owned box-score tables), `DDL_CREATE_AT_BATS`, `DDL_DROP_NAME_COLUMNS`, `DDL_CREATE_AT_BATS_INDEXES`, `DDL_CREATE_BVP`, and `DDL_CREATE_BVP_INDEXES`
 - `grading/compute_mlb_projections.py` — `IF OBJECT_ID ... CREATE TABLE` DDL for `mlb.batter_context` and `mlb.batter_projections`
 
 ## Key Concepts
@@ -32,6 +32,7 @@ was deleted with its workflow on 2026-07-03; see git history if needed):
 | `mlb.player_at_bats` | One row per completed at-bat, materialized from PBP | `at_bat_id` | Direct INSERT (pre-diffed, in-lockstep with PBP) |
 | `mlb.career_batter_vs_pitcher` | Lifetime counts + rates per `(batter_id, pitcher_id)` | Compound `(batter_id, pitcher_id)` | Staged MERGE (in-lockstep with player_at_bats) |
 | `mlb.player_trend_stats` | Rolling window stats time-series at `(batter_id, game_date)` grain | Compound `(batter_id, game_date)` | Staged MERGE (in-lockstep with player_at_bats) |
+| `mlb.daily_lineups` | Confirmed/projected lineup slots for today's games | Compound `(game_pk, team_id, player_id)` | Upsert (`mlb_lineup_poll.py`, every 30 min in game window) |
 
 ### `mlb.teams`
 
