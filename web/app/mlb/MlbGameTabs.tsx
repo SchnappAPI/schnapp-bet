@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import MlbLineupsTab from "./MlbLineupsTab";
+import MlbMatchupsTab from "./MlbMatchupsTab";
 import { fmtHrParks, fmtXba, resultColor, resultLabel } from "./statcastFormat";
 import { StatcastChips, StatcastLegend } from "./StatcastChips";
 import { isFinalStatus, isLiveStatus } from "./gameStatus";
@@ -96,7 +97,7 @@ interface AtBat {
   homeTeamId: number;
 }
 
-type TabKey = "lineups" | "boxscore" | "exitvelo";
+type TabKey = "lineups" | "matchups" | "boxscore" | "exitvelo";
 
 function fmt(val: number | null, decimals = 0): string {
   if (val == null) return "-";
@@ -620,11 +621,30 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
   const awayPitchers = pitchers.filter((p) => p.side === "A");
   const homePitchers = pitchers.filter((p) => p.side === "H");
 
-  const tabs: { key: TabKey; label: string }[] = [
-    { key: "lineups", label: "Lineups" },
-    { key: "boxscore", label: "Box Score" },
-    { key: "exitvelo", label: "Exit Velo" },
-  ];
+  // Status-keyed tab set (Savant's codedGameState swap, adapted): pregame
+  // is the research surface (Lineups + Matchups — stat tabs would be
+  // empty); finals are the review surface (Box Score + Exit Velo); live
+  // keeps all stat tabs while the linescore tracks the overlay.
+  const tabs: { key: TabKey; label: string }[] = isFinal
+    ? [
+        { key: "boxscore", label: "Box Score" },
+        { key: "exitvelo", label: "Exit Velo" },
+      ]
+    : isLive
+      ? [
+          { key: "lineups", label: "Lineups" },
+          { key: "boxscore", label: "Box Score" },
+          { key: "exitvelo", label: "Exit Velo" },
+        ]
+      : [
+          { key: "lineups", label: "Lineups" },
+          { key: "matchups", label: "Matchups" },
+        ];
+  // If a status flip (repoll) drops the active tab, fall back to the set's
+  // first tab rather than rendering nothing.
+  const shownTab = tabs.some((t) => t.key === activeTab)
+    ? activeTab
+    : tabs[0].key;
 
   return (
     <div className="py-4">
@@ -714,7 +734,7 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
                 onClick={() => setActiveTab(t.key)}
                 className={[
                   "px-4 py-2 text-sm font-medium transition-colors",
-                  activeTab === t.key
+                  shownTab === t.key
                     ? "text-fg border-b-2 border-brand -mb-px"
                     : "text-fg-subtle hover:text-fg-muted",
                 ].join(" ")}
@@ -724,9 +744,11 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
             ))}
           </div>
 
-          {activeTab === "lineups" && <MlbLineupsTab gamePk={game.gameId} />}
+          {shownTab === "lineups" && <MlbLineupsTab gamePk={game.gameId} />}
 
-          {activeTab === "boxscore" &&
+          {shownTab === "matchups" && <MlbMatchupsTab gamePk={game.gameId} />}
+
+          {shownTab === "boxscore" &&
             (batters.length === 0 ? (
               <div className="text-sm text-fg-subtle">
                 Box score not yet available for this game.
@@ -752,7 +774,7 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
               </>
             ))}
 
-          {activeTab === "exitvelo" &&
+          {shownTab === "exitvelo" &&
             (atBats.length === 0 ? (
               <div className="text-sm text-fg-subtle">
                 Exit velocity data not yet available for this game. Run the
