@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { openCommandPalette } from "@/lib/ui/CommandPalette";
 import { isFinalStatus, isLiveStatus } from "./gameStatus";
+import MlbLeadersRails from "./MlbLeadersRails";
 
 type MlbTab = "games" | "players";
 type RoleFilter = "all" | "batters" | "pitchers";
@@ -426,6 +427,7 @@ export default function MlbPageInner() {
               <GameGroup label="Final" games={finalGames} />
             </>
           )}
+          <MlbLeadersRails date={selectedDate} />
         </div>
       )}
     </div>
