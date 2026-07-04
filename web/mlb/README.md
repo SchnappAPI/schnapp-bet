@@ -1,12 +1,12 @@
 # MLB Web
 
 **STATUS:** in development (not considered live). Route-per-page architecture per the
-2026-05-24 app simplification: `/mlb` (games + player search), `/mlb/game/[gamePk]`
-(Lineups / Box Score / Exit Velo tabs), `/mlb/player/[playerId]` (filterable game log,
-splits, Statcast exit-velocity view), `/mlb/grades` (At-a-Glance). The pre-simplification
-six-tab `?view=` page is retired; its view components (`MlbProjView`, `MlbVsView`,
-`MlbEvView`, `MlbPlayerView`, `MlbPitcherView`) remain in the tree as unmounted reference
-implementations only.
+2026-05-24 app simplification: `/mlb` (games + player search + day-level Statcast leader
+rails), `/mlb/game/[gamePk]` (status-keyed tabs — see below), `/mlb/player/[playerId]`
+(filterable game log, splits, Statcast exit-velocity view), `/mlb/grades` (At-a-Glance).
+The pre-simplification six-tab `?view=` page is retired; its view components
+(`MlbProjView`, `MlbVsView`, `MlbEvView`, `MlbPlayerView`, `MlbPitcherView`) remain in
+the tree as unmounted reference implementations only.
 
 ## Purpose
 
@@ -20,21 +20,35 @@ BvP vs the upcoming starter, and the per-at-bat Statcast exit-velocity log.
 Live pages + components:
 
 - `web/app/mlb/page.tsx` → `MlbPageInner.tsx` — date navigator, Games tab (Live /
-  Scheduled / Final card groups; cards show probable pitchers with handedness), Players
-  tab (role filter, ⌘K search, recent players)
+  Scheduled / Final card groups; cards show probable pitchers with handedness; day-level
+  Statcast leader rails below the groups), Players tab (role filter, ⌘K search, recent
+  players)
+- `web/app/mlb/MlbLeadersRails.tsx` — "Top ..." leaderboard rails (top EV / distance /
+  bat speed / HR-park near-miss / pitch velo / whiffs) from
+  `/api/mlb/research/leaders`. Nightly grain: labels the resolved date, never implies
+  live; names link to player pages
 - `web/app/mlb/game/[gamePk]/page.tsx` → `MlbGamePageInner.tsx` → `MlbGameTabs.tsx` —
-  score header + three tabs. Non-final games default to **Lineups**; final games default
-  to **Box Score**. The tab strip renders even when no box score exists yet
+  score header + status-keyed tabs (via `gameStatus.ts`): pregame **Lineups** (default)
+  - **Matchups**; live Lineups + Box Score + Exit Velo; final **Box Score** (default) +
+    Exit Velo. The tab strip renders even when no box score exists yet
 - `web/app/mlb/MlbLineupsTab.tsx` — Lineups tab. Probable pitcher cards (hand + season
   line), Confirmed/Projected chip per team, 9-row lineup tables with client-computed
   GP/AVG/OBP/SLG/HR/RBI/K% over an L5/L10/L20 window, optionally restricted to games vs
   the probable SP's hand. Platoon-edge bat-side highlight. Row click deep-links to the
   player page with `range` + `pitcherHand` preset
+- `web/app/mlb/MlbMatchupsTab.tsx` — pregame Matchups tab: per lineup slot, career BvP
+  vs the opposing probable, season platoon split, and projected hits/total bases
+  (`mlb.batter_projections`), one fetch of the research grid endpoint, HeatCell-shaded
+  across both lineups, deep link to `/mlb/research`
 - `web/app/mlb/MlbGameTabs.tsx` — inline `Linescore`, `BatterTable`, `PitcherTable`,
-  `ExitVeloTable` (Box Score + Exit Velo tabs, unchanged behavior)
+  `ExitVeloTable` (Box Score + Exit Velo tabs; the Exit Velo table carries threshold
+  chips + Bat Spd and HR/Pk columns)
 - `web/app/mlb/statcastFormat.ts` — shared Statcast display helpers (`veloColor`,
-  `resultColor`, `resultLabel`) and the ETL-matching stat definitions
-  (`isHardHit` EV≥95, `isBarrel` EV≥95 AND 8≤LA≤32)
+  `resultColor`, `resultLabel`, `fmtXba`, `fmtHrParks`), the ETL-matching stat
+  definitions (`isHardHit` EV≥95, `isBarrel` EV≥95 AND 8≤LA≤32), and the named-threshold
+  chip defs (Barrel / Hard Hit / Fast Swing ≥75 bat speed) rendered by
+  `web/app/mlb/StatcastChips.tsx` (`StatcastChips` + once-per-page `StatcastLegend`,
+  used by the Exit Velo tab, the research per-PA log, and the player Statcast section)
 - `web/app/mlb/player/[playerId]/page.tsx` → `MlbPlayerPageInner.tsx` — header, Game
   Log / Statcast view switch (`?view=`), URL-synced filter bar (L5/L10/L20/Season,
   Home/Away, vs LHP/RHP, vs Upcoming SP), career-BvP strip vs the upcoming probable,
@@ -58,7 +72,7 @@ API routes (all direct `mssql` via `getPool`, no Flask):
   trip: confirmed nine from `mlb.daily_lineups` (written intraday by
   `etl/mlb_lineup_poll.py`), or a read-time **projected** nine from recent hundreds
   batting orders when a team's lineup has not posted (`lineupStatus:
-  confirmed|projected|unavailable`); per-batter current-season game rows tagged with the
+confirmed|projected|unavailable`); per-batter current-season game rows tagged with the
   opposing starter's hand (so all window/hand toggles are client-side slices); probable
   pitcher season lines from `mlb.pitcher_season_stats`. ETag'd
 - `web/app/api/mlb/player/[playerId]/log/route.ts` — season game log (one query, JS-side
@@ -73,6 +87,10 @@ API routes (all direct `mssql` via `getPool`, no Flask):
 - `web/app/api/mlb-boxscore`, `mlb-linescore`, `mlb-atbats` — Box Score / Exit Velo tab
   payloads. `mlb-linescore` serves statsapi live innings while a game is in progress
   (pbp loads nightly), same response shape
+- `web/app/api/mlb/research/leaders/route.ts` — day-level leader rails. Resolves the
+  requested date DOWN to the latest day with loaded at-bats (`resolvedDate` in the
+  response); batter rails from `mlb.player_at_bats`, pitch velo + whiffs from
+  pitch-grain `mlb.play_by_play` (whiff = StatsAPI call codes S/W/M/Q). ETag'd
 - `web/app/api/mlb/grades/route.ts` — At-a-Glance payload
 - Legacy routes backing the unmounted views (`mlb-proj`, `mlb-bvp`, `mlb-ev`,
   `mlb-player`, `mlb-pitcher`) still function but have no mounted consumers
@@ -127,8 +145,11 @@ Do not revert without an ADR.
   reference-only and must not be re-imported by pages
 - URL is the source of truth for player-page filters (`range`, `ha`, `pitcherHand`,
   `view`) — API and client apply the same filter semantics
-- Lineups/Box Score/Exit Velo tab strip renders regardless of box-score availability;
-  each tab degrades with its own message
+- The game-page tab strip renders regardless of box-score availability; each tab
+  degrades with its own message. Tab availability is status-keyed via `gameStatus.ts`
+  (pregame Lineups+Matchups, final Box Score+Exit Velo)
+- Leader rails and anything else fed by nightly `mlb.play_by_play` /
+  `mlb.player_at_bats` must label their data date and never imply live
 - `mlb.daily_lineups` holds confirmed lineups only; projected lineups are derived at read
   time and never written (ADR-20260704-1)
 - Web hard-hit/barrel math lives in `statcastFormat.ts` and must mirror
