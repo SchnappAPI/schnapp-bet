@@ -36,6 +36,34 @@ interface MlbLogAverages {
   slg: number | null;
 }
 
+interface UpcomingGame {
+  gamePk: number;
+  gameDate: string;
+  gameDateTime: string | null;
+  side: string;
+  oppAbbr: string | null;
+  oppPitcherId: number | null;
+  oppPitcherName: string | null;
+  oppPitcherHand: string | null;
+}
+
+interface BvpLine {
+  pa: number | null;
+  ab: number | null;
+  h: number | null;
+  doubles: number | null;
+  triples: number | null;
+  hr: number | null;
+  rbi: number | null;
+  bb: number | null;
+  k: number | null;
+  avg: number | null;
+  obp: number | null;
+  slg: number | null;
+  ops: number | null;
+  lastFaced: string | null;
+}
+
 interface MlbLogResponse {
   playerId: number;
   playerName: string | null;
@@ -44,6 +72,8 @@ interface MlbLogResponse {
   position: string | null;
   rows: MlbLogRow[];
   averages: MlbLogAverages;
+  upcoming: UpcomingGame | null;
+  bvp: BvpLine | null;
 }
 
 interface MlbSplitRow {
@@ -276,7 +306,75 @@ export default function MlbPlayerPageInner({ playerId }: { playerId: string }) {
             vs {hand}HP
           </button>
         ))}
+
+        {logData?.upcoming?.oppPitcherHand && (
+          <>
+            <div className="w-px h-4 bg-border mx-1" />
+            <button
+              onClick={() =>
+                updateFilter({
+                  pitcherHand:
+                    urlPitcherHand === logData.upcoming!.oppPitcherHand
+                      ? null
+                      : logData.upcoming!.oppPitcherHand,
+                })
+              }
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                urlPitcherHand === logData.upcoming.oppPitcherHand
+                  ? "bg-brand text-canvas"
+                  : "bg-surface-hover text-fg-subtle hover:text-fg"
+              }`}
+              title={`Next: ${logData.upcoming.side === "H" ? "vs" : "@"} ${
+                logData.upcoming.oppAbbr ?? "?"
+              } — ${logData.upcoming.oppPitcherName ?? "TBD"}`}
+            >
+              vs Upcoming SP ({logData.upcoming.oppPitcherHand})
+            </button>
+          </>
+        )}
       </div>
+
+      {/* Career line vs the upcoming probable SP */}
+      {logData?.upcoming && logData?.bvp && (
+        <div className="px-4 py-2 border-b border-border flex items-baseline gap-x-3 gap-y-1 flex-wrap text-xs">
+          <span className="text-fg-subtle uppercase tracking-wider text-[10px] font-semibold">
+            BvP
+          </span>
+          <Link
+            href={`/mlb/game/${logData.upcoming.gamePk}`}
+            className="text-fg-muted font-semibold hover:text-brand transition-colors"
+          >
+            vs {logData.upcoming.oppPitcherName}
+            {logData.upcoming.oppPitcherHand
+              ? ` (${logData.upcoming.oppPitcherHand})`
+              : ""}
+          </Link>
+          <span className="text-fg-muted tabular-nums">
+            {logData.bvp.h ?? 0}-for-{logData.bvp.ab ?? 0}
+          </span>
+          {(logData.bvp.hr ?? 0) > 0 && (
+            <span className="text-warn tabular-nums">
+              {logData.bvp.hr} HR
+            </span>
+          )}
+          {(logData.bvp.k ?? 0) > 0 && (
+            <span className="text-fg-subtle tabular-nums">
+              {logData.bvp.k} K
+            </span>
+          )}
+          <span className="text-fg-subtle tabular-nums">
+            {fmtAvg(logData.bvp.avg)} AVG
+          </span>
+          <span className="text-fg-subtle tabular-nums">
+            {fmtAvg(logData.bvp.ops)} OPS
+          </span>
+          {logData.bvp.lastFaced && (
+            <span className="text-fg-disabled">
+              last faced {logData.bvp.lastFaced}
+            </span>
+          )}
+        </div>
+      )}
 
       {loading && (
         <div className="px-4 py-3 text-sm text-fg-subtle">Loading...</div>
