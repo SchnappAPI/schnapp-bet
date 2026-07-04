@@ -1,11 +1,12 @@
-name: MLB Lineup Poll
+name: MLB Game Day Poll
 
 on:
   schedule:
-    # Every 30 min through the daily game window:
-    # 15:00-23:30 UTC + 00:00-02:30 UTC = ~10:00 ET to ~21:30 ET.
-    - cron: '0,30 15-23 * * *'
-    - cron: '0,30 0-2 * * *'
+    # Every 30 min through the daily game window, extended past midnight ET
+    # so west-coast finals (ending ~05:00-05:30 UTC) land the same night:
+    # 15:00-23:30 UTC + 00:00-05:30 UTC = ~10:00 ET to ~00:30 PT.
+    - cron: "0,30 15-23 * * *"
+    - cron: "0,30 0-5 * * *"
   workflow_dispatch:
 
 env:
@@ -43,7 +44,7 @@ jobs:
       - name: Activate venv
         run: echo "$HOME/venv/bin" >> $GITHUB_PATH
 
-      - name: Poll MLB lineups
+      - name: Poll MLB lineups, scores, and status
         run: python etl/mlb_lineup_poll.py
 
       - name: Record workflow run timestamp

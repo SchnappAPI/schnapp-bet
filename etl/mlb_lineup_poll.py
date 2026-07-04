@@ -18,7 +18,10 @@ Per run:
        COALESCE semantics: a hydrate dropout never nulls a known pitcher, so
        a scratch with no announced replacement keeps the stale pitcher until
        the nightly ETL reconciles - deliberate never-null-out policy.
-    3. For each team whose lineup has posted: upsert the 9 confirmed rows
+    3. Targeted UPDATE of mlb.games status/scores from the same payload:
+       live scores land intraday and finals land the same night (winner
+       flags only on finals). The 09:00 UTC nightly remains the reconciler.
+    4. For each team whose lineup has posted: upsert the 9 confirmed rows
        into mlb.daily_lineups FIRST, then prune rows not in the posted nine
        (scratches, re-posts). Write-then-prune means a failed write leaves
        the previous confirmed lineup intact rather than an empty one. Games
@@ -38,7 +41,7 @@ environment (1Password service account resolution in the workflow).
 
 import logging
 import time
-from datetime import date, datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import requests
@@ -140,7 +143,8 @@ def update_probable_pitchers(engine, sched_games, db_games, today):
     """
     Targeted UPDATE of probable pitcher id/name on mlb.games, then a
     set-based hand fix from mlb.players scoped to today. Never a full-row
-    upsert: intraday score/status columns belong to other loaders.
+    upsert: score/status columns are update_game_scores's job, everything
+    else belongs to the nightly MERGE.
     """
     updates = []
     for g in sched_games:
@@ -196,6 +200,64 @@ def update_probable_pitchers(engine, sched_games, db_games, today):
             {"today": today},
         )
     log.info("Probable pitchers updated for %d game(s).", len(updates))
+
+
+def update_game_scores(engine, sched_games, db_games):
+    """
+    Targeted UPDATE of game_status / abstract_game_state / scores on
+    mlb.games from the same hydrated schedule payload, so in-progress
+    scores land intraday and finals land the same night instead of at the
+    09:00 UTC nightly. db_games only ever contains non-final rows, so a
+    game is touched until the tick that flips it to 'F' and never again;
+    the belt-and-suspenders WHERE also refuses to downgrade an 'F'.
+    Winner flags are written only on finals (nightly MERGE semantics).
+    """
+    updates = []
+    for g in sched_games:
+        game_pk = g.get("gamePk")
+        if game_pk not in db_games:
+            continue
+        status = g.get("status") or {}
+        abstract = status.get("abstractGameState")
+        detailed = status.get("detailedState")
+        if not detailed and not abstract:
+            continue
+        is_final = abstract == "Final" or detailed in ("Final", "Game Over")
+        teams = g.get("teams", {})
+        away = teams.get("away", {})
+        home = teams.get("home", {})
+        updates.append({
+            "game_pk": game_pk,
+            "game_status": "F" if is_final else detailed,
+            "abstract_game_state": abstract,
+            "away_score": away.get("score"),
+            "home_score": home.get("score"),
+            "away_is_winner": (1 if away.get("isWinner") else 0) if is_final else None,
+            "home_is_winner": (1 if home.get("isWinner") else 0) if is_final else None,
+        })
+
+    if not updates:
+        log.info("No game status updates.")
+        return
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE mlb.games SET "
+                "  game_status         = COALESCE(:game_status, game_status), "
+                "  abstract_game_state = COALESCE(:abstract_game_state, abstract_game_state), "
+                "  away_team_score     = COALESCE(:away_score, away_team_score), "
+                "  home_team_score     = COALESCE(:home_score, home_team_score), "
+                "  away_is_winner      = COALESCE(:away_is_winner, away_is_winner), "
+                "  home_is_winner      = COALESCE(:home_is_winner, home_is_winner) "
+                "WHERE game_pk = :game_pk "
+                "  AND (game_status IS NULL OR game_status <> 'F' OR :game_status = 'F')"
+            ),
+            updates,
+        )
+    finals = sum(1 for u in updates if u["game_status"] == "F")
+    log.info("Status/scores updated for %d game(s); %d now final.",
+             len(updates), finals)
 
 
 def rows_from_hydrate(game, db_row, today):
@@ -319,7 +381,10 @@ def write_lineups(engine, lineup_rows_by_game_team):
 
 
 def main():
-    today = date.today().isoformat()
+    # Game-day convention: the baseball day rolls at 06:00 local, so the
+    # post-midnight ticks (west-coast finals) still poll yesterday's slate
+    # instead of early-exiting on an empty new date.
+    today = (datetime.now() - timedelta(hours=6)).date().isoformat()
     log.info("=== MLB lineup poll started for %s ===", today)
 
     engine = get_engine()
@@ -336,6 +401,7 @@ def main():
              len(db_games), len(sched_games))
 
     update_probable_pitchers(engine, sched_games, db_games, today)
+    update_game_scores(engine, sched_games, db_games)
 
     lineups = {}
     fallback_pks = []
