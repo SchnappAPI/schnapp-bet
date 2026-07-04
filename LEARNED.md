@@ -33,3 +33,12 @@ don't just regroup sections. The user wants optimization, not reorganization.
 
 2026-05-17: Repo is SchnappAPI/schnapp-bet, not SchnappAPI/sports-modeling. All work
 for this project goes here. Do not confuse the two repos.
+
+2026-07-04: A push to main touching web/** fires deploy-web, whose success path SWAPS
+/Users/schnapp/code/schnapp-bet for a fresh clone and rm-rf's the old directory —
+any uncommitted edits or unpushed commits in the live repo at swap time are destroyed
+(happened this session; only an already-auto-pushed commit survived). The workflow now
+guards the swap (aborts on dirty tree / unpushed commits), but the session-side rule
+stands: while working in this repo, treat every web/** push as scheduling a directory
+swap ~20 min out — commit AND verify-push everything promptly; never let work sit
+uncommitted while a deploy may be in flight.

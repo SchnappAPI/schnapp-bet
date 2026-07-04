@@ -47,6 +47,19 @@ jobs:
       - name: Swap and restart
         run: |
           BASE=/Users/schnapp/code
+          # The swap replaces the live repo directory wholesale, so any local
+          # state not on origin dies with it (this destroyed live session
+          # work on 2026-07-04). Refuse to swap while the live repo holds
+          # anything origin does not.
+          if [ -n "$(git -C "$BASE/schnapp-bet" status --porcelain)" ]; then
+            echo "ABORT: live repo has uncommitted/untracked changes; commit+push or clean, then re-run."
+            git -C "$BASE/schnapp-bet" status --porcelain
+            exit 1
+          fi
+          if [ -n "$(git -C "$BASE/schnapp-bet" log --oneline '@{u}..HEAD' 2>/dev/null)" ]; then
+            echo "ABORT: live repo has unpushed commits; push, then re-run."
+            exit 1
+          fi
           rm -rf "$BASE/web-prev"
           mv "$BASE/schnapp-bet" "$BASE/web-prev"
           mv "$BASE/web-next"        "$BASE/schnapp-bet"
