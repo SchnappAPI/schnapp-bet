@@ -11,6 +11,9 @@ Load order (respects foreign key dependencies):
     5. mlb.pitching_stats         - Per-pitcher per-game box score. Upsert on pitcher_game_id.
     6. mlb.player_season_batting  - Season cumulative batting snapshot. Truncate and reload.
     7. mlb.pitcher_season_stats   - Season cumulative pitching snapshot. Truncate and reload.
+    8. mlb.games pitcher hands    - Set-based self-heal of away/home_pitcher_hand from
+                                    mlb.players.pitch_hand (runs last; repairs MERGE-clobbered
+                                    hands and backfills historical games).
 
 Flags:
     --backfill   Process historical seasons (2023, 2024, 2025) in addition to current.
@@ -717,6 +720,36 @@ def load_pitcher_season_stats(engine, season):
 # Today's schedule: upsert scheduled/in-progress games for the current date
 # ---------------------------------------------------------------------------
 
+def fetch_probable_pitcher_ids(date_str):
+    """
+    Return {game_pk: (away_pitcher_id, home_pitcher_id)} for a date.
+
+    statsapi.schedule() surfaces probable pitcher names only; the IDs require
+    the raw schedule endpoint with the probablePitcher hydrate.
+    """
+    try:
+        data = api_get("schedule", {
+            "sportId": 1,
+            "date": date_str,
+            "hydrate": "probablePitcher",
+        })
+    except Exception as exc:
+        log.warning("probablePitcher hydrate failed for %s: %s", date_str, exc)
+        return {}
+
+    ids = {}
+    for d in data.get("dates", []):
+        for g in d.get("games", []):
+            game_pk = g.get("gamePk")
+            if game_pk is None:
+                continue
+            teams = g.get("teams", {})
+            away = (teams.get("away", {}).get("probablePitcher") or {}).get("id")
+            home = (teams.get("home", {}).get("probablePitcher") or {}).get("id")
+            ids[game_pk] = (safe_int(away), safe_int(home))
+    return ids
+
+
 def load_todays_schedule(engine, team_abbr):
     """
     Fetch all regular season games scheduled for today regardless of status
@@ -737,10 +770,46 @@ def load_todays_schedule(engine, team_abbr):
         log.info("No regular season games found for %s", today)
         return
 
-    rows = [build_game_row(g, team_abbr, None, None) for g in regular]
+    probable_ids = fetch_probable_pitcher_ids(today)
+    rows = [
+        build_game_row(g, team_abbr, *probable_ids.get(g["game_id"], (None, None)))
+        for g in regular
+    ]
     df = pd.DataFrame(rows).where(pd.notna(pd.DataFrame(rows)), other=None)
     upsert(engine, df, "mlb", "games", ["game_pk"])
     log.info("Upserted %d game(s) for today into mlb.games", len(rows))
+
+
+# ---------------------------------------------------------------------------
+# Pitcher hands: derive mlb.games.*_pitcher_hand from mlb.players.pitch_hand
+# ---------------------------------------------------------------------------
+
+def update_pitcher_hands(engine):
+    """
+    Set-based self-heal for away/home_pitcher_hand across all of mlb.games.
+
+    Runs as the LAST load step: the games upsert MERGE writes NULL hands, so
+    this repairs today's rows, any rows clobbered by the box-score reload,
+    and (on first run) backfills every historical game whose pitcher_id is set.
+    """
+    sql = text("""
+        UPDATE g SET away_pitcher_hand = p.pitch_hand
+        FROM mlb.games g
+        JOIN mlb.players p ON p.player_id = g.away_pitcher_id
+        WHERE g.away_pitcher_id IS NOT NULL
+          AND p.pitch_hand IS NOT NULL
+          AND (g.away_pitcher_hand IS NULL OR g.away_pitcher_hand <> p.pitch_hand);
+
+        UPDATE g SET home_pitcher_hand = p.pitch_hand
+        FROM mlb.games g
+        JOIN mlb.players p ON p.player_id = g.home_pitcher_id
+        WHERE g.home_pitcher_id IS NOT NULL
+          AND p.pitch_hand IS NOT NULL
+          AND (g.home_pitcher_hand IS NULL OR g.home_pitcher_hand <> p.pitch_hand);
+    """)
+    with engine.begin() as conn:
+        result = conn.execute(sql)
+    log.info("Pitcher hands updated (%s rows affected)", result.rowcount)
 
 
 # ---------------------------------------------------------------------------
@@ -768,6 +837,7 @@ def main():
     load_games_and_box_scores(engine, box_score_seasons, team_abbr)
     load_player_season_batting(engine, season=current_season)
     load_pitcher_season_stats(engine, season=current_season)
+    update_pitcher_hands(engine)
 
     log.info("=== MLB ETL complete ===")
 
