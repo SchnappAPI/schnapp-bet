@@ -4,16 +4,23 @@ mlb_play_by_play.py
 Loads pitch-level play-by-play data for MLB games into mlb.play_by_play, then
 in-lockstep materializes derived tables for the same games:
   mlb.player_at_bats          — one row per completed at-bat, IDs only
-  mlb.career_batter_vs_pitcher — lifetime counts + rates per (batter, pitcher)
+  mlb.player_game_statcast    — one row per (batter, game), Statcast aggregates
+                                 for the research dashboard (counts + EV/xBA
+                                 sums so date windows re-aggregate correctly)
+  mlb.career_batter_vs_pitcher — lifetime counts + rates per (batter, pitcher),
+                                 plus quality-of-contact (EV/LA/dist/xBA,
+                                 hard-hit, barrels) over ingested seasons
   mlb.player_trend_stats      — one row per (player_id, game_date), rolling
                                  10/30/60-game windows of hitting, EV, and
-                                 platoon/home-away splits
+                                 platoon/home-away splits (platoon side also
+                                 carries XBH/EV/xBA/BABIP quality columns)
 
 Source: https://statsapi.mlb.com/api/v1/game/{game_pk}/withMetrics
 
-Four tables written:
+Five tables written:
   mlb.play_by_play               — one row per play event (pitch, pickoff, baserunning)
   mlb.player_at_bats             — one row per completed at-bat, IDs only (no names)
+  mlb.player_game_statcast       — one row per (batter_id, game_pk), per-game aggregates
   mlb.career_batter_vs_pitcher   — one row per (batter_id, pitcher_id) lifetime
   mlb.player_trend_stats         — one row per (batter_id, game_date), time-series
 
@@ -31,6 +38,9 @@ Write strategies (by table):
   player_at_bats:
     Direct INSERT. Separate diff against player_at_bats.game_pk so partial
     runs (PBP wrote, at-bats failed) are self-healing (ADR-0018).
+  player_game_statcast:
+    Set-based INSERT..SELECT from player_at_bats, same pre-diff pattern as
+    player_at_bats (source at-bat rows never change after load).
   career_batter_vs_pitcher:
     Staged MERGE. Unlike the other two, a (batter_id, pitcher_id) pair that
     appeared in a flush five runs ago already has a row; the new flush needs
@@ -515,6 +525,125 @@ IF NOT EXISTS (
         ON mlb.player_trend_stats (game_date, batter_id);
 """
 
+# mlb.player_game_statcast
+# One row per (batter_id, game_pk): the batter's Statcast line for that game,
+# pre-aggregated from mlb.player_at_bats. Counting stats are derived from
+# at-bat results so they always reconcile with the per-AB log; `runs` is the
+# one box-score-only stat (scoring is not an at-bat outcome) and comes from
+# mlb.batting_stats, NULL when the box score is absent.
+# Raw sums (ev_sum/bbe, xba_sum/xba_cnt, ...) are stored alongside the
+# per-game averages so date-window queries can re-aggregate correctly
+# (SUM(ev_sum)/SUM(bbe)) instead of averaging averages.
+# hip = plate appearances ending with the ball in play
+#     = pa - strikeouts - walks - hit_by_pitch - catcher interference.
+DDL_CREATE_GAME_STATCAST = """
+IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = 'mlb' AND TABLE_NAME = 'player_game_statcast'
+)
+CREATE TABLE mlb.player_game_statcast (
+    batter_id       INT           NOT NULL,
+    game_pk         INT           NOT NULL,
+    game_date       DATE          NULL,
+    team_id         INT           NULL,
+    opp_team_id     INT           NULL,
+    opp_pitcher_id  INT           NULL,
+    is_home         BIT           NULL,
+    pa              INT           NULL,
+    ab              INT           NULL,
+    hits            INT           NULL,
+    singles         INT           NULL,
+    doubles         INT           NULL,
+    triples         INT           NULL,
+    home_runs       INT           NULL,
+    xbh             INT           NULL,
+    total_bases     INT           NULL,
+    runs            INT           NULL,
+    rbi             INT           NULL,
+    strikeouts      INT           NULL,
+    walks           INT           NULL,
+    hit_by_pitch    INT           NULL,
+    sac_flies       INT           NULL,
+    hip             INT           NULL,
+    bbe             INT           NULL,
+    ev_sum          FLOAT         NULL,
+    avg_ev          DECIMAL(5,1)  NULL,
+    max_ev          DECIMAL(5,1)  NULL,
+    la_cnt          INT           NULL,
+    la_sum          FLOAT         NULL,
+    avg_la          DECIMAL(5,1)  NULL,
+    dist_cnt        INT           NULL,
+    dist_sum        FLOAT         NULL,
+    avg_dist        DECIMAL(6,1)  NULL,
+    xba_cnt         INT           NULL,
+    xba_sum         FLOAT         NULL,
+    avg_xba         DECIMAL(5,3)  NULL,
+    hard_hit        INT           NULL,
+    barrels         INT           NULL,
+    created_at      DATETIME2     NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_player_game_statcast PRIMARY KEY CLUSTERED (batter_id, game_pk)
+);
+"""
+
+DDL_CREATE_GAME_STATCAST_INDEXES = """
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_player_game_statcast_date'
+      AND object_id = OBJECT_ID('mlb.player_game_statcast')
+)
+    CREATE NONCLUSTERED INDEX IX_player_game_statcast_date
+        ON mlb.player_game_statcast (game_date, batter_id);
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_player_game_statcast_game'
+      AND object_id = OBJECT_ID('mlb.player_game_statcast')
+)
+    CREATE NONCLUSTERED INDEX IX_player_game_statcast_game
+        ON mlb.player_game_statcast (game_pk);
+"""
+
+# Quality-of-contact columns added to career_batter_vs_pitcher for the
+# research dashboard (docs/features/mlb-research-dashboard.md). Aggregated
+# from our own player_at_bats history, so the horizon is the ingested
+# seasons — not MLB-lifetime like the counting stats' upstream source.
+DDL_ALTER_BVP_QUALITY = """
+IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = 'mlb' AND TABLE_NAME = 'career_batter_vs_pitcher'
+      AND COLUMN_NAME = 'avg_ev'
+)
+    ALTER TABLE mlb.career_batter_vs_pitcher ADD
+        bbe          INT           NULL,
+        avg_ev       DECIMAL(5,1)  NULL,
+        avg_la       DECIMAL(5,1)  NULL,
+        avg_dist     DECIMAL(6,1)  NULL,
+        avg_xba      DECIMAL(5,3)  NULL,
+        hard_hit_ct  INT           NULL,
+        barrel_ct    INT           NULL;
+"""
+
+# Per-hand quality-of-contact splits added to player_trend_stats (full
+# history in loaded data, like the existing vs_lhp/vs_rhp hit-rate columns).
+DDL_ALTER_TREND_PLATOON_QUALITY = """
+IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = 'mlb' AND TABLE_NAME = 'player_trend_stats'
+      AND COLUMN_NAME = 'vs_lhp_avg_ev'
+)
+    ALTER TABLE mlb.player_trend_stats ADD
+        vs_lhp_xbh           INT           NULL,
+        vs_lhp_avg_ev        DECIMAL(5,1)  NULL,
+        vs_lhp_hard_hit_pct  DECIMAL(5,3)  NULL,
+        vs_lhp_avg_xba       DECIMAL(5,3)  NULL,
+        vs_lhp_babip         DECIMAL(5,3)  NULL,
+        vs_rhp_xbh           INT           NULL,
+        vs_rhp_avg_ev        DECIMAL(5,1)  NULL,
+        vs_rhp_hard_hit_pct  DECIMAL(5,3)  NULL,
+        vs_rhp_avg_xba       DECIMAL(5,3)  NULL,
+        vs_rhp_babip         DECIMAL(5,3)  NULL;
+"""
+
 
 # ---------------------------------------------------------------------------
 # Trend-stats: set-based computation (replaces per-row _compute_trend_row loop)
@@ -579,7 +708,9 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
             ab.batter_id,
             ab.game_date,
             pbp.pitcher_hand_code,
-            ab.result_event_type
+            ab.result_event_type,
+            ab.hit_launch_speed,
+            ab.hit_probability
         FROM mlb.player_at_bats ab
         JOIN mlb.play_by_play pbp
             ON pbp.game_pk = ab.game_pk
@@ -697,23 +828,56 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
 
     ha_batter_groups = {bid: grp.reset_index(drop=True) for bid, grp in ha_gpg.groupby("batter_id")}
 
-    # Build platoon (LHP/RHP) cumulative data per batter.
+    # Build platoon (LHP/RHP) cumulative data per batter. Beyond PA/hits,
+    # each hand also accumulates quality-of-contact (XBH, EV, hard-hit, xBA)
+    # and BABIP components. Definitions match the windowed columns above and
+    # the SQL rebuild path in rebuild_trend_stats — keep all three in lockstep.
     platoon_batter_groups = {}
     if not splits_df.empty:
         splits_df["is_hit2"] = splits_df["result_event_type"].isin(_HIT_EVENTS).astype(int)
-        splits_df["vs_lhp"] = (splits_df["pitcher_hand_code"] == "L").astype(int)
-        splits_df["vs_lhp_hit"] = (splits_df["vs_lhp"].astype(bool) & splits_df["is_hit2"].astype(bool)).astype(int)
-        splits_df["vs_rhp"] = (splits_df["pitcher_hand_code"] == "R").astype(int)
-        splits_df["vs_rhp_hit"] = (splits_df["vs_rhp"].astype(bool) & splits_df["is_hit2"].astype(bool)).astype(int)
+        splits_df["is_xbh2"] = splits_df["result_event_type"].isin(("double", "triple", "home_run")).astype(int)
+        splits_df["is_ab2"] = (~splits_df["result_event_type"].isin(_NON_AB_EVENTS)).astype(int)
+        splits_df["is_k2"] = splits_df["result_event_type"].isin(_K_EVENTS).astype(int)
+        splits_df["is_hr2"] = (splits_df["result_event_type"] == "home_run").astype(int)
+        splits_df["is_sf2"] = splits_df["result_event_type"].isin(("sac_fly", "sac_fly_double_play")).astype(int)
+        splits_df["ev2"] = pd.to_numeric(splits_df["hit_launch_speed"], errors="coerce")
+        splits_df["xba2"] = pd.to_numeric(splits_df["hit_probability"], errors="coerce")
+
+        agg_spec = {}
+        for hand, pfx in (("L", "vs_lhp"), ("R", "vs_rhp")):
+            m = splits_df["pitcher_hand_code"] == hand
+            splits_df[f"{pfx}"] = m.astype(int)
+            splits_df[f"{pfx}_hit"] = (m & splits_df["is_hit2"].astype(bool)).astype(int)
+            splits_df[f"{pfx}_xbh_i"] = (m & splits_df["is_xbh2"].astype(bool)).astype(int)
+            splits_df[f"{pfx}_ab_i"] = (m & splits_df["is_ab2"].astype(bool)).astype(int)
+            splits_df[f"{pfx}_so_i"] = (m & splits_df["is_k2"].astype(bool)).astype(int)
+            splits_df[f"{pfx}_hr_i"] = (m & splits_df["is_hr2"].astype(bool)).astype(int)
+            splits_df[f"{pfx}_sf_i"] = (m & splits_df["is_sf2"].astype(bool)).astype(int)
+            splits_df[f"{pfx}_bbe_i"] = (m & splits_df["ev2"].notna()).astype(int)
+            splits_df[f"{pfx}_ev_v"] = np.where(m, splits_df["ev2"].fillna(0.0), 0.0)
+            splits_df[f"{pfx}_hh_i"] = (m & (splits_df["ev2"] >= 95)).astype(int)
+            splits_df[f"{pfx}_xba_c"] = (m & splits_df["xba2"].notna()).astype(int)
+            splits_df[f"{pfx}_xba_v"] = np.where(m, splits_df["xba2"].fillna(0.0), 0.0)
+            agg_spec.update(
+                {
+                    f"{pfx}_pa": (f"{pfx}", "sum"),
+                    f"{pfx}_hits": (f"{pfx}_hit", "sum"),
+                    f"{pfx}_xbh": (f"{pfx}_xbh_i", "sum"),
+                    f"{pfx}_ab": (f"{pfx}_ab_i", "sum"),
+                    f"{pfx}_so": (f"{pfx}_so_i", "sum"),
+                    f"{pfx}_hr": (f"{pfx}_hr_i", "sum"),
+                    f"{pfx}_sf": (f"{pfx}_sf_i", "sum"),
+                    f"{pfx}_bbe": (f"{pfx}_bbe_i", "sum"),
+                    f"{pfx}_ev_sum": (f"{pfx}_ev_v", "sum"),
+                    f"{pfx}_hard_hit": (f"{pfx}_hh_i", "sum"),
+                    f"{pfx}_xba_cnt": (f"{pfx}_xba_c", "sum"),
+                    f"{pfx}_xba_sum": (f"{pfx}_xba_v", "sum"),
+                }
+            )
 
         pl_gpg = (
             splits_df.groupby(["batter_id", "game_date"])
-            .agg(
-                vs_lhp_pa=("vs_lhp", "sum"),
-                vs_lhp_hits=("vs_lhp_hit", "sum"),
-                vs_rhp_pa=("vs_rhp", "sum"),
-                vs_rhp_hits=("vs_rhp_hit", "sum"),
-            )
+            .agg(**agg_spec)
             .reset_index()
             .sort_values(["batter_id", "game_date"])
         )
@@ -797,15 +961,30 @@ def _compute_trend_stats_bulk(engine, batter_ids, target_pairs):
         pl_grp = platoon_batter_groups.get(batter_id)
         if pl_grp is not None:
             pl = pl_grp[pl_grp["game_date"] < game_date]
-            rec["vs_lhp_pa"] = int(pl["vs_lhp_pa"].sum())
-            rec["vs_lhp_hits"] = int(pl["vs_lhp_hits"].sum())
-            rec["vs_lhp_hit_rate"] = _safe_rate(rec["vs_lhp_hits"], rec["vs_lhp_pa"])
-            rec["vs_rhp_pa"] = int(pl["vs_rhp_pa"].sum())
-            rec["vs_rhp_hits"] = int(pl["vs_rhp_hits"].sum())
-            rec["vs_rhp_hit_rate"] = _safe_rate(rec["vs_rhp_hits"], rec["vs_rhp_pa"])
+            for pfx in ("vs_lhp", "vs_rhp"):
+                pa_h = int(pl[f"{pfx}_pa"].sum())
+                hits_h = int(pl[f"{pfx}_hits"].sum())
+                bbe_h = int(pl[f"{pfx}_bbe"].sum())
+                xc_h = int(pl[f"{pfx}_xba_cnt"].sum())
+                ab_h = int(pl[f"{pfx}_ab"].sum())
+                so_h = int(pl[f"{pfx}_so"].sum())
+                hr_h = int(pl[f"{pfx}_hr"].sum())
+                sf_h = int(pl[f"{pfx}_sf"].sum())
+                babip_den = ab_h - so_h - hr_h + sf_h
+                rec[f"{pfx}_pa"] = pa_h
+                rec[f"{pfx}_hits"] = hits_h
+                rec[f"{pfx}_hit_rate"] = _safe_rate(hits_h, pa_h)
+                rec[f"{pfx}_xbh"] = int(pl[f"{pfx}_xbh"].sum())
+                rec[f"{pfx}_avg_ev"] = _safe_ev(float(pl[f"{pfx}_ev_sum"].sum()), bbe_h)
+                rec[f"{pfx}_hard_hit_pct"] = _safe_rate(int(pl[f"{pfx}_hard_hit"].sum()), bbe_h)
+                # xba stored as probability (0-100 range); same scaling as windows
+                rec[f"{pfx}_avg_xba"] = round(float(pl[f"{pfx}_xba_sum"].sum()) / xc_h / 100, 3) if xc_h > 0 else None
+                rec[f"{pfx}_babip"] = _safe_rate(hits_h - hr_h, babip_den)
         else:
-            rec["vs_lhp_pa"] = rec["vs_lhp_hits"] = rec["vs_lhp_hit_rate"] = None
-            rec["vs_rhp_pa"] = rec["vs_rhp_hits"] = rec["vs_rhp_hit_rate"] = None
+            for pfx in ("vs_lhp", "vs_rhp"):
+                rec[f"{pfx}_pa"] = rec[f"{pfx}_hits"] = rec[f"{pfx}_hit_rate"] = None
+                rec[f"{pfx}_xbh"] = rec[f"{pfx}_avg_ev"] = rec[f"{pfx}_hard_hit_pct"] = None
+                rec[f"{pfx}_avg_xba"] = rec[f"{pfx}_babip"] = None
 
         records.append(rec)
 
@@ -1081,10 +1260,66 @@ def rebuild_trend_stats(engine):
                         SUM(CASE WHEN pbp.pitcher_hand_code='L'
                                   AND ab.result_event_type IN ('single','double','triple','home_run')
                                   THEN 1 ELSE 0 END) AS vs_lhp_hits,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='L'
+                                  AND ab.result_event_type IN ('double','triple','home_run')
+                                  THEN 1 ELSE 0 END) AS vs_lhp_xbh,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='L'
+                                  AND ab.result_event_type NOT IN (
+                                    'walk','intent_walk','hit_by_pitch','sac_fly',
+                                    'sac_fly_double_play','sac_bunt','sac_bunt_double_play',
+                                    'catcher_interf'
+                                  ) THEN 1 ELSE 0 END) AS vs_lhp_ab,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='L'
+                                  AND ab.result_event_type IN ('strikeout','strikeout_double_play')
+                                  THEN 1 ELSE 0 END) AS vs_lhp_so,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='L'
+                                  AND ab.result_event_type = 'home_run'
+                                  THEN 1 ELSE 0 END) AS vs_lhp_hr,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='L'
+                                  AND ab.result_event_type IN ('sac_fly','sac_fly_double_play')
+                                  THEN 1 ELSE 0 END) AS vs_lhp_sf,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='L'
+                                  AND ab.hit_launch_speed IS NOT NULL THEN 1 ELSE 0 END) AS vs_lhp_bbe,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='L'
+                                  THEN ISNULL(CAST(ab.hit_launch_speed AS FLOAT),0) ELSE 0 END) AS vs_lhp_ev_sum,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='L'
+                                  AND ab.hit_launch_speed >= 95 THEN 1 ELSE 0 END) AS vs_lhp_hard_hit,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='L'
+                                  AND ab.hit_probability IS NOT NULL THEN 1 ELSE 0 END) AS vs_lhp_xba_cnt,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='L'
+                                  THEN ISNULL(CAST(ab.hit_probability AS FLOAT),0) ELSE 0 END) AS vs_lhp_xba_sum,
                         SUM(CASE WHEN pbp.pitcher_hand_code='R' THEN 1 ELSE 0 END) AS vs_rhp_pa,
                         SUM(CASE WHEN pbp.pitcher_hand_code='R'
                                   AND ab.result_event_type IN ('single','double','triple','home_run')
                                   THEN 1 ELSE 0 END) AS vs_rhp_hits,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='R'
+                                  AND ab.result_event_type IN ('double','triple','home_run')
+                                  THEN 1 ELSE 0 END) AS vs_rhp_xbh,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='R'
+                                  AND ab.result_event_type NOT IN (
+                                    'walk','intent_walk','hit_by_pitch','sac_fly',
+                                    'sac_fly_double_play','sac_bunt','sac_bunt_double_play',
+                                    'catcher_interf'
+                                  ) THEN 1 ELSE 0 END) AS vs_rhp_ab,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='R'
+                                  AND ab.result_event_type IN ('strikeout','strikeout_double_play')
+                                  THEN 1 ELSE 0 END) AS vs_rhp_so,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='R'
+                                  AND ab.result_event_type = 'home_run'
+                                  THEN 1 ELSE 0 END) AS vs_rhp_hr,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='R'
+                                  AND ab.result_event_type IN ('sac_fly','sac_fly_double_play')
+                                  THEN 1 ELSE 0 END) AS vs_rhp_sf,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='R'
+                                  AND ab.hit_launch_speed IS NOT NULL THEN 1 ELSE 0 END) AS vs_rhp_bbe,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='R'
+                                  THEN ISNULL(CAST(ab.hit_launch_speed AS FLOAT),0) ELSE 0 END) AS vs_rhp_ev_sum,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='R'
+                                  AND ab.hit_launch_speed >= 95 THEN 1 ELSE 0 END) AS vs_rhp_hard_hit,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='R'
+                                  AND ab.hit_probability IS NOT NULL THEN 1 ELSE 0 END) AS vs_rhp_xba_cnt,
+                        SUM(CASE WHEN pbp.pitcher_hand_code='R'
+                                  THEN ISNULL(CAST(ab.hit_probability AS FLOAT),0) ELSE 0 END) AS vs_rhp_xba_sum,
                         SUM(CASE WHEN ab.is_top_inning=0 THEN 1 ELSE 0 END) AS home_pa,
                         SUM(CASE WHEN ab.is_top_inning=0
                                   AND ab.result_event_type IN ('single','double','triple','home_run')
@@ -1144,8 +1379,22 @@ def rebuild_trend_stats(engine):
                         CASE WHEN w.w60_xba_cnt>0 THEN ROUND((w.w60_xba_sum/w.w60_xba_cnt)/100.0,3) END AS w60_avg_xba,
                         s.vs_lhp_pa, s.vs_lhp_hits,
                         CASE WHEN s.vs_lhp_pa>0 THEN ROUND(CAST(s.vs_lhp_hits AS FLOAT)/s.vs_lhp_pa,3) END AS vs_lhp_hit_rate,
+                        s.vs_lhp_xbh,
+                        CASE WHEN s.vs_lhp_bbe>0 THEN ROUND(s.vs_lhp_ev_sum/s.vs_lhp_bbe,1) END AS vs_lhp_avg_ev,
+                        CASE WHEN s.vs_lhp_bbe>0 THEN ROUND(CAST(s.vs_lhp_hard_hit AS FLOAT)/s.vs_lhp_bbe,3) END AS vs_lhp_hard_hit_pct,
+                        CASE WHEN s.vs_lhp_xba_cnt>0 THEN ROUND((s.vs_lhp_xba_sum/s.vs_lhp_xba_cnt)/100.0,3) END AS vs_lhp_avg_xba,
+                        CASE WHEN (s.vs_lhp_ab - s.vs_lhp_so - s.vs_lhp_hr + s.vs_lhp_sf) > 0
+                             THEN ROUND(CAST(s.vs_lhp_hits - s.vs_lhp_hr AS FLOAT)
+                                        /(s.vs_lhp_ab - s.vs_lhp_so - s.vs_lhp_hr + s.vs_lhp_sf),3) END AS vs_lhp_babip,
                         s.vs_rhp_pa, s.vs_rhp_hits,
                         CASE WHEN s.vs_rhp_pa>0 THEN ROUND(CAST(s.vs_rhp_hits AS FLOAT)/s.vs_rhp_pa,3) END AS vs_rhp_hit_rate,
+                        s.vs_rhp_xbh,
+                        CASE WHEN s.vs_rhp_bbe>0 THEN ROUND(s.vs_rhp_ev_sum/s.vs_rhp_bbe,1) END AS vs_rhp_avg_ev,
+                        CASE WHEN s.vs_rhp_bbe>0 THEN ROUND(CAST(s.vs_rhp_hard_hit AS FLOAT)/s.vs_rhp_bbe,3) END AS vs_rhp_hard_hit_pct,
+                        CASE WHEN s.vs_rhp_xba_cnt>0 THEN ROUND((s.vs_rhp_xba_sum/s.vs_rhp_xba_cnt)/100.0,3) END AS vs_rhp_avg_xba,
+                        CASE WHEN (s.vs_rhp_ab - s.vs_rhp_so - s.vs_rhp_hr + s.vs_rhp_sf) > 0
+                             THEN ROUND(CAST(s.vs_rhp_hits - s.vs_rhp_hr AS FLOAT)
+                                        /(s.vs_rhp_ab - s.vs_rhp_so - s.vs_rhp_hr + s.vs_rhp_sf),3) END AS vs_rhp_babip,
                         s.home_pa, s.home_hits,
                         CASE WHEN s.home_pa>0 THEN ROUND(CAST(s.home_hits AS FLOAT)/s.home_pa,3) END AS home_hit_rate,
                         s.away_pa, s.away_hits,
@@ -1168,7 +1417,13 @@ def rebuild_trend_stats(engine):
                     w60_total_bases=src.w60_total_bases, w60_tb_per_pa=src.w60_tb_per_pa, w60_home_runs=src.w60_home_runs,
                     w60_avg_ev=src.w60_avg_ev, w60_hard_hit_pct=src.w60_hard_hit_pct, w60_barrel_pct=src.w60_barrel_pct, w60_avg_xba=src.w60_avg_xba,
                     vs_lhp_pa=src.vs_lhp_pa, vs_lhp_hits=src.vs_lhp_hits, vs_lhp_hit_rate=src.vs_lhp_hit_rate,
+                    vs_lhp_xbh=src.vs_lhp_xbh, vs_lhp_avg_ev=src.vs_lhp_avg_ev,
+                    vs_lhp_hard_hit_pct=src.vs_lhp_hard_hit_pct, vs_lhp_avg_xba=src.vs_lhp_avg_xba,
+                    vs_lhp_babip=src.vs_lhp_babip,
                     vs_rhp_pa=src.vs_rhp_pa, vs_rhp_hits=src.vs_rhp_hits, vs_rhp_hit_rate=src.vs_rhp_hit_rate,
+                    vs_rhp_xbh=src.vs_rhp_xbh, vs_rhp_avg_ev=src.vs_rhp_avg_ev,
+                    vs_rhp_hard_hit_pct=src.vs_rhp_hard_hit_pct, vs_rhp_avg_xba=src.vs_rhp_avg_xba,
+                    vs_rhp_babip=src.vs_rhp_babip,
                     home_pa=src.home_pa, home_hits=src.home_hits, home_hit_rate=src.home_hit_rate,
                     away_pa=src.away_pa, away_hits=src.away_hits, away_hit_rate=src.away_hit_rate,
                     updated_at=SYSUTCDATETIME()
@@ -1181,7 +1436,9 @@ def rebuild_trend_stats(engine):
                     w60_pa, w60_ab, w60_hits, w60_hit_rate, w60_bb_rate, w60_k_rate,
                     w60_total_bases, w60_tb_per_pa, w60_home_runs, w60_avg_ev, w60_hard_hit_pct, w60_barrel_pct, w60_avg_xba,
                     vs_lhp_pa, vs_lhp_hits, vs_lhp_hit_rate,
+                    vs_lhp_xbh, vs_lhp_avg_ev, vs_lhp_hard_hit_pct, vs_lhp_avg_xba, vs_lhp_babip,
                     vs_rhp_pa, vs_rhp_hits, vs_rhp_hit_rate,
+                    vs_rhp_xbh, vs_rhp_avg_ev, vs_rhp_hard_hit_pct, vs_rhp_avg_xba, vs_rhp_babip,
                     home_pa, home_hits, home_hit_rate,
                     away_pa, away_hits, away_hit_rate
                 ) VALUES (
@@ -1193,7 +1450,9 @@ def rebuild_trend_stats(engine):
                     src.w60_pa, src.w60_ab, src.w60_hits, src.w60_hit_rate, src.w60_bb_rate, src.w60_k_rate,
                     src.w60_total_bases, src.w60_tb_per_pa, src.w60_home_runs, src.w60_avg_ev, src.w60_hard_hit_pct, src.w60_barrel_pct, src.w60_avg_xba,
                     src.vs_lhp_pa, src.vs_lhp_hits, src.vs_lhp_hit_rate,
+                    src.vs_lhp_xbh, src.vs_lhp_avg_ev, src.vs_lhp_hard_hit_pct, src.vs_lhp_avg_xba, src.vs_lhp_babip,
                     src.vs_rhp_pa, src.vs_rhp_hits, src.vs_rhp_hit_rate,
+                    src.vs_rhp_xbh, src.vs_rhp_avg_ev, src.vs_rhp_hard_hit_pct, src.vs_rhp_avg_xba, src.vs_rhp_babip,
                     src.home_pa, src.home_hits, src.home_hit_rate,
                     src.away_pa, src.away_hits, src.away_hit_rate
                 );
@@ -1225,8 +1484,13 @@ def ensure_table(engine):
         conn.execute(text(DDL_CREATE_BVP_INDEXES))
         conn.execute(text(DDL_CREATE_TREND_STATS))
         conn.execute(text(DDL_CREATE_TREND_STATS_INDEXES))
+        conn.execute(text(DDL_CREATE_GAME_STATCAST))
+        conn.execute(text(DDL_CREATE_GAME_STATCAST_INDEXES))
+        conn.execute(text(DDL_ALTER_BVP_QUALITY))
+        conn.execute(text(DDL_ALTER_TREND_PLATOON_QUALITY))
     log.info(
-        "mlb.play_by_play, mlb.player_at_bats, mlb.career_batter_vs_pitcher, and mlb.player_trend_stats tables ensured."
+        "mlb.play_by_play, mlb.player_at_bats, mlb.career_batter_vs_pitcher, "
+        "mlb.player_trend_stats, and mlb.player_game_statcast tables ensured."
     )
 
 
@@ -1538,6 +1802,203 @@ def rebuild_player_at_bats(engine):
         load_player_at_bats_for_games(engine, chunk)
 
 
+def load_player_game_statcast_for_games(engine, game_pks):
+    """
+    Materialize one-row-per-(batter, game) Statcast aggregates from
+    mlb.player_at_bats into mlb.player_game_statcast for the given game_pks.
+
+    Same pattern as the at-bats materializer: pre-diff against existing
+    game_pks (self-healing for partial runs), then a single set-based
+    INSERT..SELECT. Source at-bat rows never change after load, so
+    re-MERGE is unnecessary.
+
+    `runs` comes from mlb.batting_stats (scoring is not an at-bat outcome);
+    it lands NULL when the box score row is absent and is not backfilled
+    later — mlb-etl (09:00 UTC) runs before this workflow (09:30), so the
+    box score is normally present.
+
+    Stat definitions (hard-hit EV>=95, barrel EV>=95 & LA 8-32, xba from
+    hit_probability/100) match player_trend_stats and the web layer's
+    statcastFormat.ts — keep them in lockstep.
+    """
+    if not game_pks:
+        return
+
+    game_pks = list(set(int(g) for g in game_pks))
+
+    with engine.connect() as conn:
+        existing = {
+            row[0] for row in conn.execute(text("SELECT DISTINCT game_pk FROM mlb.player_game_statcast")).fetchall()
+        }
+
+    target = [g for g in game_pks if g not in existing]
+    if not target:
+        log.info("game_statcast: all %d games already materialized.", len(game_pks))
+        return
+
+    placeholders = ", ".join(str(g) for g in target)
+    EXCL = (
+        "'caught_stealing_2b','caught_stealing_3b','caught_stealing_home',"
+        "'pickoff_1b','pickoff_2b','pickoff_caught_stealing_2b',"
+        "'pickoff_caught_stealing_3b','pickoff_caught_stealing_home',"
+        "'pickoff_error_1b','stolen_base_2b','wild_pitch'"
+    )
+
+    # mlb.batting_stats is owned by mlb_etl.py and may not exist yet on an
+    # empty DB (same reason DDL_CREATE_BOXSCORE_INDEXES guards on OBJECT_ID).
+    # Referencing a missing table in the LEFT JOIN is a hard compile error,
+    # so fall back to NULL runs when it is absent.
+    with engine.connect() as conn:
+        has_box = conn.execute(text("SELECT OBJECT_ID('mlb.batting_stats')")).scalar() is not None
+
+    if has_box:
+        runs_select = "bs.runs"
+        box_join = """
+            LEFT JOIN mlb.batting_stats bs
+                ON bs.game_pk = a.game_pk AND bs.player_id = a.batter_id"""
+    else:
+        runs_select = "CAST(NULL AS INT) AS runs"
+        box_join = ""
+
+    with engine.begin() as conn:
+        inserted = conn.execute(
+            text(f"""
+            WITH ab_rows AS (
+                SELECT *
+                FROM mlb.player_at_bats
+                WHERE game_pk IN ({placeholders})
+                  AND batter_id IS NOT NULL
+                  AND result_event_type NOT IN ({EXCL})
+            ),
+            first_pa AS (
+                SELECT batter_id, game_pk, MIN(at_bat_number) AS first_abn
+                FROM ab_rows
+                GROUP BY batter_id, game_pk
+            ),
+            agg AS (
+                SELECT
+                    ab.batter_id,
+                    ab.game_pk,
+                    MAX(ab.game_date) AS game_date,
+                    MAX(CASE WHEN ab.is_top_inning=1 THEN ab.away_team_id ELSE ab.home_team_id END) AS team_id,
+                    MAX(CASE WHEN ab.is_top_inning=1 THEN ab.home_team_id ELSE ab.away_team_id END) AS opp_team_id,
+                    MAX(CASE WHEN ab.is_top_inning=0 THEN 1 ELSE 0 END) AS is_home,
+                    COUNT(*) AS pa,
+                    SUM(CASE WHEN ab.result_event_type NOT IN (
+                        'walk','intent_walk','hit_by_pitch','sac_fly','sac_fly_double_play',
+                        'sac_bunt','sac_bunt_double_play','catcher_interf'
+                    ) THEN 1 ELSE 0 END) AS ab_cnt,
+                    SUM(CASE WHEN ab.result_event_type IN ('single','double','triple','home_run')
+                        THEN 1 ELSE 0 END) AS hits,
+                    SUM(CASE WHEN ab.result_event_type = 'single'   THEN 1 ELSE 0 END) AS singles,
+                    SUM(CASE WHEN ab.result_event_type = 'double'   THEN 1 ELSE 0 END) AS doubles,
+                    SUM(CASE WHEN ab.result_event_type = 'triple'   THEN 1 ELSE 0 END) AS triples,
+                    SUM(CASE WHEN ab.result_event_type = 'home_run' THEN 1 ELSE 0 END) AS home_runs,
+                    SUM(CASE WHEN ab.result_event_type IN ('double','triple','home_run')
+                        THEN 1 ELSE 0 END) AS xbh,
+                    SUM(CASE ab.result_event_type
+                        WHEN 'single' THEN 1 WHEN 'double' THEN 2
+                        WHEN 'triple' THEN 3 WHEN 'home_run' THEN 4
+                        ELSE 0 END) AS total_bases,
+                    SUM(ISNULL(ab.result_rbi, 0)) AS rbi,
+                    SUM(CASE WHEN ab.result_event_type IN ('strikeout','strikeout_double_play')
+                        THEN 1 ELSE 0 END) AS strikeouts,
+                    SUM(CASE WHEN ab.result_event_type IN ('walk','intent_walk')
+                        THEN 1 ELSE 0 END) AS walks,
+                    SUM(CASE WHEN ab.result_event_type = 'hit_by_pitch' THEN 1 ELSE 0 END) AS hit_by_pitch,
+                    SUM(CASE WHEN ab.result_event_type IN ('sac_fly','sac_fly_double_play')
+                        THEN 1 ELSE 0 END) AS sac_flies,
+                    SUM(CASE WHEN ab.result_event_type = 'catcher_interf' THEN 1 ELSE 0 END) AS ci,
+                    SUM(CASE WHEN ab.hit_launch_speed IS NOT NULL THEN 1 ELSE 0 END) AS bbe,
+                    SUM(ISNULL(CAST(ab.hit_launch_speed AS FLOAT), 0)) AS ev_sum,
+                    MAX(ab.hit_launch_speed) AS max_ev,
+                    SUM(CASE WHEN ab.hit_launch_angle IS NOT NULL THEN 1 ELSE 0 END) AS la_cnt,
+                    SUM(ISNULL(CAST(ab.hit_launch_angle AS FLOAT), 0)) AS la_sum,
+                    SUM(CASE WHEN ab.hit_total_distance IS NOT NULL THEN 1 ELSE 0 END) AS dist_cnt,
+                    SUM(ISNULL(CAST(ab.hit_total_distance AS FLOAT), 0)) AS dist_sum,
+                    SUM(CASE WHEN ab.hit_probability IS NOT NULL THEN 1 ELSE 0 END) AS xba_cnt,
+                    SUM(ISNULL(CAST(ab.hit_probability AS FLOAT), 0)) AS xba_sum,
+                    SUM(CASE WHEN ab.hit_launch_speed >= 95 THEN 1 ELSE 0 END) AS hard_hit,
+                    SUM(CASE WHEN ab.hit_launch_speed >= 95 AND ab.hit_launch_angle BETWEEN 8 AND 32
+                        THEN 1 ELSE 0 END) AS barrels
+                FROM ab_rows ab
+                GROUP BY ab.batter_id, ab.game_pk
+            )
+            INSERT INTO mlb.player_game_statcast (
+                batter_id, game_pk, game_date, team_id, opp_team_id, opp_pitcher_id, is_home,
+                pa, ab, hits, singles, doubles, triples, home_runs, xbh, total_bases,
+                runs, rbi, strikeouts, walks, hit_by_pitch, sac_flies, hip,
+                bbe, ev_sum, avg_ev, max_ev,
+                la_cnt, la_sum, avg_la,
+                dist_cnt, dist_sum, avg_dist,
+                xba_cnt, xba_sum, avg_xba,
+                hard_hit, barrels
+            )
+            SELECT
+                a.batter_id, a.game_pk, a.game_date, a.team_id, a.opp_team_id,
+                fab.pitcher_id AS opp_pitcher_id,
+                a.is_home,
+                a.pa, a.ab_cnt, a.hits, a.singles, a.doubles, a.triples, a.home_runs,
+                a.xbh, a.total_bases,
+                {runs_select},
+                a.rbi, a.strikeouts, a.walks, a.hit_by_pitch, a.sac_flies,
+                a.pa - a.strikeouts - a.walks - a.hit_by_pitch - a.ci AS hip,
+                a.bbe, a.ev_sum,
+                CASE WHEN a.bbe > 0 THEN ROUND(a.ev_sum / a.bbe, 1) END AS avg_ev,
+                a.max_ev,
+                a.la_cnt, a.la_sum,
+                CASE WHEN a.la_cnt > 0 THEN ROUND(a.la_sum / a.la_cnt, 1) END AS avg_la,
+                a.dist_cnt, a.dist_sum,
+                CASE WHEN a.dist_cnt > 0 THEN ROUND(a.dist_sum / a.dist_cnt, 1) END AS avg_dist,
+                a.xba_cnt, a.xba_sum,
+                CASE WHEN a.xba_cnt > 0 THEN ROUND((a.xba_sum / a.xba_cnt) / 100.0, 3) END AS avg_xba,
+                a.hard_hit, a.barrels
+            FROM agg a
+            JOIN first_pa f
+                ON f.batter_id = a.batter_id AND f.game_pk = a.game_pk
+            JOIN ab_rows fab
+                ON fab.batter_id = a.batter_id
+               AND fab.game_pk = a.game_pk
+               AND fab.at_bat_number = f.first_abn{box_join};
+        """)
+        ).rowcount
+
+    log.info(
+        "game_statcast: wrote %d rows across %d games (%d skipped as already present).",
+        inserted,
+        len(target),
+        len(game_pks) - len(target),
+    )
+
+
+def rebuild_player_game_statcast(engine):
+    """
+    Standalone materializer for --rebuild-game-statcast mode. Runs the
+    game-statcast loader against every game_pk currently in
+    mlb.player_at_bats.
+
+    Does NOT delete existing rows (the loader diffs on game_pk). For a
+    full rebuild, DELETE FROM mlb.player_game_statcast first.
+    """
+    with engine.connect() as conn:
+        ab_games = [row[0] for row in conn.execute(text("SELECT DISTINCT game_pk FROM mlb.player_at_bats")).fetchall()]
+
+    log.info("rebuild-game-statcast: %d distinct game_pks in mlb.player_at_bats.", len(ab_games))
+    if not ab_games:
+        return
+
+    CHUNK = 200
+    for start in range(0, len(ab_games), CHUNK):
+        chunk = ab_games[start : start + CHUNK]
+        log.info(
+            "rebuild-game-statcast: processing games %d-%d of %d.",
+            start + 1,
+            start + len(chunk),
+            len(ab_games),
+        )
+        load_player_game_statcast_for_games(engine, chunk)
+
+
 # SQL expression that classifies a row from mlb.player_at_bats into at-bat
 # count buckets. Reused by both the per-flush loader and the full rebuild.
 # Event types follow the MLB Stats API contract observed in production data.
@@ -1569,7 +2030,18 @@ BVP_AGGREGATE_SELECT = """
              WHEN ab.result_event_type = 'home_run' THEN 4
              ELSE 0 END
     ) AS total_bases,
-    MAX(ab.game_date) AS last_faced_date
+    MAX(ab.game_date) AS last_faced_date,
+    SUM(CASE WHEN ab.hit_launch_speed IS NOT NULL THEN 1 ELSE 0 END) AS bbe,
+    SUM(ISNULL(CAST(ab.hit_launch_speed AS FLOAT), 0)) AS ev_sum,
+    SUM(CASE WHEN ab.hit_launch_angle IS NOT NULL THEN 1 ELSE 0 END) AS la_cnt,
+    SUM(ISNULL(CAST(ab.hit_launch_angle AS FLOAT), 0)) AS la_sum,
+    SUM(CASE WHEN ab.hit_total_distance IS NOT NULL THEN 1 ELSE 0 END) AS dist_cnt,
+    SUM(ISNULL(CAST(ab.hit_total_distance AS FLOAT), 0)) AS dist_sum,
+    SUM(CASE WHEN ab.hit_probability IS NOT NULL THEN 1 ELSE 0 END) AS xba_cnt,
+    SUM(ISNULL(CAST(ab.hit_probability AS FLOAT), 0)) AS xba_sum,
+    SUM(CASE WHEN ab.hit_launch_speed >= 95 THEN 1 ELSE 0 END) AS hard_hit_ct,
+    SUM(CASE WHEN ab.hit_launch_speed >= 95 AND ab.hit_launch_angle BETWEEN 8 AND 32
+        THEN 1 ELSE 0 END) AS barrel_ct
 """
 
 
@@ -1615,6 +2087,17 @@ def _merge_bvp_from_temp(conn, temp_table):
                                         + (CAST(src.total_bases AS DECIMAL(10,4)) / src.at_bats)
                                      ELSE NULL END,
             last_faced_date   = src.last_faced_date,
+            bbe               = src.bbe,
+            avg_ev            = CASE WHEN src.bbe > 0
+                                     THEN ROUND(src.ev_sum / src.bbe, 1) ELSE NULL END,
+            avg_la            = CASE WHEN src.la_cnt > 0
+                                     THEN ROUND(src.la_sum / src.la_cnt, 1) ELSE NULL END,
+            avg_dist          = CASE WHEN src.dist_cnt > 0
+                                     THEN ROUND(src.dist_sum / src.dist_cnt, 1) ELSE NULL END,
+            avg_xba           = CASE WHEN src.xba_cnt > 0
+                                     THEN ROUND((src.xba_sum / src.xba_cnt) / 100.0, 3) ELSE NULL END,
+            hard_hit_ct       = src.hard_hit_ct,
+            barrel_ct         = src.barrel_ct,
             updated_at        = SYSUTCDATETIME()
         WHEN NOT MATCHED THEN INSERT (
             batter_id, pitcher_id,
@@ -1622,7 +2105,8 @@ def _merge_bvp_from_temp(conn, temp_table):
             singles, doubles, triples, home_runs,
             rbi, walks, strikeouts, hit_by_pitch, sac_flies, total_bases,
             batting_avg, obp, slg, ops,
-            last_faced_date
+            last_faced_date,
+            bbe, avg_ev, avg_la, avg_dist, avg_xba, hard_hit_ct, barrel_ct
         ) VALUES (
             src.batter_id, src.pitcher_id,
             src.plate_appearances, src.at_bats, src.hits,
@@ -1644,7 +2128,14 @@ def _merge_bvp_from_temp(conn, temp_table):
                         / (src.at_bats + src.walks + src.hit_by_pitch + src.sac_flies))
                     + (CAST(src.total_bases AS DECIMAL(10,4)) / src.at_bats)
                  ELSE NULL END,
-            src.last_faced_date
+            src.last_faced_date,
+            src.bbe,
+            CASE WHEN src.bbe > 0 THEN ROUND(src.ev_sum / src.bbe, 1) ELSE NULL END,
+            CASE WHEN src.la_cnt > 0 THEN ROUND(src.la_sum / src.la_cnt, 1) ELSE NULL END,
+            CASE WHEN src.dist_cnt > 0 THEN ROUND(src.dist_sum / src.dist_cnt, 1) ELSE NULL END,
+            CASE WHEN src.xba_cnt > 0 THEN ROUND((src.xba_sum / src.xba_cnt) / 100.0, 3) ELSE NULL END,
+            src.hard_hit_ct,
+            src.barrel_ct
         );
     """)
     )
@@ -1705,6 +2196,16 @@ def load_career_bvp_for_games(engine, game_pks):
                 sac_flies         INT NOT NULL,
                 total_bases       INT NOT NULL,
                 last_faced_date   DATE NULL,
+                bbe               INT NOT NULL,
+                ev_sum            FLOAT NOT NULL,
+                la_cnt            INT NOT NULL,
+                la_sum            FLOAT NOT NULL,
+                dist_cnt          INT NOT NULL,
+                dist_sum          FLOAT NOT NULL,
+                xba_cnt           INT NOT NULL,
+                xba_sum           FLOAT NOT NULL,
+                hard_hit_ct       INT NOT NULL,
+                barrel_ct         INT NOT NULL,
                 PRIMARY KEY (batter_id, pitcher_id)
             );
         """)
@@ -1727,7 +2228,9 @@ def load_career_bvp_for_games(engine, game_pks):
                 batter_id, pitcher_id, plate_appearances, at_bats, hits,
                 singles, doubles, triples, home_runs,
                 rbi, walks, strikeouts, hit_by_pitch, sac_flies, total_bases,
-                last_faced_date
+                last_faced_date,
+                bbe, ev_sum, la_cnt, la_sum, dist_cnt, dist_sum,
+                xba_cnt, xba_sum, hard_hit_ct, barrel_ct
             )
             SELECT {BVP_AGGREGATE_SELECT}
             FROM mlb.player_at_bats AS ab
@@ -1801,6 +2304,16 @@ def rebuild_career_bvp(engine):
                     sac_flies         INT NOT NULL,
                     total_bases       INT NOT NULL,
                     last_faced_date   DATE NULL,
+                    bbe               INT NOT NULL,
+                    ev_sum            FLOAT NOT NULL,
+                    la_cnt            INT NOT NULL,
+                    la_sum            FLOAT NOT NULL,
+                    dist_cnt          INT NOT NULL,
+                    dist_sum          FLOAT NOT NULL,
+                    xba_cnt           INT NOT NULL,
+                    xba_sum           FLOAT NOT NULL,
+                    hard_hit_ct       INT NOT NULL,
+                    barrel_ct         INT NOT NULL,
                     PRIMARY KEY (batter_id, pitcher_id)
                 );
             """)
@@ -1812,7 +2325,9 @@ def rebuild_career_bvp(engine):
                     batter_id, pitcher_id, plate_appearances, at_bats, hits,
                     singles, doubles, triples, home_runs,
                     rbi, walks, strikeouts, hit_by_pitch, sac_flies, total_bases,
-                    last_faced_date
+                    last_faced_date,
+                    bbe, ev_sum, la_cnt, la_sum, dist_cnt, dist_sum,
+                    xba_cnt, xba_sum, hard_hit_ct, barrel_ct
                 )
                 SELECT {BVP_AGGREGATE_SELECT}
                 FROM mlb.player_at_bats AS ab
@@ -1924,6 +2439,7 @@ def load_play_by_play(engine, seasons, batch_size):
             flush(engine, flush_rows)
             log.info("Wrote %d PBP rows after game %d of %d.", len(flush_rows), i, len(work))
             load_player_at_bats_for_games(engine, flush_games)
+            load_player_game_statcast_for_games(engine, flush_games)
             load_career_bvp_for_games(engine, flush_games)
             load_trend_stats_for_games(engine, flush_games)
             flush_rows = []
@@ -1953,27 +2469,35 @@ def main():
         action="store_true",
         help="Skip PBP fetch loop; rebuild mlb.player_trend_stats from existing player_at_bats data.",
     )
+    parser.add_argument(
+        "--rebuild-game-statcast",
+        action="store_true",
+        help="Skip PBP fetch loop; rebuild mlb.player_game_statcast from existing player_at_bats data.",
+    )
     args = parser.parse_args()
 
     seasons = args.seasons or SEASONS
     log.info("=== MLB Play-by-Play ETL started ===")
     log.info(
-        "Seasons: %s  Batch: %d  Rebuild at-bats: %s  Rebuild BvP: %s  Rebuild trend: %s",
+        "Seasons: %s  Batch: %d  Rebuild at-bats: %s  Rebuild BvP: %s  Rebuild trend: %s  Rebuild game-statcast: %s",
         seasons,
         args.batch,
         args.rebuild_at_bats,
         args.rebuild_bvp,
         args.rebuild_trend_stats,
+        args.rebuild_game_statcast,
     )
 
     engine = get_engine()
     ensure_table(engine)
 
-    rebuild_mode = args.rebuild_at_bats or args.rebuild_bvp or args.rebuild_trend_stats
+    rebuild_mode = args.rebuild_at_bats or args.rebuild_bvp or args.rebuild_trend_stats or args.rebuild_game_statcast
 
     if rebuild_mode:
         if args.rebuild_at_bats:
             rebuild_player_at_bats(engine)
+        if args.rebuild_game_statcast:
+            rebuild_player_game_statcast(engine)
         if args.rebuild_bvp:
             rebuild_career_bvp(engine)
         if args.rebuild_trend_stats:
