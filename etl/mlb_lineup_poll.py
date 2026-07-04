@@ -15,10 +15,15 @@ Per run:
     2. Targeted UPDATE of mlb.games probable pitcher id/name (never a
        full-row upsert - the nightly box-score MERGE owns the other columns),
        then a set-based hand fix from mlb.players.pitch_hand scoped to today.
-    3. For each team whose lineup has posted: DELETE that game/team's rows in
-       mlb.daily_lineups, then upsert the 9 confirmed rows (handles scratches
-       and re-posts). Games in Pre-Game/Warmup with no hydrate lineup fall
-       back to the game's /boxscore battingOrder scan.
+       COALESCE semantics: a hydrate dropout never nulls a known pitcher, so
+       a scratch with no announced replacement keeps the stale pitcher until
+       the nightly ETL reconciles - deliberate never-null-out policy.
+    3. For each team whose lineup has posted: upsert the 9 confirmed rows
+       into mlb.daily_lineups FIRST, then prune rows not in the posted nine
+       (scratches, re-posts). Write-then-prune means a failed write leaves
+       the previous confirmed lineup intact rather than an empty one. Games
+       in Pre-Game/Warmup with no hydrate lineup fall back to the game's
+       /boxscore battingOrder scan.
 
 mlb.daily_lineups stores CONFIRMED lineups only. The web tier derives a
 "projected" fallback from recent batting orders when no row exists yet, so
@@ -199,7 +204,9 @@ def rows_from_hydrate(game, db_row, today):
     Returns {team_id: [row, ...]} containing only teams with a full 9 posted.
     """
     lineups = game.get("lineups") or {}
-    now_utc = datetime.now(timezone.utc)
+    # Naive UTC: tz-aware datetimes route through pyodbc as datetimeoffset,
+    # a known fast_executemany failure mode against DATETIME2.
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     out = {}
     for key, team_id in (
         ("awayPlayers", db_row["away_team_id"]),
@@ -208,6 +215,9 @@ def rows_from_hydrate(game, db_row, today):
         players = lineups.get(key) or []
         if len(players) < 9:
             continue
+        if len(players) > 9:
+            log.warning("  game_pk %s %s: hydrate returned %d players; using first 9",
+                        db_row["game_pk"], key, len(players))
         rows = []
         for order, p in enumerate(players[:9], start=1):
             pid = p.get("id")
@@ -244,7 +254,7 @@ def rows_from_boxscore(game_pk, db_row, today):
         log.warning("  boxscore fallback failed for game_pk %s: %s", game_pk, exc)
         return {}
 
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     out = {}
     for side, team_id in (
         ("away", db_row["away_team_id"]),
@@ -279,23 +289,31 @@ def rows_from_boxscore(game_pk, db_row, today):
 
 
 def write_lineups(engine, lineup_rows_by_game_team):
-    """DELETE each posted game/team's rows, then upsert the confirmed nine."""
-    all_rows = []
-    with engine.begin() as conn:
-        for (game_pk, team_id), rows in lineup_rows_by_game_team.items():
-            conn.execute(
-                text(
-                    "DELETE FROM mlb.daily_lineups "
-                    "WHERE game_pk = :game_pk AND team_id = :team_id"
-                ),
-                {"game_pk": game_pk, "team_id": team_id},
-            )
-            all_rows.extend(rows)
-
+    """
+    Upsert the confirmed nine per posted team, THEN prune rows not in the
+    posted set (scratches, re-posts). Write-first ordering means a failed or
+    quarantined write leaves the previously stored lineup intact instead of
+    deleting it and leaving the game bare until the next poll.
+    """
+    all_rows = [r for rows in lineup_rows_by_game_team.values() for r in rows]
     df = pd.DataFrame(all_rows)
     upsert(engine, df, "mlb", "daily_lineups",
            ["game_pk", "team_id", "player_id"],
            source_workflow="mlb-lineups")
+
+    with engine.begin() as conn:
+        for (game_pk, team_id), rows in lineup_rows_by_game_team.items():
+            # player_ids come from the API as ints; the IN list is numeric.
+            ids = ", ".join(str(int(r["player_id"])) for r in rows)
+            conn.execute(
+                text(
+                    "DELETE FROM mlb.daily_lineups "
+                    f"WHERE game_pk = :game_pk AND team_id = :team_id "
+                    f"AND player_id NOT IN ({ids})"
+                ),
+                {"game_pk": game_pk, "team_id": team_id},
+            )
+
     log.info("Wrote %d lineup row(s) across %d team lineup(s).",
              len(all_rows), len(lineup_rows_by_game_team))
 

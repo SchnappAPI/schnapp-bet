@@ -775,6 +775,33 @@ def load_todays_schedule(engine, team_abbr):
         build_game_row(g, team_abbr, *probable_ids.get(g["game_id"], (None, None)))
         for g in regular
     ]
+
+    # The games MERGE updates every column, so a hydrate dropout (or a
+    # manual dispatch during the intraday poller window) must not null out
+    # pitcher ids/names/hands already on the row. Preserve existing values
+    # wherever this run has nothing better.
+    existing = {}
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                "SELECT game_pk, away_pitcher_id, away_pitcher_name, "
+                "       away_pitcher_hand, home_pitcher_id, "
+                "       home_pitcher_name, home_pitcher_hand "
+                "FROM mlb.games WHERE game_date = :today"
+            ),
+            {"today": today},
+        )
+        for r in result:
+            existing[r.game_pk] = r
+    for row in rows:
+        ex = existing.get(row["game_pk"])
+        if ex is None:
+            continue
+        for col in ("away_pitcher_id", "away_pitcher_name", "away_pitcher_hand",
+                    "home_pitcher_id", "home_pitcher_name", "home_pitcher_hand"):
+            if row.get(col) is None:
+                row[col] = getattr(ex, col)
+
     df = pd.DataFrame(rows).where(pd.notna(pd.DataFrame(rows)), other=None)
     upsert(engine, df, "mlb", "games", ["game_pk"])
     log.info("Upserted %d game(s) for today into mlb.games", len(rows))
@@ -792,24 +819,29 @@ def update_pitcher_hands(engine):
     this repairs today's rows, any rows clobbered by the box-score reload,
     and (on first run) backfills every historical game whose pitcher_id is set.
     """
-    sql = text("""
-        UPDATE g SET away_pitcher_hand = p.pitch_hand
-        FROM mlb.games g
-        JOIN mlb.players p ON p.player_id = g.away_pitcher_id
-        WHERE g.away_pitcher_id IS NOT NULL
-          AND p.pitch_hand IS NOT NULL
-          AND (g.away_pitcher_hand IS NULL OR g.away_pitcher_hand <> p.pitch_hand);
-
-        UPDATE g SET home_pitcher_hand = p.pitch_hand
-        FROM mlb.games g
-        JOIN mlb.players p ON p.player_id = g.home_pitcher_id
-        WHERE g.home_pitcher_id IS NOT NULL
-          AND p.pitch_hand IS NOT NULL
-          AND (g.home_pitcher_hand IS NULL OR g.home_pitcher_hand <> p.pitch_hand);
-    """)
+    statements = [
+        text("""
+            UPDATE g SET away_pitcher_hand = p.pitch_hand
+            FROM mlb.games g
+            JOIN mlb.players p ON p.player_id = g.away_pitcher_id
+            WHERE g.away_pitcher_id IS NOT NULL
+              AND p.pitch_hand IS NOT NULL
+              AND (g.away_pitcher_hand IS NULL OR g.away_pitcher_hand <> p.pitch_hand)
+        """),
+        text("""
+            UPDATE g SET home_pitcher_hand = p.pitch_hand
+            FROM mlb.games g
+            JOIN mlb.players p ON p.player_id = g.home_pitcher_id
+            WHERE g.home_pitcher_id IS NOT NULL
+              AND p.pitch_hand IS NOT NULL
+              AND (g.home_pitcher_hand IS NULL OR g.home_pitcher_hand <> p.pitch_hand)
+        """),
+    ]
+    total = 0
     with engine.begin() as conn:
-        result = conn.execute(sql)
-    log.info("Pitcher hands updated (%s rows affected)", result.rowcount)
+        for stmt in statements:
+            total += conn.execute(stmt).rowcount
+    log.info("Pitcher hands updated (%d rows affected)", total)
 
 
 # ---------------------------------------------------------------------------
