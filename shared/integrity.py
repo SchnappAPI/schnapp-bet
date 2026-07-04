@@ -229,6 +229,14 @@ CRITICAL_FIELDS: Dict[str, Dict[str, Any]] = {
         "required_when": {},
     },
 
+    "mlb.daily_lineups": {
+        "row_key": ["game_pk", "team_id", "player_id"],
+        "always_required": [
+            "game_pk", "team_id", "player_id", "game_date", "batting_order",
+        ],
+        "required_when": {},
+    },
+
     # =================================================================
     # nfl schema (weekly grain: season/week/season_type, gsis_id players)
     # =================================================================
