@@ -130,11 +130,16 @@ const COLS: Col[] = [
 
 function TeamGrid({
   team,
+  opp,
   columnValues,
   selectedId,
   onSelect,
 }: {
   team: GridTeam;
+  // The OPPOSING side — GridTeam.pitcher* is the team's own probable;
+  // these batters face (and the BvP/platoon columns are computed vs)
+  // the other team's.
+  opp: GridTeam;
   columnValues: Map<string, (number | null | undefined)[]>;
   selectedId: number | null;
   onSelect: (playerId: number) => void;
@@ -143,10 +148,10 @@ function TeamGrid({
     <div className="mb-5">
       <div className="text-xs font-semibold text-fg-subtle uppercase tracking-wider mb-1.5 flex items-center gap-2">
         <span>{team.teamAbbr} Batters</span>
-        {team.pitcherName && (
+        {opp.pitcherName && (
           <span className="text-[10px] font-normal normal-case tracking-normal text-fg-disabled">
-            vs {team.pitcherName}
-            {team.pitcherHand ? ` (${team.pitcherHand})` : ""}
+            vs {opp.pitcherName}
+            {opp.pitcherHand ? ` (${opp.pitcherHand})` : ""}
           </span>
         )}
         {team.lineupStatus === "projected" && (
@@ -533,6 +538,7 @@ export default function MlbResearchView() {
             )}
             <TeamGrid
               team={grid.away}
+              opp={grid.home}
               columnValues={columnValues}
               selectedId={selectedBatter}
               onSelect={(id) =>
@@ -541,6 +547,7 @@ export default function MlbResearchView() {
             />
             <TeamGrid
               team={grid.home}
+              opp={grid.away}
               columnValues={columnValues}
               selectedId={selectedBatter}
               onSelect={(id) =>
