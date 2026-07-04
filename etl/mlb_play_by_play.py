@@ -605,8 +605,8 @@ IF NOT EXISTS (
 
 # Quality-of-contact columns added to career_batter_vs_pitcher for the
 # research dashboard (docs/features/mlb-research-dashboard.md). Aggregated
-# from our own player_at_bats history, so the horizon is the ingested
-# seasons — not MLB-lifetime like the counting stats' upstream source.
+# from player_at_bats like every other column in the table, so "career"
+# means the ingested-seasons horizon, not MLB-lifetime.
 DDL_ALTER_BVP_QUALITY = """
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
@@ -1802,20 +1802,26 @@ def rebuild_player_at_bats(engine):
         load_player_at_bats_for_games(engine, chunk)
 
 
-def load_player_game_statcast_for_games(engine, game_pks):
+def load_player_game_statcast_for_games(engine, game_pks, force=False):
     """
     Materialize one-row-per-(batter, game) Statcast aggregates from
     mlb.player_at_bats into mlb.player_game_statcast for the given game_pks.
 
-    Same pattern as the at-bats materializer: pre-diff against existing
-    game_pks (self-healing for partial runs), then a single set-based
-    INSERT..SELECT. Source at-bat rows never change after load, so
-    re-MERGE is unnecessary.
+    Nightly path (force=False): same pattern as the at-bats materializer —
+    pre-diff against existing game_pks (self-healing for partial runs), then
+    a single set-based INSERT..SELECT. Source at-bat rows never change after
+    load, so re-MERGE is unnecessary.
+
+    Rebuild path (force=True): recompute the given games unconditionally —
+    DELETE + re-INSERT inside one transaction. This matches the overwrite
+    semantics of the sibling --rebuild-bvp / --rebuild-trend-stats modes,
+    so a definition change (or a late-arriving box score) is healed by a
+    rebuild dispatch instead of silently skipped.
 
     `runs` comes from mlb.batting_stats (scoring is not an at-bat outcome);
-    it lands NULL when the box score row is absent and is not backfilled
-    later — mlb-etl (09:00 UTC) runs before this workflow (09:30), so the
-    box score is normally present.
+    it lands NULL when the box score row is absent — mlb-etl (09:00 UTC)
+    runs before this workflow (09:30), so the box score is normally present.
+    A force rebuild re-reads the box score and fills previously-NULL runs.
 
     Stat definitions (hard-hit EV>=95, barrel EV>=95 & LA 8-32, xba from
     hit_probability/100) match player_trend_stats and the web layer's
@@ -1826,12 +1832,15 @@ def load_player_game_statcast_for_games(engine, game_pks):
 
     game_pks = list(set(int(g) for g in game_pks))
 
-    with engine.connect() as conn:
-        existing = {
-            row[0] for row in conn.execute(text("SELECT DISTINCT game_pk FROM mlb.player_game_statcast")).fetchall()
-        }
+    if force:
+        target = game_pks
+    else:
+        with engine.connect() as conn:
+            existing = {
+                row[0] for row in conn.execute(text("SELECT DISTINCT game_pk FROM mlb.player_game_statcast")).fetchall()
+            }
+        target = [g for g in game_pks if g not in existing]
 
-    target = [g for g in game_pks if g not in existing]
     if not target:
         log.info("game_statcast: all %d games already materialized.", len(game_pks))
         return
@@ -1861,6 +1870,8 @@ def load_player_game_statcast_for_games(engine, game_pks):
         box_join = ""
 
     with engine.begin() as conn:
+        if force:
+            conn.execute(text(f"DELETE FROM mlb.player_game_statcast WHERE game_pk IN ({placeholders})"))
         inserted = conn.execute(
             text(f"""
             WITH ab_rows AS (
@@ -1973,12 +1984,11 @@ def load_player_game_statcast_for_games(engine, game_pks):
 
 def rebuild_player_game_statcast(engine):
     """
-    Standalone materializer for --rebuild-game-statcast mode. Runs the
-    game-statcast loader against every game_pk currently in
-    mlb.player_at_bats.
-
-    Does NOT delete existing rows (the loader diffs on game_pk). For a
-    full rebuild, DELETE FROM mlb.player_game_statcast first.
+    Standalone rebuilder for --rebuild-game-statcast mode. Recomputes
+    mlb.player_game_statcast for every game_pk currently in
+    mlb.player_at_bats — a true rebuild (force=True deletes and re-inserts
+    each chunk), matching the overwrite semantics of --rebuild-bvp and
+    --rebuild-trend-stats.
     """
     with engine.connect() as conn:
         ab_games = [row[0] for row in conn.execute(text("SELECT DISTINCT game_pk FROM mlb.player_at_bats")).fetchall()]
@@ -1996,7 +2006,7 @@ def rebuild_player_game_statcast(engine):
             start + len(chunk),
             len(ab_games),
         )
-        load_player_game_statcast_for_games(engine, chunk)
+        load_player_game_statcast_for_games(engine, chunk, force=True)
 
 
 # SQL expression that classifies a row from mlb.player_at_bats into at-bat
