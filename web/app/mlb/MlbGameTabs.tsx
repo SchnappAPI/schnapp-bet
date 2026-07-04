@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import MlbLineupsTab from "./MlbLineupsTab";
+import { resultColor, resultLabel, veloColor } from "./statcastFormat";
 
 interface MlbGame {
   gameId: number;
@@ -111,28 +112,6 @@ function fmtIp(val: number | null): string {
   return outs === 0 ? `${whole}.0` : `${whole}.${outs}`;
 }
 
-function resultColor(resultType: string | null): string {
-  if (!resultType) return "text-fg-subtle";
-  const t = resultType.toLowerCase();
-  if (t.includes("home_run")) return "text-warn";
-  if (t.includes("hit") || t === "single" || t === "double" || t === "triple")
-    return "text-pos";
-  if (t.includes("strikeout")) return "text-neg";
-  return "text-fg-subtle";
-}
-
-function resultLabel(resultType: string | null): string {
-  if (!resultType) return "-";
-  return resultType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function veloColor(velo: number | null): string {
-  if (velo == null) return "text-fg-subtle";
-  if (velo >= 100) return "text-neg";
-  if (velo >= 95) return "text-warn";
-  if (velo >= 90) return "text-warn";
-  return "text-fg-muted";
-}
 
 // ---------------------------------------------------------------------------
 // Linescore
