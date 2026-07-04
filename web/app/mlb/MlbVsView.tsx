@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import HeatCell from '@/components/HeatCell';
 
 interface MlbGame {
   gameId: number;
@@ -57,16 +58,6 @@ interface BvpResponse {
   available: boolean;
 }
 
-function fmt(val: number | null | undefined): string {
-  if (val == null) return '-';
-  return String(val);
-}
-
-function fmtAvg(val: number | null | undefined): string {
-  if (val == null) return '-';
-  return val.toFixed(3).replace(/^0/, '');
-}
-
 function pitcherHandLabel(code: string | null): string {
   if (code === 'L') return 'LHP';
   if (code === 'R') return 'RHP';
@@ -104,6 +95,21 @@ function LineupTable({
   pitchingTeamAbbr: string;
 }) {
   const pitcherHand = pitcherHandLabel(pitcher.handCode);
+  const col = (get: (b: LineupSpot['bvp']) => number | null | undefined) =>
+    lineup.map((sp) => (sp.bvp ? get(sp.bvp) : null));
+  const vals = {
+    pa: col((b) => b?.pa),
+    ab: col((b) => b?.ab),
+    h: col((b) => b?.h),
+    hr: col((b) => b?.hr),
+    rbi: col((b) => b?.rbi),
+    bb: col((b) => b?.bb),
+    k: col((b) => b?.k),
+    avg: col((b) => b?.avg),
+    obp: col((b) => b?.obp),
+    slg: col((b) => b?.slg),
+    ops: col((b) => b?.ops),
+  };
   return (
     <div className="mb-6">
       <div className="text-xs font-semibold text-fg-subtle uppercase tracking-wider mb-1.5">
@@ -161,37 +167,17 @@ function LineupTable({
                       <span className="text-fg-disabled ml-1 text-xs">{spot.batter.position}</span>
                     )}
                   </td>
-                  <td className="text-center py-1 px-1.5 tabular-nums">{fmt(bvp?.pa)}</td>
-                  <td className="text-center py-1 px-1.5 tabular-nums">{fmt(bvp?.ab)}</td>
-                  <td
-                    className={`text-center py-1 px-1.5 tabular-nums font-semibold ${
-                      hasHistory && (bvp?.h ?? 0) > 0 ? 'text-fg' : 'text-fg-subtle'
-                    }`}
-                  >
-                    {fmt(bvp?.h)}
-                  </td>
-                  <td
-                    className={`text-center py-1 px-1.5 tabular-nums ${
-                      hasHistory && (bvp?.hr ?? 0) > 0 ? 'text-warn font-semibold' : ''
-                    }`}
-                  >
-                    {fmt(bvp?.hr)}
-                  </td>
-                  <td className="text-center py-1 px-1.5 tabular-nums">{fmt(bvp?.rbi)}</td>
-                  <td className="text-center py-1 px-1.5 tabular-nums">{fmt(bvp?.bb)}</td>
-                  <td className="text-center py-1 px-1.5 tabular-nums">{fmt(bvp?.k)}</td>
-                  <td className="text-center py-1 px-1.5 tabular-nums text-fg-subtle">
-                    {fmtAvg(bvp?.avg ?? null)}
-                  </td>
-                  <td className="text-center py-1 px-1.5 tabular-nums text-fg-subtle">
-                    {fmtAvg(bvp?.obp ?? null)}
-                  </td>
-                  <td className="text-center py-1 px-1.5 tabular-nums text-fg-subtle">
-                    {fmtAvg(bvp?.slg ?? null)}
-                  </td>
-                  <td className="text-center py-1 px-1.5 tabular-nums text-fg-subtle">
-                    {fmtAvg(bvp?.ops ?? null)}
-                  </td>
+                  <HeatCell value={bvp?.pa} values={vals.pa} format={String} />
+                  <HeatCell value={bvp?.ab} values={vals.ab} format={String} />
+                  <HeatCell value={bvp?.h} values={vals.h} format={String} className="font-semibold" />
+                  <HeatCell value={bvp?.hr} values={vals.hr} format={String} className={hasHistory && (bvp?.hr ?? 0) > 0 ? 'text-warn font-semibold' : ''} />
+                  <HeatCell value={bvp?.rbi} values={vals.rbi} format={String} />
+                  <HeatCell value={bvp?.bb} values={vals.bb} format={String} />
+                  <HeatCell value={bvp?.k} values={vals.k} format={String} invert />
+                  <HeatCell value={bvp?.avg} values={vals.avg} format={(v) => v.toFixed(3).replace(/^0/, '')} />
+                  <HeatCell value={bvp?.obp} values={vals.obp} format={(v) => v.toFixed(3).replace(/^0/, '')} />
+                  <HeatCell value={bvp?.slg} values={vals.slg} format={(v) => v.toFixed(3).replace(/^0/, '')} />
+                  <HeatCell value={bvp?.ops} values={vals.ops} format={(v) => v.toFixed(3).replace(/^0/, '')} />
                   <td className="text-center py-1 pl-2 tabular-nums text-fg-disabled text-xs">
                     {formatDate(bvp?.lastFacedDate ?? null)}
                   </td>

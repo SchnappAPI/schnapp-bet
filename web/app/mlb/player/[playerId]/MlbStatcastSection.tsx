@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  fmtXba,
   isBarrel,
   isHardHit,
   resultColor,
@@ -41,11 +42,6 @@ interface AtBatRow {
 function fmtDec(val: number | null, decimals = 1): string {
   if (val == null) return "-";
   return Number(val).toFixed(decimals);
-}
-
-function fmtXba(val: number | null): string {
-  if (val == null) return "-";
-  return Number(val).toFixed(3).replace(/^0/, "");
 }
 
 function Tile({

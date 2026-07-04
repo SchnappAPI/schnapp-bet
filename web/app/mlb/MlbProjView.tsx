@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { heatColorFor } from '@/lib/colorScale';
 
 interface MlbGame {
   gameId: number;
@@ -84,13 +85,6 @@ function gradeBg(g: number | null) {
   if (g >= 35) return 'bg-warn-muted';
   return 'bg-surface';
 }
-function evColor(ev: number | null) {
-  if (ev == null) return 'text-fg-subtle';
-  if (ev >= 100) return 'text-neg';
-  if (ev >= 95) return 'text-warn';
-  if (ev >= 90) return 'text-warn';
-  return 'text-fg-subtle';
-}
 
 // Blend L10/L30/L60 with graceful fallback
 function wRate(ts: BatterRow['trend'], col: 'hit_rate' | 'tb_per_pa'): number | null {
@@ -172,10 +166,23 @@ function TierBadge({ line }: { line: TierLine }) {
   );
 }
 
-function BatterCard({ batter, isHome }: { batter: BatterRow; isHome: boolean }) {
+interface ChipValues {
+  hit: (number | null)[];
+  tb: (number | null)[];
+  ev: (number | null)[];
+  hard: (number | null)[];
+  brl: (number | null)[];
+}
+
+function BatterCard({ batter, isHome, chipValues }: { batter: BatterRow; isHome: boolean; chipValues: ChipValues }) {
   const ts = batter.trend;
   const hitRate = wRate(ts, 'hit_rate');
   const tbRate = wRate(ts, 'tb_per_pa');
+  const chip = (v: number | null | undefined, vals: (number | null)[]) => ({
+    background: heatColorFor(v, vals),
+    borderRadius: 3,
+    padding: '0 3px',
+  });
   const platoon = platoonRate(ts, batter.oppPitcherHand);
   const best = bestTier(batter.tierLines);
   const grade = best?.composite_grade ?? null;
@@ -212,11 +219,11 @@ function BatterCard({ batter, isHome }: { batter: BatterRow; isHome: boolean }) 
       {/* Stats row */}
       {ts && (
         <div className="flex gap-3 mt-1.5 text-xs flex-wrap">
-          <span>
+          <span style={chip(hitRate, chipValues.hit)}>
             <span className="text-fg-subtle">AVG </span>
             <span className="text-fg-muted">{fmtPct(hitRate)}</span>
           </span>
-          <span>
+          <span style={chip(tbRate, chipValues.tb)}>
             <span className="text-fg-subtle">TB/PA </span>
             <span className="text-fg-muted">{fmt3(tbRate)}</span>
           </span>
@@ -226,15 +233,15 @@ function BatterCard({ batter, isHome }: { batter: BatterRow; isHome: boolean }) 
               <span className="text-fg-muted">{fmtPct(platoon)}</span>
             </span>
           )}
-          <span>
+          <span style={chip(ts.w30_avg_ev, chipValues.ev)}>
             <span className="text-fg-subtle">EV </span>
-            <span className={evColor(ts.w30_avg_ev)}>{fmt1(ts.w30_avg_ev)}</span>
+            <span className="text-fg-muted">{fmt1(ts.w30_avg_ev)}</span>
           </span>
-          <span>
+          <span style={chip(ts.w30_hard_hit_pct, chipValues.hard)}>
             <span className="text-fg-subtle">Hard </span>
             <span className="text-fg-muted">{fmtPct(ts.w30_hard_hit_pct)}</span>
           </span>
-          <span>
+          <span style={chip(ts.w30_barrel_pct, chipValues.brl)}>
             <span className="text-fg-subtle">Brl </span>
             <span className="text-fg-muted">{fmtPct(ts.w30_barrel_pct)}</span>
           </span>
@@ -356,6 +363,17 @@ export default function MlbProjView({ game }: { game: MlbGame }) {
   const showAway = activeTeam === 'away' || activeTeam === 'both';
   const showHome = activeTeam === 'home' || activeTeam === 'both';
 
+  // Percentile chip shading ranks across BOTH lineups (shared scale with
+  // /mlb/research and the game tabs — web/lib/colorScale.ts).
+  const allBatters = [...data.awayLineup, ...data.homeLineup];
+  const chipValues: ChipValues = {
+    hit: allBatters.map((b) => wRate(b.trend, 'hit_rate')),
+    tb: allBatters.map((b) => wRate(b.trend, 'tb_per_pa')),
+    ev: allBatters.map((b) => b.trend?.w30_avg_ev ?? null),
+    hard: allBatters.map((b) => b.trend?.w30_hard_hit_pct ?? null),
+    brl: allBatters.map((b) => b.trend?.w30_barrel_pct ?? null),
+  };
+
   return (
     <div className="py-4 space-y-5">
 
@@ -397,7 +415,7 @@ export default function MlbProjView({ game }: { game: MlbGame }) {
           </div>
           <div>
             {data.awayLineup.map(b => (
-              <BatterCard key={b.playerId} batter={b} isHome={false} />
+              <BatterCard key={b.playerId} batter={b} isHome={false} chipValues={chipValues} />
             ))}
           </div>
         </div>
@@ -418,7 +436,7 @@ export default function MlbProjView({ game }: { game: MlbGame }) {
           </div>
           <div>
             {data.homeLineup.map(b => (
-              <BatterCard key={b.playerId} batter={b} isHome={true} />
+              <BatterCard key={b.playerId} batter={b} isHome={true} chipValues={chipValues} />
             ))}
           </div>
         </div>

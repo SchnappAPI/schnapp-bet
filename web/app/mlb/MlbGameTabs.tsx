@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import MlbLineupsTab from "./MlbLineupsTab";
-import { resultColor, resultLabel, veloColor } from "./statcastFormat";
+import { fmtXba, resultColor, resultLabel } from "./statcastFormat";
 import { isFinalStatus, isLiveStatus } from "./gameStatus";
+import HeatCell from "@/components/HeatCell";
 
 interface MlbGame {
   gameId: number;
@@ -455,6 +456,13 @@ function ExitVeloTable({
 
   if (withData.length === 0) return null;
 
+  // Percentile heat shading within this team's at-bats (shared scale with
+  // /mlb/research — web/lib/colorScale.ts).
+  const evVals = withData.map((ab) => ab.exitVelo);
+  const laVals = withData.map((ab) => ab.launchAngle);
+  const distVals = withData.map((ab) => ab.distance);
+  const xbaVals = withData.map((ab) => ab.hitProb);
+
   return (
     <div className="mb-5">
       <div className="text-xs font-semibold text-fg-subtle uppercase tracking-wider mb-1.5">
@@ -494,22 +502,23 @@ function ExitVeloTable({
                 >
                   {resultLabel(ab.resultType)}
                 </td>
-                <td
-                  className={`text-center py-1 px-1.5 tabular-nums font-semibold ${veloColor(ab.exitVelo)}`}
-                >
-                  {ab.exitVelo != null ? ab.exitVelo.toFixed(1) : "-"}
-                </td>
-                <td className="text-center py-1 px-1.5 tabular-nums">
-                  {ab.launchAngle != null ? ab.launchAngle : "-"}
-                </td>
-                <td className="text-center py-1 px-1.5 tabular-nums">
-                  {ab.distance != null ? ab.distance : "-"}
-                </td>
-                <td className="text-center py-1 px-1.5 tabular-nums text-fg-subtle">
-                  {ab.hitProb != null
-                    ? ab.hitProb.toFixed(3).replace(/^0/, "")
-                    : "-"}
-                </td>
+                <HeatCell
+                  value={ab.exitVelo}
+                  values={evVals}
+                  format={(v) => v.toFixed(1)}
+                  className="font-semibold"
+                />
+                <HeatCell
+                  value={ab.launchAngle}
+                  values={laVals}
+                  format={String}
+                />
+                <HeatCell
+                  value={ab.distance}
+                  values={distVals}
+                  format={String}
+                />
+                <HeatCell value={ab.hitProb} values={xbaVals} format={fmtXba} />
               </tr>
             ))}
           </tbody>

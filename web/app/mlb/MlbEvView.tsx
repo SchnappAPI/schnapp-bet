@@ -1,6 +1,8 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import HeatCell from '@/components/HeatCell';
+import { fmtXba } from './statcastFormat';
 
 interface MlbGame {
   gameId: number;
@@ -71,32 +73,10 @@ function fmtPct(v: number | null): string {
   return `${Math.round(v * 100)}%`;
 }
 
-function fmtXba(v: number | null): string {
-  if (v == null) return '-';
-  return v.toFixed(3).replace(/^0/, '');
-}
-
-function veloColor(v: number | null): string {
+function evTextColor(v: number | null): string {
   if (v == null) return 'text-fg-subtle';
   if (v >= 100) return 'text-neg';
   if (v >= 95) return 'text-warn';
-  if (v >= 90) return 'text-warn';
-  return 'text-fg-muted';
-}
-
-function hardHitColor(v: number | null): string {
-  if (v == null) return 'text-fg-subtle';
-  if (v >= 0.50) return 'text-neg font-semibold';
-  if (v >= 0.40) return 'text-warn';
-  if (v >= 0.30) return 'text-warn';
-  return 'text-fg-muted';
-}
-
-function barrelColor(v: number | null): string {
-  if (v == null) return 'text-fg-subtle';
-  if (v >= 0.15) return 'text-neg font-semibold';
-  if (v >= 0.10) return 'text-warn';
-  if (v >= 0.06) return 'text-warn';
   return 'text-fg-muted';
 }
 
@@ -127,6 +107,7 @@ function TeamTable({
   sideLabel,
   starters,
   summaryByPlayer,
+  columnValues,
   atBatsByPlayer,
   expandedId,
   onToggle,
@@ -135,6 +116,7 @@ function TeamTable({
   sideLabel: string;
   starters: StarterRow[];
   summaryByPlayer: Map<number, EvSummaryRow>;
+  columnValues: Map<string, (number | null | undefined)[]>;
   atBatsByPlayer: Map<number, EvAtBatRow[]>;
   expandedId: number | null;
   onToggle: (playerId: number) => void;
@@ -205,32 +187,14 @@ function TeamTable({
                       {s.position && <span className="text-fg-disabled ml-1">{s.position}</span>}
                     </td>
                     <td className="text-center py-1 px-1.5 tabular-nums text-fg-subtle">{bbe}</td>
-                    <td className={`text-center py-1 px-1.5 tabular-nums ${veloColor(sum?.avgEv ?? null)}`}>
-                      {fmt1(sum?.avgEv ?? null)}
-                    </td>
-                    <td className={`text-center py-1 px-1.5 tabular-nums ${veloColor(sum?.maxEv ?? null)}`}>
-                      {fmt1(sum?.maxEv ?? null)}
-                    </td>
-                    <td className={`text-center py-1 px-1.5 tabular-nums ${hardHitColor(sum?.hardHitPct ?? null)}`}>
-                      {fmtPct(sum?.hardHitPct ?? null)}
-                    </td>
-                    <td className="text-center py-1 px-1.5 tabular-nums text-fg-subtle">
-                      {sum?.avgLa != null ? sum.avgLa.toFixed(1) : '-'}
-                    </td>
-                    <td className="text-center py-1 px-1.5 tabular-nums text-fg-subtle">
-                      {fmtPct(sum?.sweetSpotPct ?? null)}
-                    </td>
-                    <td className={`text-center py-1 px-1.5 tabular-nums ${barrelColor(sum?.barrelPct ?? null)}`}>
-                      {fmtPct(sum?.barrelPct ?? null)}
-                    </td>
-                    <td className={`text-center py-1 px-1.5 tabular-nums ${
-                      (sum?.hrCount ?? 0) > 0 ? 'text-warn font-semibold' : 'text-fg-subtle'
-                    }`}>
-                      {sum?.hrCount ?? 0}
-                    </td>
-                    <td className="text-center py-1 px-1.5 tabular-nums text-fg-subtle">
-                      {fmtXba(sum?.avgXba ?? null)}
-                    </td>
+                    <HeatCell value={sum?.avgEv} values={columnValues.get('avgEv') ?? []} format={(v) => v.toFixed(1)} />
+                    <HeatCell value={sum?.maxEv} values={columnValues.get('maxEv') ?? []} format={(v) => v.toFixed(1)} />
+                    <HeatCell value={sum?.hardHitPct} values={columnValues.get('hardHitPct') ?? []} format={(v) => `${Math.round(v * 100)}%`} />
+                    <HeatCell value={sum?.avgLa} values={columnValues.get('avgLa') ?? []} format={(v) => v.toFixed(1)} />
+                    <HeatCell value={sum?.sweetSpotPct} values={columnValues.get('sweetSpotPct') ?? []} format={(v) => `${Math.round(v * 100)}%`} />
+                    <HeatCell value={sum?.barrelPct} values={columnValues.get('barrelPct') ?? []} format={(v) => `${Math.round(v * 100)}%`} />
+                    <HeatCell value={sum?.hrCount ?? 0} values={columnValues.get('hrCount') ?? []} format={String} />
+                    <HeatCell value={sum?.avgXba} values={columnValues.get('avgXba') ?? []} format={fmtXba} />
                   </tr>
                   {isExpanded && detail.length > 0 && (
                     <tr className="bg-canvas border-b border-border-subtle">
@@ -262,7 +226,7 @@ function TeamTable({
                                   <td className={`py-1 px-1.5 whitespace-nowrap ${resultColor(ab.resultType)}`}>
                                     {resultLabel(ab.resultType)}
                                   </td>
-                                  <td className={`text-center py-1 px-1.5 tabular-nums font-semibold ${veloColor(ab.exitVelo)}`}>
+                                  <td className={`text-center py-1 px-1.5 tabular-nums font-semibold ${evTextColor(ab.exitVelo)}`}>
                                     {fmt1(ab.exitVelo)}
                                   </td>
                                   <td className="text-center py-1 px-1.5 tabular-nums">
@@ -318,6 +282,20 @@ export default function MlbEvView({ game }: { game: MlbGame }) {
     return m;
   }, [data]);
 
+  const columnValues = useMemo(() => {
+    const m = new Map<string, (number | null | undefined)[]>();
+    const rows = data?.summary ?? [];
+    m.set('avgEv', rows.map((r) => r.avgEv));
+    m.set('maxEv', rows.map((r) => r.maxEv));
+    m.set('hardHitPct', rows.map((r) => r.hardHitPct));
+    m.set('avgLa', rows.map((r) => r.avgLa));
+    m.set('sweetSpotPct', rows.map((r) => r.sweetSpotPct));
+    m.set('barrelPct', rows.map((r) => r.barrelPct));
+    m.set('hrCount', rows.map((r) => r.hrCount));
+    m.set('avgXba', rows.map((r) => r.avgXba));
+    return m;
+  }, [data]);
+
   const atBatsByPlayer = useMemo(() => {
     const m = new Map<number, EvAtBatRow[]>();
     for (const ab of data?.atBats ?? []) {
@@ -353,6 +331,7 @@ export default function MlbEvView({ game }: { game: MlbGame }) {
         sideLabel={`${game.awayTeamAbbr} Batters`}
         starters={awayStarters}
         summaryByPlayer={summaryByPlayer}
+        columnValues={columnValues}
         atBatsByPlayer={atBatsByPlayer}
         expandedId={expandedId}
         onToggle={(id) => setExpandedId((cur) => (cur === id ? null : id))}
@@ -362,6 +341,7 @@ export default function MlbEvView({ game }: { game: MlbGame }) {
         sideLabel={`${game.homeTeamAbbr} Batters`}
         starters={homeStarters}
         summaryByPlayer={summaryByPlayer}
+        columnValues={columnValues}
         atBatsByPlayer={atBatsByPlayer}
         expandedId={expandedId}
         onToggle={(id) => setExpandedId((cur) => (cur === id ? null : id))}

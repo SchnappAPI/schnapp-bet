@@ -27,6 +27,13 @@ export function veloColor(velo: number | null): string {
   return "text-fg-muted";
 }
 
+// hit_probability is stored 0-100 in mlb.player_at_bats; xBA displays on
+// the 0-1 batting-average scale (.296). Every xBA render goes through this.
+export function fmtXba(hitProbability: number | null): string {
+  if (hitProbability == null) return "-";
+  return (Number(hitProbability) / 100).toFixed(3).replace(/^0/, "");
+}
+
 export const HARD_HIT_EV = 95;
 export const BARREL_LA_MIN = 8;
 export const BARREL_LA_MAX = 32;
