@@ -50,13 +50,12 @@ function collapseStatus(
   detailedState: string | undefined,
   abstractState: string | undefined,
 ): string {
-  if (
-    abstractState === "Final" ||
-    detailedState === "Final" ||
-    detailedState === "Game Over"
-  )
-    return "F";
-  return detailedState ?? "Scheduled";
+  const d = detailedState ?? "Scheduled";
+  // Postponed/Cancelled/Suspended carry abstractGameState "Final" in the
+  // API but were not played — keep the detailedState, don't show Final.
+  if (/^(Postponed|Cancelled|Suspended)/.test(d)) return d;
+  if (abstractState === "Final" || d === "Final" || d === "Game Over") return "F";
+  return d;
 }
 
 /**

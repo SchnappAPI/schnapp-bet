@@ -42,6 +42,7 @@ environment (1Password service account resolution in the workflow).
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -204,13 +205,20 @@ def update_probable_pitchers(engine, sched_games, db_games, today):
 
 def update_game_scores(engine, sched_games, db_games):
     """
-    Targeted UPDATE of game_status / abstract_game_state / scores on
-    mlb.games from the same hydrated schedule payload, so in-progress
-    scores land intraday and finals land the same night instead of at the
-    09:00 UTC nightly. db_games only ever contains non-final rows, so a
-    game is touched until the tick that flips it to 'F' and never again;
-    the belt-and-suspenders WHERE also refuses to downgrade an 'F'.
-    Winner flags are written only on finals (nightly MERGE semantics).
+    Targeted UPDATE of game_status / scores on mlb.games from the same
+    hydrated schedule payload, so in-progress scores land intraday and
+    finals land the same night instead of at the 09:00 UTC nightly.
+    db_games only ever contains non-final rows, so a game is touched
+    until the tick that flips it to 'F' and never again; the
+    belt-and-suspenders WHERE also refuses to downgrade an 'F'.
+
+    Postponed/Cancelled/Suspended games carry abstractGameState "Final"
+    in the API but are NOT finals: they keep their detailedState so the
+    makeup-date reload can still reach them. Winner flags are written
+    only on true finals, and only when the payload asserts isWinner —
+    an absent flag stays NULL for the nightly reconciler (a written 0
+    is a fact COALESCE can never repair). abstract_game_state is left
+    alone entirely: the nightly owns that column.
     """
     updates = []
     for g in sched_games:
@@ -219,21 +227,29 @@ def update_game_scores(engine, sched_games, db_games):
             continue
         status = g.get("status") or {}
         abstract = status.get("abstractGameState")
-        detailed = status.get("detailedState")
+        detailed = status.get("detailedState") or ""
         if not detailed and not abstract:
             continue
-        is_final = abstract == "Final" or detailed in ("Final", "Game Over")
+        not_played = detailed.startswith(("Postponed", "Cancelled", "Suspended"))
+        is_final = not not_played and (
+            abstract == "Final" or detailed in ("Final", "Game Over")
+        )
         teams = g.get("teams", {})
         away = teams.get("away", {})
         home = teams.get("home", {})
+
+        def winner_flag(side):
+            if not is_final or side.get("isWinner") is None:
+                return None
+            return 1 if side["isWinner"] else 0
+
         updates.append({
             "game_pk": game_pk,
-            "game_status": "F" if is_final else detailed,
-            "abstract_game_state": abstract,
+            "game_status": "F" if is_final else (detailed or None),
             "away_score": away.get("score"),
             "home_score": home.get("score"),
-            "away_is_winner": (1 if away.get("isWinner") else 0) if is_final else None,
-            "home_is_winner": (1 if home.get("isWinner") else 0) if is_final else None,
+            "away_is_winner": winner_flag(away),
+            "home_is_winner": winner_flag(home),
         })
 
     if not updates:
@@ -245,7 +261,6 @@ def update_game_scores(engine, sched_games, db_games):
             text(
                 "UPDATE mlb.games SET "
                 "  game_status         = COALESCE(:game_status, game_status), "
-                "  abstract_game_state = COALESCE(:abstract_game_state, abstract_game_state), "
                 "  away_team_score     = COALESCE(:away_score, away_team_score), "
                 "  home_team_score     = COALESCE(:home_score, home_team_score), "
                 "  away_is_winner      = COALESCE(:away_is_winner, away_is_winner), "
@@ -381,10 +396,12 @@ def write_lineups(engine, lineup_rows_by_game_team):
 
 
 def main():
-    # Game-day convention: the baseball day rolls at 06:00 local, so the
+    # Game-day convention: the baseball day rolls at 06:00 Central, so the
     # post-midnight ticks (west-coast finals) still poll yesterday's slate
-    # instead of early-exiting on an empty new date.
-    today = (datetime.now() - timedelta(hours=6)).date().isoformat()
+    # instead of early-exiting on an empty new date. Anchored to
+    # America/Chicago explicitly so a runner TZ change cannot move the roll.
+    central_now = datetime.now(ZoneInfo("America/Chicago"))
+    today = (central_now - timedelta(hours=6)).date().isoformat()
     log.info("=== MLB lineup poll started for %s ===", today)
 
     engine = get_engine()
