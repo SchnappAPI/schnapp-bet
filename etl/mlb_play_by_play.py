@@ -170,6 +170,10 @@ _HIT_EVENTS = frozenset(["single", "double", "triple", "home_run"])
 _WALK_EVENTS = frozenset(["walk", "intent_walk"])
 _K_EVENTS = frozenset(["strikeout", "strikeout_double_play"])
 
+# _NON_PA_EVENTS as a SQL literal list for NOT IN (...) predicates, so every
+# aggregation path excludes the same baserunning/pickoff noise rows.
+NON_PA_EVENTS_SQL = ", ".join(f"'{e}'" for e in sorted(_NON_PA_EVENTS))
+
 # Explicit column types for to_sql. Prevents pandas from inferring VARCHAR(N)
 # from batch data, which causes right-truncation when a later row is longer.
 INSERT_DTYPES = {
@@ -2246,6 +2250,7 @@ def load_career_bvp_for_games(engine, game_pks):
             FROM mlb.player_at_bats AS ab
             INNER JOIN #affected_pairs AS ap
                 ON ab.batter_id = ap.batter_id AND ab.pitcher_id = ap.pitcher_id
+            WHERE ab.result_event_type NOT IN ({NON_PA_EVENTS_SQL})
             GROUP BY ab.batter_id, ab.pitcher_id;
         """)
         )
@@ -2343,6 +2348,7 @@ def rebuild_career_bvp(engine):
                 FROM mlb.player_at_bats AS ab
                 WHERE ab.batter_id IN ({placeholders})
                   AND ab.pitcher_id IS NOT NULL
+                  AND ab.result_event_type NOT IN ({NON_PA_EVENTS_SQL})
                 GROUP BY ab.batter_id, ab.pitcher_id;
             """)
             )
