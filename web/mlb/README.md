@@ -48,8 +48,12 @@ Live pages + components:
 API routes (all direct `mssql` via `getPool`, no Flask):
 
 - `web/app/api/mlb-games/route.ts` — day slate from `mlb.games` + `mlb.teams`, including
-  probable pitcher name and hand
-- `web/app/api/mlb/game/[gamePk]/route.ts` — single-game header context
+  probable pitcher name and hand. For today's slate, enriched by the statsapi live
+  overlay (`web/lib/mlbLive.ts`): in-progress scores/status plus a `liveLabel`
+  ("Top 5th"). The DB owns the list; the overlay never adds games and drops out
+  silently on timeout (1.5s)
+- `web/app/api/mlb/game/[gamePk]/route.ts` — single-game header context, plus the same
+  live overlay for today's non-final games (returns `{ game, live }`)
 - `web/app/api/mlb/game/[gamePk]/lineups/route.ts` — Lineups tab payload in one round
   trip: confirmed nine from `mlb.daily_lineups` (written intraday by
   `etl/mlb_lineup_poll.py`), or a read-time **projected** nine from recent hundreds
@@ -67,12 +71,22 @@ API routes (all direct `mssql` via `getPool`, no Flask):
   pitcher name/hand joined from `mlb.players`). Raw rows only; the client computes
   summary tiles over the filtered set. ETag'd
 - `web/app/api/mlb-boxscore`, `mlb-linescore`, `mlb-atbats` — Box Score / Exit Velo tab
-  payloads (unchanged)
+  payloads. `mlb-linescore` serves statsapi live innings while a game is in progress
+  (pbp loads nightly), same response shape
 - `web/app/api/mlb/grades/route.ts` — At-a-Glance payload
 - Legacy routes backing the unmounted views (`mlb-proj`, `mlb-bvp`, `mlb-ev`,
   `mlb-player`, `mlb-pitcher`) still function but have no mounted consumers
 
 ## Key Concepts
+
+### Live games and same-night finals
+
+Status classification is shared in `web/app/mlb/gameStatus.ts` (pregame-state
+allowlist; `mlb.games.game_status` holds 'F' or a statsapi detailedState). While a
+game is live the list page, game header, and tabs repoll every 30s; scores/inning come
+from the statsapi overlay server-side. Finals land in `mlb.games` the same night via
+the game-day poller's `update_game_scores` step (see `etl/mlb_lineup_poll.py`); the
+nightly ETL remains the reconciler.
 
 ### Pregame lineups (confirmed vs projected)
 

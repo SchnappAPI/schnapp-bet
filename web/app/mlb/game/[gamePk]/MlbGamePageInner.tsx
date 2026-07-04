@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import MlbGameTabs from "../../MlbGameTabs";
+import { isFinalStatus, isLiveStatus } from "../../gameStatus";
 
 interface GameData {
   gamePk: number;
@@ -20,31 +21,52 @@ interface GameData {
   homePitcher: string | null;
 }
 
-function isFinalStatus(status: string | null): boolean {
-  return status === "F" || status === "Final";
-}
-
-function isLiveStatus(status: string | null): boolean {
-  return status != null && status !== "Preview" && !isFinalStatus(status);
-}
-
 export default function MlbGamePageInner({ gamePk }: { gamePk: string }) {
   const [game, setGame] = useState<GameData | null>(null);
+  const [liveLabel, setLiveLabel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    fetch(`/api/mlb/game/${gamePk}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data) => setGame(data.game ?? null))
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      )
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    function load(silent: boolean) {
+      if (!silent) setLoading(true);
+      fetch(`/api/mlb/game/${gamePk}`)
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then((data) => {
+          if (cancelled) return;
+          setGame(data.game ?? null);
+          setLiveLabel(data.live?.liveLabel ?? null);
+          setError(null);
+        })
+        .catch((err: unknown) => {
+          if (!cancelled && !silent)
+            setError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => {
+          if (!cancelled && !silent) setLoading(false);
+        });
+    }
+
+    load(false);
+    // Live repoll every 30s until final. Harmless for old dates: the route
+    // only overlays today's slate, and one no-op refetch per 30s is cheap
+    // only while the page is open on a non-final game.
+    const id = setInterval(() => {
+      setGame((current) => {
+        if (current && !isFinalStatus(current.gameStatus)) load(true);
+        return current;
+      });
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [gamePk]);
 
   if (loading)
@@ -80,6 +102,7 @@ export default function MlbGamePageInner({ gamePk }: { gamePk: string }) {
     gameStatus: game.gameStatus,
     awayPitcher: game.awayPitcher,
     homePitcher: game.homePitcher,
+    liveLabel,
   };
 
   return (
@@ -128,7 +151,11 @@ export default function MlbGamePageInner({ gamePk }: { gamePk: string }) {
             <div
               className={`text-xs ${isLive ? "text-pos font-medium" : "text-fg-subtle"}`}
             >
-              {isFinal ? "Final" : isLive ? game.gameStatus : game.gameDate}
+              {isFinal
+                ? "Final"
+                : isLive
+                  ? (liveLabel ?? game.gameStatus)
+                  : game.gameDate}
             </div>
             {(game.awayPitcher || game.homePitcher) && (
               <div className="text-xs text-fg-disabled mt-0.5 truncate">

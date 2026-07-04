@@ -1,31 +1,53 @@
-import { NextRequest, NextResponse } from 'next/server';
-import mssql from 'mssql';
-import { getPool } from '@/lib/db';
+import { NextRequest, NextResponse } from "next/server";
+import mssql from "mssql";
+import { getPool } from "@/lib/db";
+import { fetchMlbLiveOverlay, todayCT } from "@/lib/mlbLive";
 
 export async function GET(req: NextRequest) {
-  const gamePk = req.nextUrl.searchParams.get('gamePk');
-  if (!gamePk) return NextResponse.json({ error: 'gamePk required' }, { status: 400 });
+  const gamePk = req.nextUrl.searchParams.get("gamePk");
+  if (!gamePk)
+    return NextResponse.json({ error: "gamePk required" }, { status: 400 });
 
   const pool = await getPool();
 
   // Check if play-by-play data exists for this game
   const checkResult = await pool
     .request()
-    .input('gamePk', mssql.Int, parseInt(gamePk))
+    .input("gamePk", mssql.Int, parseInt(gamePk))
     .query<{ cnt: number }>(
-      `SELECT COUNT(DISTINCT play_event_id) AS cnt FROM mlb.play_by_play WHERE game_pk = @gamePk`
+      `SELECT COUNT(DISTINCT play_event_id) AS cnt FROM mlb.play_by_play WHERE game_pk = @gamePk`,
     );
 
   const hasPbp = (checkResult.recordset[0]?.cnt ?? 0) > 0;
 
   if (!hasPbp) {
-    return NextResponse.json({ gamePk: parseInt(gamePk), innings: [], hasPbp: false });
+    // No pbp yet (loads nightly). If the game is on today's slate and has
+    // started, serve the live linescore from statsapi in the same shape.
+    const overlay = await fetchMlbLiveOverlay(todayCT());
+    const o = overlay.get(parseInt(gamePk));
+    if (o && o.innings.length > 0 && o.abstractState !== "Preview") {
+      return NextResponse.json({
+        gamePk: parseInt(gamePk),
+        hasPbp: false,
+        live: true,
+        innings: o.innings,
+        summary: {
+          A: { runs: o.awayScore ?? 0, hits: o.awayHits ?? 0 },
+          H: { runs: o.homeScore ?? 0, hits: o.homeHits ?? 0 },
+        },
+      });
+    }
+    return NextResponse.json({
+      gamePk: parseInt(gamePk),
+      innings: [],
+      hasPbp: false,
+    });
   }
 
   // Derive runs per half-inning from play-by-play scoring plays
   const result = await pool
     .request()
-    .input('gamePk', mssql.Int, parseInt(gamePk))
+    .input("gamePk", mssql.Int, parseInt(gamePk))
     .query<{ inning: number; isTop: boolean; runs: number; hits: number }>(
       `SELECT
          inning,
@@ -36,13 +58,13 @@ export async function GET(req: NextRequest) {
          AND is_last_pitch = 1
          AND inning IS NOT NULL
        GROUP BY inning, is_top_inning
-       ORDER BY inning, is_top_inning DESC`
+       ORDER BY inning, is_top_inning DESC`,
     );
 
   // Also get total H and E from batting_stats for the R/H/E summary row
   const summaryResult = await pool
     .request()
-    .input('gamePk', mssql.Int, parseInt(gamePk))
+    .input("gamePk", mssql.Int, parseInt(gamePk))
     .query<{ side: string; runs: number; hits: number }>(
       `SELECT
          side,
@@ -50,7 +72,7 @@ export async function GET(req: NextRequest) {
          SUM(COALESCE(hits, 0))       AS hits
        FROM mlb.batting_stats
        WHERE game_pk = @gamePk
-       GROUP BY side`
+       GROUP BY side`,
     );
 
   const summary: Record<string, { runs: number; hits: number }> = {};

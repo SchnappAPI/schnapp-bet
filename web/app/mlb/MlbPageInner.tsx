@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { openCommandPalette } from "@/lib/ui/CommandPalette";
+import { isFinalStatus, isLiveStatus } from "./gameStatus";
 
 type MlbTab = "games" | "players";
 type RoleFilter = "all" | "batters" | "pitchers";
@@ -28,6 +29,7 @@ interface MlbGame {
   homePitcher: string | null;
   awayPitcherHand: string | null;
   homePitcherHand: string | null;
+  liveLabel?: string | null;
 }
 
 interface RecentMlbPlayer {
@@ -77,17 +79,9 @@ function formatGameTime(isoStr: string | null): string {
   }
 }
 
-function isFinalStatus(status: string | null): boolean {
-  return status === "F" || status === "Final";
-}
-
-function isLiveStatus(status: string | null): boolean {
-  return status != null && status !== "Preview" && !isFinalStatus(status);
-}
-
 function statusLabel(game: MlbGame): string {
   if (isFinalStatus(game.gameStatus)) return "Final";
-  if (isLiveStatus(game.gameStatus)) return game.gameStatus!;
+  if (isLiveStatus(game.gameStatus)) return game.liveLabel ?? game.gameStatus!;
   return formatGameTime(game.gameDateTime);
 }
 
@@ -305,10 +299,12 @@ export default function MlbPageInner() {
     router.replace(qs ? `/mlb?${qs}` : "/mlb");
   }
 
-  async function loadGames() {
-    setLoading(true);
-    setError(null);
-    setGames([]);
+  async function loadGames(silent = false) {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+      setGames([]);
+    }
     try {
       const res = await fetch(`/api/mlb-games?date=${selectedDate}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -322,9 +318,9 @@ export default function MlbPageInner() {
       );
       setGames(sorted);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (!silent) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -332,6 +328,16 @@ export default function MlbPageInner() {
     loadGames();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
+
+  // Live repoll: while viewing today with games still to finish, refresh
+  // silently every 30s so scores/status track the overlay.
+  const hasUnfinished = games.some((g) => !isFinalStatus(g.gameStatus));
+  useEffect(() => {
+    if (selectedDate !== todayLocal() || !hasUnfinished) return;
+    const id = setInterval(() => loadGames(true), 30_000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, hasUnfinished]);
 
   function applyDate(newDate: string) {
     setSelectedDate(newDate);

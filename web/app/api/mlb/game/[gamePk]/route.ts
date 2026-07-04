@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { apiError } from '@/lib/apiError';
+import { apiError } from "@/lib/apiError";
 import mssql from "mssql";
 import { getPool } from "@/lib/db";
+import {
+  fetchMlbLiveOverlay,
+  todayCT,
+  type MlbLiveOverlay,
+} from "@/lib/mlbLive";
 
 export async function GET(
   _req: NextRequest,
@@ -47,8 +52,23 @@ export async function GET(
       return NextResponse.json({ error: "game not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ game: result.recordset[0] });
+    const game = result.recordset[0];
+
+    // Live overlay for today's games only; DB already has finals otherwise.
+    let live: MlbLiveOverlay | null = null;
+    if (game.gameDate === todayCT() && game.gameStatus !== "F") {
+      const overlay = await fetchMlbLiveOverlay(game.gameDate);
+      const o = overlay.get(gamePk);
+      if (o) {
+        live = o;
+        game.gameStatus = o.gameStatus;
+        game.awayScore = o.awayScore ?? game.awayScore;
+        game.homeScore = o.homeScore ?? game.homeScore;
+      }
+    }
+
+    return NextResponse.json({ game, live });
   } catch (err) {
-    return apiError(err, 'api/mlb/game/[gamePk]');
+    return apiError(err, "api/mlb/game/[gamePk]");
   }
 }

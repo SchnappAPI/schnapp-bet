@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import MlbLineupsTab from "./MlbLineupsTab";
 import { resultColor, resultLabel, veloColor } from "./statcastFormat";
+import { isFinalStatus, isLiveStatus } from "./gameStatus";
 
 interface MlbGame {
   gameId: number;
@@ -15,6 +16,7 @@ interface MlbGame {
   gameStatus: string | null;
   awayPitcher: string | null;
   homePitcher: string | null;
+  liveLabel?: string | null;
 }
 
 interface Batter {
@@ -111,7 +113,6 @@ function fmtIp(val: number | null): string {
   const outs = Math.round(frac * 3);
   return outs === 0 ? `${whole}.0` : `${whole}.${outs}`;
 }
-
 
 // ---------------------------------------------------------------------------
 // Linescore
@@ -538,32 +539,52 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const isLive = isLiveStatus(game.gameStatus);
+
   useEffect(() => {
-    setLoading(true);
-    setError(null);
+    let cancelled = false;
 
-    const j = (r: Response) => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
+    function load(silent: boolean) {
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
+      const j = (r: Response) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      };
+      Promise.all([
+        fetch(`/api/mlb-boxscore?gamePk=${game.gameId}`).then(j),
+        fetch(`/api/mlb-linescore?gamePk=${game.gameId}`).then(j),
+        fetch(`/api/mlb-atbats?gamePk=${game.gameId}`).then(j),
+      ])
+        .then(([boxData, lineData, atBatData]) => {
+          if (cancelled) return;
+          setBatters(boxData.batters ?? []);
+          setPitchers(boxData.pitchers ?? []);
+          setInnings(lineData.innings ?? []);
+          setSummary(lineData.summary ?? {});
+          setHasPbp(lineData.hasPbp ?? false);
+          setAtBats(atBatData.atBats ?? []);
+        })
+        .catch((err) => {
+          if (!cancelled && !silent) setError(err.message);
+        })
+        .finally(() => {
+          if (!cancelled && !silent) setLoading(false);
+        });
+    }
+
+    load(false);
+    // While live, the linescore route serves statsapi innings — track them.
+    const id = isLive ? setInterval(() => load(true), 30_000) : null;
+    return () => {
+      cancelled = true;
+      if (id) clearInterval(id);
     };
-    Promise.all([
-      fetch(`/api/mlb-boxscore?gamePk=${game.gameId}`).then(j),
-      fetch(`/api/mlb-linescore?gamePk=${game.gameId}`).then(j),
-      fetch(`/api/mlb-atbats?gamePk=${game.gameId}`).then(j),
-    ])
-      .then(([boxData, lineData, atBatData]) => {
-        setBatters(boxData.batters ?? []);
-        setPitchers(boxData.pitchers ?? []);
-        setInnings(lineData.innings ?? []);
-        setSummary(lineData.summary ?? {});
-        setHasPbp(lineData.hasPbp ?? false);
-        setAtBats(atBatData.atBats ?? []);
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [game.gameId]);
+  }, [game.gameId, isLive]);
 
-  const isFinal = game.gameStatus === "F" || game.gameStatus === "Final";
+  const isFinal = isFinalStatus(game.gameStatus);
 
   const awayBatters = batters.filter((b) => b.side === "A");
   const homeBatters = batters.filter((b) => b.side === "H");
@@ -585,10 +606,10 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
             <span className="text-lg font-semibold text-fg">
               {game.awayTeamAbbr}
             </span>
-            {isFinal && game.awayScore != null && (
+            {(isFinal || isLive) && game.awayScore != null && (
               <span
                 className={`text-2xl font-bold tabular-nums ${
-                  game.awayScore > (game.homeScore ?? 0)
+                  isFinal && game.awayScore > (game.homeScore ?? 0)
                     ? "text-fg"
                     : "text-fg-subtle"
                 }`}
@@ -603,15 +624,21 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
             </div>
           )}
         </div>
-        <div className="text-xs text-fg-subtle pt-2">
-          {isFinal ? "Final" : (game.gameStatus ?? "")}
+        <div
+          className={`text-xs pt-2 ${isLive ? "text-pos font-medium" : "text-fg-subtle"}`}
+        >
+          {isFinal
+            ? "Final"
+            : isLive
+              ? (game.liveLabel ?? game.gameStatus ?? "")
+              : (game.gameStatus ?? "")}
         </div>
         <div className="text-right">
           <div className="flex items-center gap-3 justify-end">
-            {isFinal && game.homeScore != null && (
+            {(isFinal || isLive) && game.homeScore != null && (
               <span
                 className={`text-2xl font-bold tabular-nums ${
-                  game.homeScore > (game.awayScore ?? 0)
+                  isFinal && game.homeScore > (game.awayScore ?? 0)
                     ? "text-fg"
                     : "text-fg-subtle"
                 }`}
@@ -636,8 +663,9 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
 
       {!loading && !error && (
         <>
-          {/* Linescore */}
-          {hasPbp && innings.length > 0 && (
+          {/* Linescore — pbp-derived after the nightly load, statsapi live
+              innings while the game is in progress. */}
+          {innings.length > 0 && (
             <Linescore
               innings={innings}
               summary={summary}
