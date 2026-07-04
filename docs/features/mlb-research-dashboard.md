@@ -14,13 +14,13 @@ decision," and sequences the build into commit-sized phases.
 A batter prop-research surface with five distinct concepts (the PBI file's 8–10 pages
 collapse to these — MAIN/New/Extra/Criteria were copies):
 
-| Concept                | Content                                                                                                                                                          | Web home                                        |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Batter analysis (MAIN) | identity card, projections row, game log, per-AB log, HR pattern card, BvP card + table, opposing-pitcher season stats, team overview pivot, platoon split pivot | `/mlb/player/[playerId]` (exists, extend)       |
-| EV                     | team-wide heat grid (both lineups) + per-AB Statcast log, sliced by date range / game / pitcher hand / AB number                                                 | `MlbEvView` game tab → promote to research page |
-| VS                     | full-lineup career BvP pivot + pitcher season stats, home/away slicer                                                                                            | `MlbVsView` (exists, extend)                    |
-| Proj                   | lineup-wide projections pivot                                                                                                                                    | `MlbProjView` (exists, extend)                  |
-| Pitcher view           | pitcher game log, career splits, projected HA/HRA, vs-lineup BvP                                                                                                 | `MlbPitcherView` (exists, extend)               |
+| Concept                | Content                                                                                                                                                          | Web home                                         |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Batter analysis (MAIN) | identity card, projections row, game log, per-AB log, HR pattern card, BvP card + table, opposing-pitcher season stats, team overview pivot, platoon split pivot | `/mlb/player/[playerId]` (exists, extend)        |
+| EV                     | team-wide heat grid (both lineups) + per-AB Statcast log, sliced by date range / game / pitcher hand / AB number                                                 | `/mlb/research` (shipped Phase 3)                |
+| VS                     | full-lineup career BvP pivot + pitcher season stats, home/away slicer                                                                                            | `/mlb/research` batter detail + game Lineups tab |
+| Proj                   | lineup-wide projections pivot                                                                                                                                    | Phase 4 (projections markets)                    |
+| Pitcher view           | pitcher game log, career splits, projected HA/HRA, vs-lineup BvP                                                                                                 | not yet built (retired 6-tab view deleted)       |
 
 The signature visual style everywhere: percentile-interpolated **background** color
 scales on table cells (heatmap tables), plus slicer chips driving cross-filtering.
@@ -134,8 +134,9 @@ All routes: `getPool()`, `apiError.ts`, ETag via `web/lib/etag.ts`.
 3. **Research page** — `/mlb/research`: slicer row → team heat grid → click a batter →
    per-PA log + BvP panel + platoon split strip (the EV-page layout from the video,
    with MAIN's detail panels on selection).
-4. Retrofit: `MlbEvView`, `MlbVsView`, `MlbProjView` adopt HeatCell so game tabs and
-   the research page read identically.
+4. Retrofit: live game tabs (`MlbGameTabs`) adopt HeatCell so game tabs and the
+   research page read identically. (The retired 6-tab views were retrofitted first,
+   then deleted 2026-07-04 as orphans once `/mlb/research` shipped.)
 
 Verification cadence per CLAUDE.md: browser/curl check between commits — never stack
 3+ UI commits blind.
