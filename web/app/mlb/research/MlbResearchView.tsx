@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import HeatCell from "@/components/HeatCell";
 import ResearchFilters, { RANGE_OPTIONS } from "./ResearchFilters";
 import { resultColor, resultLabel } from "@/app/mlb/statcastFormat";
+import { StatcastChips, StatcastLegend } from "@/app/mlb/StatcastChips";
 import type { SlateGame } from "@/app/api/mlb/research/slate/route";
 import type { GridBatter, GridTeam } from "@/app/api/mlb/research/grid/route";
 import type { ResearchAtBatRow } from "@/app/api/mlb/research/atbats/route";
@@ -364,6 +365,11 @@ function BatterDetail({
                     className={`py-1 px-1.5 whitespace-nowrap ${resultColor(ab.result)}`}
                   >
                     {resultLabel(ab.result)}
+                    <StatcastChips
+                      ev={ab.ev}
+                      la={ab.la}
+                      batSpeed={ab.batSpeed}
+                    />
                   </td>
                   <td className="text-center py-1 px-1.5 tabular-nums">
                     {ab.ev != null ? fmt1(ab.ev) : "-"}
@@ -496,6 +502,7 @@ export default function MlbResearchView() {
             that column. xBA* is the StatsAPI hit-probability proxy. Tap a row
             for the per-at-bat log.
           </div>
+          <StatcastLegend className="mt-1.5" />
         </div>
 
         {error && <div className="py-6 text-sm text-neg">Error: {error}</div>}

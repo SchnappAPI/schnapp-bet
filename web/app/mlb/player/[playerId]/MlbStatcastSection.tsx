@@ -10,6 +10,7 @@ import {
   resultLabel,
   veloColor,
 } from "../../statcastFormat";
+import { StatcastChips, StatcastLegend } from "../../StatcastChips";
 
 // Comprehensive per-at-bat exit velocity log for the player page.
 // One fetch of /api/mlb/player/[playerId]/atbats; the page's range and
@@ -58,9 +59,7 @@ function Tile({
       <div className="text-[10px] uppercase tracking-wider text-fg-subtle">
         {label}
       </div>
-      <div
-        className={`text-lg font-bold tabular-nums ${accent ?? "text-fg"}`}
-      >
+      <div className={`text-lg font-bold tabular-nums ${accent ?? "text-fg"}`}>
         {value}
       </div>
     </div>
@@ -127,9 +126,7 @@ export default function MlbStatcastSection({
     const barrels = batted.filter((r) =>
       isBarrel(Number(r.ev), r.la != null ? Number(r.la) : null),
     ).length;
-    const xbas = batted
-      .filter((r) => r.xba != null)
-      .map((r) => Number(r.xba));
+    const xbas = batted.filter((r) => r.xba != null).map((r) => Number(r.xba));
     const avgXba =
       xbas.length > 0 ? xbas.reduce((a, b) => a + b, 0) / xbas.length : null;
     return {
@@ -210,6 +207,8 @@ export default function MlbStatcastSection({
         </span>
       </div>
 
+      <StatcastLegend className="px-4 pb-2" />
+
       {/* Per-at-bat log */}
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -263,10 +262,13 @@ export default function MlbStatcastSection({
                 >
                   {resultLabel(ab.result)}
                   {ab.rbi != null && ab.rbi > 0 && (
-                    <span className="text-fg-disabled ml-1">
-                      {ab.rbi} RBI
-                    </span>
+                    <span className="text-fg-disabled ml-1">{ab.rbi} RBI</span>
                   )}
+                  <StatcastChips
+                    ev={ab.ev != null ? Number(ab.ev) : null}
+                    la={ab.la != null ? Number(ab.la) : null}
+                    batSpeed={ab.batSpeed != null ? Number(ab.batSpeed) : null}
+                  />
                 </td>
                 <td
                   className={`px-2 py-1.5 text-right tabular-nums font-semibold ${veloColor(
