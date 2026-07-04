@@ -31,7 +31,9 @@ export async function GET(req: NextRequest) {
          g.home_team_score   AS homeScore,
          g.game_datetime     AS gameDateTime,
          g.away_pitcher_name AS awayPitcher,
-         g.home_pitcher_name AS homePitcher
+         g.home_pitcher_name AS homePitcher,
+         g.away_pitcher_hand AS awayPitcherHand,
+         g.home_pitcher_hand AS homePitcherHand
        FROM mlb.games g
        JOIN mlb.teams at ON at.team_id = g.away_team_id
        JOIN mlb.teams ht ON ht.team_id = g.home_team_id
