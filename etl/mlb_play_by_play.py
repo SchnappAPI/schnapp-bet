@@ -1874,20 +1874,32 @@ def load_player_game_statcast_for_games(engine, game_pks, force=False):
         box_join = ""
 
     with engine.begin() as conn:
+        # Materialize the at-bat slice into a temp table instead of a CTE.
+        # A SELECT * CTE over a large IN list, referenced three times inside
+        # an INSERT..SELECT, trips SQL Server optimizer error 8624 ("could
+        # not produce a query plan") — seen on the first rebuild dispatch.
+        # The temp table also matches the BvP staging pattern above.
+        conn.execute(text("IF OBJECT_ID('tempdb..#gsc_ab') IS NOT NULL DROP TABLE #gsc_ab"))
+        conn.execute(
+            text(f"""
+            SELECT batter_id, game_pk, game_date, at_bat_number, is_top_inning,
+                   pitcher_id, result_event_type, result_rbi,
+                   hit_launch_speed, hit_launch_angle, hit_total_distance,
+                   hit_probability, away_team_id, home_team_id
+            INTO #gsc_ab
+            FROM mlb.player_at_bats
+            WHERE game_pk IN ({placeholders})
+              AND batter_id IS NOT NULL
+              AND result_event_type NOT IN ({EXCL})
+        """)
+        )
         if force:
             conn.execute(text(f"DELETE FROM mlb.player_game_statcast WHERE game_pk IN ({placeholders})"))
         inserted = conn.execute(
             text(f"""
-            WITH ab_rows AS (
-                SELECT *
-                FROM mlb.player_at_bats
-                WHERE game_pk IN ({placeholders})
-                  AND batter_id IS NOT NULL
-                  AND result_event_type NOT IN ({EXCL})
-            ),
-            first_pa AS (
+            WITH first_pa AS (
                 SELECT batter_id, game_pk, MIN(at_bat_number) AS first_abn
-                FROM ab_rows
+                FROM #gsc_ab
                 GROUP BY batter_id, game_pk
             ),
             agg AS (
@@ -1936,7 +1948,7 @@ def load_player_game_statcast_for_games(engine, game_pks, force=False):
                     SUM(CASE WHEN ab.hit_launch_speed >= 95 THEN 1 ELSE 0 END) AS hard_hit,
                     SUM(CASE WHEN ab.hit_launch_speed >= 95 AND ab.hit_launch_angle BETWEEN 8 AND 32
                         THEN 1 ELSE 0 END) AS barrels
-                FROM ab_rows ab
+                FROM #gsc_ab ab
                 GROUP BY ab.batter_id, ab.game_pk
             )
             INSERT INTO mlb.player_game_statcast (
@@ -1971,12 +1983,13 @@ def load_player_game_statcast_for_games(engine, game_pks, force=False):
             FROM agg a
             JOIN first_pa f
                 ON f.batter_id = a.batter_id AND f.game_pk = a.game_pk
-            JOIN ab_rows fab
+            JOIN #gsc_ab fab
                 ON fab.batter_id = a.batter_id
                AND fab.game_pk = a.game_pk
                AND fab.at_bat_number = f.first_abn{box_join};
         """)
         ).rowcount
+        conn.execute(text("DROP TABLE #gsc_ab"))
 
     log.info(
         "game_statcast: wrote %d rows across %d games (%d skipped as already present).",
