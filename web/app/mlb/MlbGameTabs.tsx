@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import MlbLineupsTab from "./MlbLineupsTab";
-import { fmtXba, resultColor, resultLabel } from "./statcastFormat";
+import { fmtHrParks, fmtXba, resultColor, resultLabel } from "./statcastFormat";
 import { StatcastChips, StatcastLegend } from "./StatcastChips";
 import { isFinalStatus, isLiveStatus } from "./gameStatus";
 import HeatCell from "@/components/HeatCell";
@@ -463,6 +463,8 @@ function ExitVeloTable({
   const laVals = withData.map((ab) => ab.launchAngle);
   const distVals = withData.map((ab) => ab.distance);
   const xbaVals = withData.map((ab) => ab.hitProb);
+  const batSpeedVals = withData.map((ab) => ab.batSpeed);
+  const hrParksVals = withData.map((ab) => ab.hrBallparks);
 
   return (
     <div className="mb-5">
@@ -481,6 +483,8 @@ function ExitVeloTable({
               <th className="text-center pb-1 px-1.5 font-normal">LA</th>
               <th className="text-center pb-1 px-1.5 font-normal">Dist</th>
               <th className="text-center pb-1 px-1.5 font-normal">xBA</th>
+              <th className="text-center pb-1 px-1.5 font-normal">Bat Spd</th>
+              <th className="text-center pb-1 px-1.5 font-normal">HR/Pk</th>
             </tr>
           </thead>
           <tbody>
@@ -525,6 +529,16 @@ function ExitVeloTable({
                   format={String}
                 />
                 <HeatCell value={ab.hitProb} values={xbaVals} format={fmtXba} />
+                <HeatCell
+                  value={ab.batSpeed}
+                  values={batSpeedVals}
+                  format={(v) => v.toFixed(1)}
+                />
+                <HeatCell
+                  value={ab.hrBallparks}
+                  values={hrParksVals}
+                  format={fmtHrParks}
+                />
               </tr>
             ))}
           </tbody>

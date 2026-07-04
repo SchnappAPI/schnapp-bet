@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  fmtHrParks,
   fmtXba,
   isBarrel,
   isHardHit,
@@ -230,6 +231,8 @@ export default function MlbStatcastSection({
               <th className="text-right px-2 py-1.5 font-medium">LA</th>
               <th className="text-right px-2 py-1.5 font-medium">Dist</th>
               <th className="text-right px-2 py-1.5 font-medium">xBA</th>
+              <th className="text-right px-2 py-1.5 font-medium">Bat Spd</th>
+              <th className="text-right px-2 py-1.5 font-medium">HR/Pk</th>
             </tr>
           </thead>
           <tbody>
@@ -285,6 +288,12 @@ export default function MlbStatcastSection({
                 </td>
                 <td className="px-2 py-1.5 text-right tabular-nums text-fg-subtle">
                   {fmtXba(ab.xba != null ? Number(ab.xba) : null)}
+                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-fg-muted">
+                  {ab.batSpeed != null ? Number(ab.batSpeed).toFixed(1) : "-"}
+                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-fg-muted">
+                  {fmtHrParks(ab.hrParks != null ? Number(ab.hrParks) : null)}
                 </td>
               </tr>
             ))}
