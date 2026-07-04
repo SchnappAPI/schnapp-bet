@@ -265,6 +265,38 @@ IF EXISTS (
     ALTER TABLE mlb.play_by_play ALTER COLUMN play_event_description VARCHAR(1000) NULL;
 """
 
+DDL_CREATE_PBP_INDEXES = """
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_play_by_play_game_pk'
+      AND object_id = OBJECT_ID('mlb.play_by_play')
+)
+    CREATE NONCLUSTERED INDEX IX_play_by_play_game_pk
+        ON mlb.play_by_play (game_pk);
+"""
+
+# mlb.batting_stats and mlb.pitching_stats are created by mlb_etl.py's upsert
+# path, which has no DDL home, so their indexes live here. Guarded on table
+# existence: on an empty DB this workflow can run before mlb_etl has created
+# them, and CREATE INDEX on a missing table is a hard error.
+DDL_CREATE_BOXSCORE_INDEXES = """
+IF OBJECT_ID('mlb.batting_stats') IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_batting_stats_game_pk'
+      AND object_id = OBJECT_ID('mlb.batting_stats')
+)
+    CREATE NONCLUSTERED INDEX IX_batting_stats_game_pk
+        ON mlb.batting_stats (game_pk);
+
+IF OBJECT_ID('mlb.pitching_stats') IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_pitching_stats_game_pk'
+      AND object_id = OBJECT_ID('mlb.pitching_stats')
+)
+    CREATE NONCLUSTERED INDEX IX_pitching_stats_game_pk
+        ON mlb.pitching_stats (game_pk);
+"""
+
 DDL_CREATE_AT_BATS = """
 IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
@@ -1137,6 +1169,8 @@ def ensure_table(engine):
     with engine.begin() as conn:
         conn.execute(text(DDL_CREATE))
         conn.execute(text(DDL_ALTER_DESCRIPTIONS))
+        conn.execute(text(DDL_CREATE_PBP_INDEXES))
+        conn.execute(text(DDL_CREATE_BOXSCORE_INDEXES))
         conn.execute(text(DDL_CREATE_AT_BATS))
         conn.execute(text(DDL_DROP_NAME_COLUMNS))
         conn.execute(text(DDL_CREATE_AT_BATS_INDEXES))
