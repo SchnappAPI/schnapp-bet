@@ -3,6 +3,7 @@ import { apiError } from "@/lib/apiError";
 import { jsonWithEtag } from "@/lib/etag";
 import mssql from "mssql";
 import { getPool } from "@/lib/db";
+import { NOISE_EVENTS_SQL } from "@/lib/mlbResearch";
 
 // The research heat grid: both lineups for one game, per-batter Statcast
 // aggregates over an arbitrary date window, plus latest trend/platoon
@@ -17,22 +18,6 @@ import { getPool } from "@/lib/db";
 //     same aggregate shape from raw at-bats.
 // Definitions mirror the ETL: hard-hit = EV >= 95, barrel = EV >= 95 AND
 // 8 <= LA <= 32 (etl/mlb_play_by_play.py / statcastFormat.ts).
-
-// Baserunning noise event types excluded from PA counting at the at-bat
-// grain — keep in lockstep with etl/mlb_play_by_play.py NOISE_EVENTS.
-const NOISE_EVENTS = [
-  "caught_stealing_2b",
-  "caught_stealing_3b",
-  "caught_stealing_home",
-  "pickoff_1b",
-  "pickoff_2b",
-  "pickoff_caught_stealing_2b",
-  "pickoff_caught_stealing_3b",
-  "pickoff_caught_stealing_home",
-  "pickoff_error_1b",
-  "stolen_base_2b",
-  "wild_pitch",
-];
 
 export interface GridAgg {
   games: number;
@@ -356,7 +341,6 @@ export async function GET(req: NextRequest) {
     } else {
       // At-bat grain: rebuild the same shape from raw at-bats so the
       // hand/AB-number slicers compose with the date window.
-      const noiseList = NOISE_EVENTS.map((e) => `'${e}'`).join(",");
       aggSql = `
         SELECT
           ab.batter_id AS playerId,
@@ -395,14 +379,23 @@ export async function GET(req: NextRequest) {
           SUM(CAST(ab.hit_probability AS FLOAT)) AS xbaSum,
           SUM(CASE WHEN ab.hit_launch_speed >= 95 THEN 1 ELSE 0 END) AS hardHit,
           SUM(CASE WHEN ab.hit_launch_speed >= 95 AND ab.hit_launch_angle BETWEEN 8 AND 32 THEN 1 ELSE 0 END) AS barrels
-        FROM mlb.player_at_bats ab
+        FROM (
+          SELECT *,
+                 -- at_bat_number is the GAME-wide PA sequence; the 1-6
+                 -- slicer means the batter's Nth PA of the game.
+                 ROW_NUMBER() OVER (
+                   PARTITION BY batter_id, game_pk ORDER BY at_bat_number
+                 ) AS ab_ordinal
+          FROM mlb.player_at_bats
+          WHERE batter_id IN (${idList})
+            AND game_date >= @from AND game_date <= @to
+            AND game_pk <> @gamePk
+            AND result_event_type NOT IN (${NOISE_EVENTS_SQL})
+        ) ab
         ${hand ? "JOIN mlb.players pp ON pp.player_id = ab.pitcher_id" : ""}
-        WHERE ab.batter_id IN (${idList})
-          AND ab.game_date >= @from AND ab.game_date <= @to
-          AND ab.game_pk <> @gamePk
-          AND ab.result_event_type NOT IN (${noiseList})
+        WHERE 1 = 1
           ${hand ? "AND pp.pitch_hand = @hand" : ""}
-          ${abNum != null ? "AND ab.at_bat_number = @abNum" : ""}
+          ${abNum != null ? "AND ab.ab_ordinal = @abNum" : ""}
         GROUP BY ab.batter_id`;
     }
     const aggReq = pool

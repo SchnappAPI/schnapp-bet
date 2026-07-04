@@ -3,6 +3,7 @@ import { apiError } from "@/lib/apiError";
 import { jsonWithEtag } from "@/lib/etag";
 import mssql from "mssql";
 import { getPool } from "@/lib/db";
+import { NOISE_EVENTS_SQL } from "@/lib/mlbResearch";
 
 // Per-PA log for one batter with the research page's unified filters
 // (date window, pitcher hand, AB number). Same row shape as the player
@@ -58,24 +59,31 @@ export async function GET(req: NextRequest) {
   try {
     const pool = await getPool();
     const r = pool.request().input("batterId", mssql.Int, batterId);
-    const where: string[] = ["ab.batter_id = @batterId"];
+    // Inner filters bound the PA set BEFORE numbering; hand/abNum apply
+    // after, so ab_ordinal is always the batter's Nth PA of the game
+    // (at_bat_number is the game-wide sequence, not per-batter).
+    const innerWhere: string[] = [
+      "batter_id = @batterId",
+      `result_event_type NOT IN (${NOISE_EVENTS_SQL})`,
+    ];
     if (from) {
       r.input("from", mssql.VarChar, from);
-      where.push("ab.game_date >= @from");
+      innerWhere.push("game_date >= @from");
     } else {
-      where.push("ab.game_date >= DATEFROMPARTS(YEAR(GETUTCDATE()), 1, 1)");
+      innerWhere.push("game_date >= DATEFROMPARTS(YEAR(GETUTCDATE()), 1, 1)");
     }
     if (to) {
       r.input("to", mssql.VarChar, to);
-      where.push("ab.game_date <= @to");
+      innerWhere.push("game_date <= @to");
     }
+    const outerWhere: string[] = ["1 = 1"];
     if (hand) {
       r.input("hand", mssql.VarChar, hand);
-      where.push("p.pitch_hand = @hand");
+      outerWhere.push("p.pitch_hand = @hand");
     }
     if (abNum != null) {
       r.input("abNum", mssql.Int, abNum);
-      where.push("ab.at_bat_number = @abNum");
+      outerWhere.push("ab.ab_ordinal = @abNum");
     }
 
     const res = await r.query<ResearchAtBatRow>(`
@@ -84,7 +92,7 @@ export async function GET(req: NextRequest) {
         ab.game_pk            AS gamePk,
         CONVERT(VARCHAR(10), ab.game_date, 120) AS gameDate,
         ab.inning,
-        ab.at_bat_number      AS atBatNumber,
+        ab.ab_ordinal         AS atBatNumber,
         t.team_abbreviation   AS oppAbbr,
         ab.pitcher_id         AS pitcherId,
         p.player_name         AS pitcherName,
@@ -100,13 +108,20 @@ export async function GET(req: NextRequest) {
         ab.hit_probability    AS xba,
         ab.hit_bat_speed      AS batSpeed,
         ab.home_run_ballparks AS hrParks
-      FROM mlb.player_at_bats ab
+      FROM (
+        SELECT *,
+               CAST(ROW_NUMBER() OVER (
+                 PARTITION BY batter_id, game_pk ORDER BY at_bat_number
+               ) AS INT) AS ab_ordinal
+        FROM mlb.player_at_bats
+        WHERE ${innerWhere.join(" AND ")}
+      ) ab
       LEFT JOIN mlb.teams t
         ON t.team_id = CASE WHEN ab.is_top_inning = 1
                             THEN ab.home_team_id
                             ELSE ab.away_team_id END
       LEFT JOIN mlb.players p ON p.player_id = ab.pitcher_id
-      WHERE ${where.join(" AND ")}
+      WHERE ${outerWhere.join(" AND ")}
       ORDER BY ab.game_date DESC, ab.game_pk DESC, ab.at_bat_number DESC
     `);
 

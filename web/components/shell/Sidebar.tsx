@@ -97,6 +97,12 @@ export function Sidebar({
               label="At-a-Glance"
               collapsed={collapsed}
             />
+            <SidebarLink
+              href="/mlb/research"
+              icon={<Trophy size={14} className="text-sport-mlb" />}
+              label="Research"
+              collapsed={collapsed}
+            />
           </div>
 
           <SectionLabel collapsed={collapsed}>NFL</SectionLabel>
