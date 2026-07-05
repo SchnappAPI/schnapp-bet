@@ -151,6 +151,17 @@ games_since_hr, hr_pattern_early, hr_pattern_late, hr_hot` — computed nightly 
 2. `compute_mlb_projections.py` adds `hit_prob` / `hr_prob` market keys (model layer on
    entities 4–7). HR pattern card + projections row light up on the player page.
 
+**Data layer shipped 2026-07-05 (cloud session).** Our explicit pattern definitions
+(constants in `etl/mlb_play_by_play.py`, prose at `DDL_CREATE_PATTERNS`): a batter is
+"in pattern" for 5 games after an HR game; `pattern_hit_rate` = share of HR games
+followed by another HR game within those 5; early = repeat in the next 1–2 games,
+late = 3–5; `hr_hot` = currently inside the window (`games_since_hr < 5`) with
+rate >= 0.5 over >= 3 samples. Same-season scope, through-date-inclusive rows —
+readers pick the latest `as_of_date` before the upcoming game. Backfill green
+(run 28726425148, ~123k rows). `hit_prob`/`hr_prob` = P(>= 1) via
+`1 - (1 - platoon-adjusted per-PA rate)^expectedPA`, proj-v1.1. Still open from this
+phase: the player-page HR pattern card + projections-row surfacing (web).
+
 ### Phase 4.5 — Gamefeed adoptions (2026-07-04)
 
 Reviewed Baseball Savant's Gamefeed (per-game tab strip, day-level leaderboard rails,
