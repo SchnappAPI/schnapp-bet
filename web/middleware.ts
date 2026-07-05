@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from "next/server";
 
 // Site-wide gates driven by the `common.feature_flags` table. Flags are
 // fetched via /api/flags and cached in module memory for CACHE_MS so the
@@ -6,9 +6,9 @@ import { NextResponse, type NextRequest } from 'next/server';
 // open on any error is deliberate — the gate exists to discourage
 // casual visitors during work, not to enforce security.
 
-const COOKIE_NAME = 'sb_unlock';
+const COOKIE_NAME = "sb_unlock";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
-const UNLOCK_CODE = 'go';
+const UNLOCK_CODE = "go";
 const CACHE_MS = 60_000;
 
 // API auth — paths matching this prefix require a valid X-Auth-Token header
@@ -27,26 +27,29 @@ const API_AUTH_PATH_RE = /^\/api\/search(\/|$)/;
 // node:crypto.createHmac with base64url encoding; we mirror that shape using
 // the Web Crypto API so middleware runs unchanged on the edge.
 function base64UrlEncode(bytes: Uint8Array): string {
-  let bin = '';
+  let bin = "";
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-async function verifyAuthToken(token: string, secret: string): Promise<boolean> {
-  const parts = token.split('.');
+async function verifyAuthToken(
+  token: string,
+  secret: string,
+): Promise<boolean> {
+  const parts = token.split(".");
   if (parts.length !== 2) return false;
   const [payload, signature] = parts;
   if (!payload || !signature) return false;
 
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
-    'raw',
+    "raw",
     enc.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
+    { name: "HMAC", hash: "SHA-256" },
     false,
-    ['sign']
+    ["sign"],
   );
-  const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+  const sigBuf = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
   const expected = base64UrlEncode(new Uint8Array(sigBuf));
   // Constant-ish-time compare — token sizes are fixed so a length check is fine.
   if (expected.length !== signature.length) return false;
@@ -64,8 +67,8 @@ async function getFlags(req: NextRequest): Promise<Record<string, boolean>> {
   const now = Date.now();
   if (cachedFlags && now - cachedAt < CACHE_MS) return cachedFlags;
   try {
-    const url = new URL('/api/flags', req.url);
-    const res = await fetch(url, { cache: 'no-store' });
+    const url = new URL("/api/flags", req.url);
+    const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) throw new Error(`flags fetch ${res.status}`);
     const data = (await res.json()) as Record<string, boolean>;
     cachedFlags = data;
@@ -110,7 +113,7 @@ export async function middleware(request: NextRequest) {
 
   // /fish is a standalone public page — always let it through regardless
   // of maintenance mode or any other gate.
-  if (pathname === '/fish' || pathname.startsWith('/fish/')) {
+  if (pathname === "/fish" || pathname.startsWith("/fish/")) {
     return NextResponse.next();
   }
 
@@ -119,29 +122,36 @@ export async function middleware(request: NextRequest) {
   // calls it), and /admin + /api/admin/* so the operator can always
   // sign in to flip the toggle back off.
   if (
-    pathname === '/api/ping' ||
-    pathname === '/api/flags' ||
-    pathname === '/admin' ||
-    pathname.startsWith('/admin/') ||
-    pathname.startsWith('/api/admin/')
+    pathname === "/api/ping" ||
+    pathname === "/api/flags" ||
+    pathname === "/admin" ||
+    pathname.startsWith("/admin/") ||
+    pathname.startsWith("/api/admin/")
   ) {
     return NextResponse.next();
   }
 
   // Unlock attempt via query string. Always honored, even if maintenance
   // is off — sets the bypass cookie so future locks let you through.
-  if (searchParams.get('unlock') === UNLOCK_CODE) {
+  if (searchParams.get("unlock") === UNLOCK_CODE) {
+    // Redirect with a RELATIVE Location. Behind the cloudflared tunnel the
+    // request's origin is the internal bind (localhost:3001), so an absolute
+    // redirect built from nextUrl sends the browser to a dead host. A relative
+    // Location resolves against whatever public host the visitor used.
     const cleanUrl = request.nextUrl.clone();
-    cleanUrl.searchParams.delete('unlock');
-    const res = NextResponse.redirect(cleanUrl);
+    cleanUrl.searchParams.delete("unlock");
+    const res = new NextResponse(null, {
+      status: 307,
+      headers: { Location: cleanUrl.pathname + cleanUrl.search },
+    });
     res.cookies.set({
       name: COOKIE_NAME,
       value: UNLOCK_CODE,
       httpOnly: true,
       secure: true,
-      sameSite: 'lax',
+      sameSite: "lax",
       maxAge: COOKIE_MAX_AGE,
-      path: '/',
+      path: "/",
     });
     return res;
   }
@@ -152,7 +162,7 @@ export async function middleware(request: NextRequest) {
   }
 
   const flags = await getFlags(request);
-  if (!flags['maintenance_mode']) {
+  if (!flags["maintenance_mode"]) {
     // Maintenance is off — fall through to API auth gate below.
     return await checkApiAuth(request);
   }
@@ -167,8 +177,8 @@ export async function middleware(request: NextRequest) {
   return new NextResponse(MAINTENANCE_HTML, {
     status: 200,
     headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store',
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
     },
   });
 }
@@ -180,25 +190,30 @@ async function checkApiAuth(request: NextRequest): Promise<NextResponse> {
   // Dev bypass: in non-production we let unauthenticated traffic through so
   // local development without a populated common.user_codes table still
   // works. Production always requires the X-Auth-Token header.
-  if (process.env.NODE_ENV !== 'production') return NextResponse.next();
+  if (process.env.NODE_ENV !== "production") return NextResponse.next();
 
   // Fail closed: a missing signing secret in production means we cannot trust
   // any token. Reject rather than fall back to a known default string, which
   // would let anyone forge a valid session. See ADR-20260617-1.
   const secret = process.env.AUTH_TOKEN_SECRET;
   if (!secret) {
-    console.error('AUTH_TOKEN_SECRET is not set; rejecting authenticated request.');
-    return NextResponse.json({ error: 'server misconfigured' }, { status: 500 });
+    console.error(
+      "AUTH_TOKEN_SECRET is not set; rejecting authenticated request.",
+    );
+    return NextResponse.json(
+      { error: "server misconfigured" },
+      { status: 500 },
+    );
   }
 
-  const token = request.headers.get('x-auth-token');
+  const token = request.headers.get("x-auth-token");
   if (!token) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const ok = await verifyAuthToken(token, secret);
   if (!ok) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   return NextResponse.next();
@@ -206,6 +221,6 @@ async function checkApiAuth(request: NextRequest): Promise<NextResponse> {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|icon.svg|icon-192\\.png|icon-512\\.png|manifest\\.json|sw\\.js|robots\\.txt|sitemap\\.xml).*)',
+    "/((?!_next/static|_next/image|favicon.ico|icon.svg|icon-192\\.png|icon-512\\.png|manifest\\.json|sw\\.js|robots\\.txt|sitemap\\.xml).*)",
   ],
 };
