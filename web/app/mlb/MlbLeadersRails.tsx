@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type {
   LeaderAtBat,
+  LeaderHrHot,
   LeaderPitcher,
   LeadersResponse,
 } from "@/app/api/mlb/research/leaders/route";
@@ -162,6 +163,37 @@ function PitcherRail({
   );
 }
 
+function HrHotRail({ rows }: { rows: LeaderHrHot[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <Rail title="HR Hot Today" note="pattern window active">
+      {rows.map((r) => (
+        <tr key={r.batterId}>
+          <PlayerCell
+            id={r.batterId}
+            name={r.batterName}
+            teamAbbr={r.teamAbbr}
+          />
+          <td className="py-0.5 px-1 text-right tabular-nums font-semibold whitespace-nowrap">
+            {r.patternHitRate != null
+              ? `${Math.round(r.patternHitRate * 100)}%`
+              : "-"}
+            <span className="text-fg-disabled font-normal ml-0.5 text-[10px]">
+              {r.patternRepeats != null && r.patternSamples != null
+                ? `${r.patternRepeats}/${r.patternSamples}`
+                : ""}
+            </span>
+          </td>
+          <td className="py-0.5 pl-2 text-right whitespace-nowrap text-[10px] text-fg-subtle">
+            {r.gamesSinceHr != null ? `${r.gamesSinceHr} since HR` : ""}
+            {r.oppAbbr ? ` · vs ${r.oppAbbr}` : ""}
+          </td>
+        </tr>
+      ))}
+    </Rail>
+  );
+}
+
 export default function MlbLeadersRails({ date }: { date: string }) {
   const [data, setData] = useState<LeadersResponse | null>(null);
 
@@ -198,6 +230,7 @@ export default function MlbLeadersRails({ date }: { date: string }) {
           : "From the nightly play-by-play load."}
       </div>
       <div className="flex flex-wrap gap-2.5">
+        <HrHotRail rows={data.hrHotToday} />
         <AtBatRail
           title="Top Exit Velo"
           rows={data.topEv}
