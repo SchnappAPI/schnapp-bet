@@ -26,10 +26,11 @@ CODES = [
     ("MOODY-MOOSE", "Unassigned", "demo", 5),
     ("ROSSI-DEMO", "Unassigned", "demo", 10),
     ("ROSSI-LIVE", "Unassigned", "live", 10),
-    # TEMPORARY: Phase 4.5 live-site browser pass (cloud session, no Mac
-    # terminal). Deactivated and removed once the pass is done.
-    ("CLAUDE-VERIFY", "Claude browser-pass (temp)", "live", 25),
 ]
+
+# TEMPORARY (this dispatch only): deactivate the CLAUDE-VERIFY code used for
+# the Phase 4.5 live browser pass. Removed right after the run.
+DEACTIVATE = ["CLAUDE-VERIFY"]
 
 
 def get_conn():
@@ -88,6 +89,10 @@ def main():
             max_act,
         )
         inserted += 1
+
+    for code in DEACTIVATE:
+        cur.execute("UPDATE common.user_codes SET active = 0 WHERE code = ?", code)
+        print(f"Deactivated {code} ({cur.rowcount} row).")
 
     conn.commit()
     conn.close()
