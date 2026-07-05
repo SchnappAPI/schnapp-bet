@@ -1,0 +1,71 @@
+name: MLB Statcast Load
+
+# Nightly at 10:30 UTC, after the 09:30 pbp load — Savant publishes with up
+# to a day of lag, so the default incremental window (last 3 days) overlaps
+# on purpose; MERGE makes the overlap free. Backfill: dispatch with
+# start/end (ADR-20260705-1 coverage starts 2024-03-01).
+on:
+  schedule:
+    - cron: "30 10 * * *"
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Backfill start date YYYY-MM-DD (inclusive). Empty = 3 days ago."
+        required: false
+        default: ""
+      end:
+        description: "Backfill end date YYYY-MM-DD (inclusive). Empty = today CT."
+        required: false
+        default: ""
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  statcast:
+    runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+
+      - name: Activate venv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Ensure pybaseball
+        run: pip install --quiet pybaseball
+
+      - name: Run Statcast load
+        run: |
+          ARGS=""
+          [ -n "${{ github.event.inputs.start }}" ] && ARGS="$ARGS --start ${{ github.event.inputs.start }}"
+          [ -n "${{ github.event.inputs.end }}" ] && ARGS="$ARGS --end ${{ github.event.inputs.end }}"
+          python etl/mlb_statcast_load.py $ARGS
+
+      - name: Record workflow run timestamp
+        run: python -c "from shared.db import record_workflow_run; record_workflow_run('mlb-statcast-load')"
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
