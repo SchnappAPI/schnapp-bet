@@ -384,6 +384,24 @@ CREATE TABLE [mlb].[player_game_statcast] (
 CREATE INDEX [IX_player_game_statcast_date] ON [mlb].[player_game_statcast] ([game_date], [batter_id]);
 CREATE INDEX [IX_player_game_statcast_game] ON [mlb].[player_game_statcast] ([game_pk]);
 
+CREATE TABLE [mlb].[player_patterns] (
+    [batter_id] INT NOT NULL,
+    [as_of_date] DATE NOT NULL,
+    [season] INT NOT NULL,
+    [games_played] INT,
+    [hr_games] INT,
+    [games_since_hr] INT,
+    [pattern_samples] INT,
+    [pattern_repeats] INT,
+    [pattern_hit_rate] DECIMAL(5,3),
+    [hr_pattern_early] DECIMAL(5,3),
+    [hr_pattern_late] DECIMAL(5,3),
+    [hr_hot] BIT DEFAULT ((0)) NOT NULL,
+    [created_at] DATETIME2 DEFAULT (getutcdate()) NOT NULL,
+    CONSTRAINT [PK_player_patterns] PRIMARY KEY ([batter_id], [as_of_date])
+);
+CREATE INDEX [IX_player_patterns_date] ON [mlb].[player_patterns] ([as_of_date], [batter_id]);
+
 CREATE TABLE [mlb].[player_season_batting] (
     [player_season_id] INT NOT NULL,
     [player_id] INT NOT NULL,

@@ -69,6 +69,19 @@ const COLS: Col[] = [
     get: (b) => b.proj["batter_total_bases"],
     fmt: (v) => v.toFixed(2),
   },
+  // hit_prob / hr_prob are 0-1 P(>=1 in the game) — display as percents.
+  {
+    key: "projHitProb",
+    label: "Hit%",
+    get: (b) => b.proj["hit_prob"],
+    fmt: (v) => `${(v * 100).toFixed(0)}%`,
+  },
+  {
+    key: "projHrProb",
+    label: "HR%",
+    get: (b) => b.proj["hr_prob"],
+    fmt: (v) => `${(v * 100).toFixed(0)}%`,
+  },
 ];
 
 function TeamMatchups({

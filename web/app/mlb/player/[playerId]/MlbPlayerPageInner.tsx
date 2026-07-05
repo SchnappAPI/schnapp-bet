@@ -64,6 +64,24 @@ interface BvpLine {
   lastFaced: string | null;
 }
 
+interface PatternLine {
+  asOfDate: string;
+  gamesPlayed: number | null;
+  hrGames: number | null;
+  gamesSinceHr: number | null;
+  patternSamples: number | null;
+  patternRepeats: number | null;
+  patternHitRate: number | null;
+  hrPatternEarly: number | null;
+  hrPatternLate: number | null;
+  hrHot: boolean;
+}
+
+interface ProjectionCell {
+  value: number;
+  confidence: number | null;
+}
+
 interface MlbLogResponse {
   playerId: number;
   playerName: string | null;
@@ -74,6 +92,8 @@ interface MlbLogResponse {
   averages: MlbLogAverages;
   upcoming: UpcomingGame | null;
   bvp: BvpLine | null;
+  patterns: PatternLine | null;
+  projections: Record<string, ProjectionCell> | null;
 }
 
 interface MlbSplitRow {
@@ -108,6 +128,22 @@ function fmtAvg(val: number | null): string {
   if (val == null) return "---";
   return val.toFixed(3).replace(/^0/, "");
 }
+
+// Pattern rates and prob markets are 0-1 decimals — display as percents.
+function fmtRatePct(val: number | null | undefined): string {
+  if (val == null) return "—";
+  return `${(val * 100).toFixed(0)}%`;
+}
+
+// Projections strip layout: label → market_key, counts vs probabilities.
+const PROJ_MARKETS: { label: string; key: string; pct?: boolean }[] = [
+  { label: "xH", key: "batter_hits" },
+  { label: "xTB", key: "batter_total_bases" },
+  { label: "xHR", key: "batter_home_runs" },
+  { label: "Hit%", key: "hit_prob", pct: true },
+  { label: "HR%", key: "hr_prob", pct: true },
+  { label: "H+R+RBI", key: "batter_hits_runs_rbis" },
+];
 
 export default function MlbPlayerPageInner({ playerId }: { playerId: string }) {
   const router = useRouter();
@@ -240,9 +276,7 @@ export default function MlbPlayerPageInner({ playerId }: { playerId: string }) {
           {(["log", "statcast"] as const).map((v) => (
             <button
               key={v}
-              onClick={() =>
-                updateFilter({ view: v === "log" ? null : v })
-              }
+              onClick={() => updateFilter({ view: v === "log" ? null : v })}
               className={`px-3 py-1 text-xs font-medium transition-colors ${
                 urlView === v
                   ? "bg-brand text-canvas"
@@ -353,9 +387,7 @@ export default function MlbPlayerPageInner({ playerId }: { playerId: string }) {
             {logData.bvp.h ?? 0}-for-{logData.bvp.ab ?? 0}
           </span>
           {(logData.bvp.hr ?? 0) > 0 && (
-            <span className="text-warn tabular-nums">
-              {logData.bvp.hr} HR
-            </span>
+            <span className="text-warn tabular-nums">{logData.bvp.hr} HR</span>
           )}
           {(logData.bvp.k ?? 0) > 0 && (
             <span className="text-fg-subtle tabular-nums">
@@ -373,6 +405,64 @@ export default function MlbPlayerPageInner({ playerId }: { playerId: string }) {
               last faced {logData.bvp.lastFaced}
             </span>
           )}
+        </div>
+      )}
+
+      {/* HR pattern card (mlb.player_patterns; rates are 0-1 decimals) */}
+      {logData?.patterns && (
+        <div className="px-4 py-2 border-b border-border flex items-baseline gap-x-3 gap-y-1 flex-wrap text-xs">
+          <span className="text-fg-subtle uppercase tracking-wider text-[10px] font-semibold">
+            HR Pattern
+          </span>
+          {logData.patterns.hrHot && (
+            <span className="inline-block rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide whitespace-nowrap bg-warn-muted text-warn">
+              HR Hot
+            </span>
+          )}
+          <span className="text-fg-muted tabular-nums">
+            Games since HR: {logData.patterns.gamesSinceHr ?? "—"}
+          </span>
+          <span className="text-fg-muted tabular-nums">
+            Repeat rate: {fmtRatePct(logData.patterns.patternHitRate)} (
+            {logData.patterns.patternRepeats ?? 0}/
+            {logData.patterns.patternSamples ?? 0})
+          </span>
+          {(logData.patterns.patternRepeats ?? 0) > 0 && (
+            <span className="text-fg-subtle tabular-nums">
+              Early/late: {fmtRatePct(logData.patterns.hrPatternEarly)} /{" "}
+              {fmtRatePct(logData.patterns.hrPatternLate)}
+            </span>
+          )}
+          <span className="text-fg-disabled">
+            as of {logData.patterns.asOfDate}
+          </span>
+        </div>
+      )}
+
+      {/* Projections strip for the upcoming game (proj-v1.1 model outputs) */}
+      {logData?.projections && (
+        <div className="px-4 py-2 border-b border-border flex items-baseline gap-x-3 gap-y-1 flex-wrap text-xs">
+          <span className="text-fg-subtle uppercase tracking-wider text-[10px] font-semibold">
+            Projections (proj-v1.1)
+          </span>
+          {PROJ_MARKETS.map((m) => {
+            const cell = logData.projections![m.key];
+            if (!cell) return null;
+            return (
+              <span key={m.key} className="text-fg-muted tabular-nums">
+                {m.label}:{" "}
+                {m.pct ? fmtRatePct(cell.value) : cell.value.toFixed(2)}
+              </span>
+            );
+          })}
+          {(() => {
+            const conf = PROJ_MARKETS.map(
+              (m) => logData.projections![m.key]?.confidence,
+            ).find((c) => c != null);
+            return conf != null ? (
+              <span className="text-fg-disabled">conf {fmtRatePct(conf)}</span>
+            ) : null;
+          })()}
         </div>
       )}
 
