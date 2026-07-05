@@ -144,6 +144,22 @@ def fetch_games(engine, game_date):
 
 
 def fetch_confirmed_lineup(engine, game_pk):
+    # Pregame source first: mlb.daily_lineups holds CONFIRMED lineups from the
+    # intraday poller hours before boxscore rows exist (ADR-20260704-1 future
+    # step). Boxscore rows remain the fallback so historical/backfill dates
+    # (which predate the poller) still resolve as confirmed.
+    dl = pd.read_sql(
+        text("""
+        SELECT player_id, team_id,
+               batting_order * 100 AS batting_order  -- 1-9 here; boxscore path is 100-scale
+        FROM mlb.daily_lineups
+        WHERE game_pk = :gp AND is_confirmed = 1
+    """),
+        engine,
+        params={"gp": int(game_pk)},
+    )
+    if not dl.empty:
+        return dl
     return pd.read_sql(
         text("""
         SELECT player_id, team_id, batting_order
