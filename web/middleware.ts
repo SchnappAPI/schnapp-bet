@@ -133,17 +133,15 @@ export async function middleware(request: NextRequest) {
 
   // Unlock attempt via query string. Always honored, even if maintenance
   // is off — sets the bypass cookie so future locks let you through.
+  //
+  // No redirect, deliberately: behind the cloudflared tunnel the request's
+  // origin is the internal bind (localhost:3001), so an absolute redirect
+  // built from nextUrl points at a dead host, and the edge runtime rejects
+  // a hand-built 3xx with a relative Location (500 in prod, 2026-07-05).
+  // Setting the cookie and serving the page directly has no failure mode;
+  // the ?unlock=go param simply stays in the URL.
   if (searchParams.get("unlock") === UNLOCK_CODE) {
-    // Redirect with a RELATIVE Location. Behind the cloudflared tunnel the
-    // request's origin is the internal bind (localhost:3001), so an absolute
-    // redirect built from nextUrl sends the browser to a dead host. A relative
-    // Location resolves against whatever public host the visitor used.
-    const cleanUrl = request.nextUrl.clone();
-    cleanUrl.searchParams.delete("unlock");
-    const res = new NextResponse(null, {
-      status: 307,
-      headers: { Location: cleanUrl.pathname + cleanUrl.search },
-    });
+    const res = NextResponse.next();
     res.cookies.set({
       name: COOKIE_NAME,
       value: UNLOCK_CODE,
