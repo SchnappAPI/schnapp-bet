@@ -135,6 +135,19 @@ API_BASE = "https://statsapi.mlb.com/api/v1/game/{game_pk}/withMetrics"
 FLUSH_EVERY = 25  # games per DB write; raised from 5 to reduce flush overhead
 FETCH_WORKERS = 8  # concurrent HTTP fetch threads
 
+# HR-pattern definitions for mlb.player_patterns (Phase 4 of
+# docs/features/mlb-research-dashboard.md). The PBI report's DAX for its
+# pattern card is inferred, so these are OUR explicit definitions:
+# a batter is "in pattern" for PATTERN_WINDOW_GAMES games after a game with
+# a HR; "early" repeats land within the first PATTERN_EARLY_GAMES of that
+# window, "late" repeats in the remainder. hr_hot requires the batter to be
+# inside the window now AND a repeat rate / sample floor so one lucky HR
+# never lights the flag.
+PATTERN_WINDOW_GAMES = 5
+PATTERN_EARLY_GAMES = 2
+HR_HOT_MIN_RATE = 0.5
+HR_HOT_MIN_SAMPLES = 3
+
 # Event types that are NOT plate appearances (baserunning / pickoff noise).
 _NON_PA_EVENTS = frozenset(
     [
@@ -646,6 +659,66 @@ IF NOT EXISTS (
         vs_rhp_hard_hit_pct  DECIMAL(5,3)  NULL,
         vs_rhp_avg_xba       DECIMAL(5,3)  NULL,
         vs_rhp_babip         DECIMAL(5,3)  NULL;
+"""
+
+# HR-pattern state per (batter, as-of date), computed from
+# mlb.player_game_statcast history (Phase 4, mlb-research-dashboard.md).
+# One row per batter per date played, SAME-SEASON scope, computed THROUGH
+# that date inclusive (unlike player_trend_stats' pre-game windows — a
+# pattern row answers "where does he stand after tonight"). Readers pick
+# the latest as_of_date < the upcoming game date, exactly like fetch_trend.
+#
+# Definitions (ours, not the PBI report's inferred DAX — see the constants
+# PATTERN_WINDOW_GAMES / PATTERN_EARLY_GAMES / HR_HOT_* at the top):
+#   games_played      - season games through as_of_date.
+#   hr_games          - of those, games with >= 1 HR.
+#   games_since_hr    - games after the most recent HR game (0 = homered on
+#                       as_of_date); NULL when no HR yet this season.
+#   pattern_samples   - HR games with >= 1 subsequent game played.
+#   pattern_repeats   - samples where another HR game landed within the
+#                       next PATTERN_WINDOW_GAMES games.
+#   pattern_hit_rate  - repeats / samples.
+#   hr_pattern_early  - share of repeats whose first follow-up HR came in
+#                       the next 1..PATTERN_EARLY_GAMES games.
+#   hr_pattern_late   - share in games PATTERN_EARLY_GAMES+1..WINDOW.
+#   hr_hot            - still inside the window for TONIGHT's game, i.e.
+#                       games_since_hr < WINDOW (at == WINDOW tonight would be
+#                       game WINDOW+1 after the HR, beyond the repeat horizon)
+#                       AND pattern_hit_rate >= HR_HOT_MIN_RATE
+#                       AND pattern_samples >= HR_HOT_MIN_SAMPLES.
+# Doubleheaders: both games of the date fold into one as-of row; game
+# sequencing (not calendar days) drives every window.
+DDL_CREATE_PATTERNS = """
+IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = 'mlb' AND TABLE_NAME = 'player_patterns'
+)
+CREATE TABLE mlb.player_patterns (
+    batter_id        INT           NOT NULL,
+    as_of_date       DATE          NOT NULL,
+    season           INT           NOT NULL,
+    games_played     INT           NULL,
+    hr_games         INT           NULL,
+    games_since_hr   INT           NULL,
+    pattern_samples  INT           NULL,
+    pattern_repeats  INT           NULL,
+    pattern_hit_rate DECIMAL(5,3)  NULL,
+    hr_pattern_early DECIMAL(5,3)  NULL,
+    hr_pattern_late  DECIMAL(5,3)  NULL,
+    hr_hot           BIT           NOT NULL DEFAULT 0,
+    created_at       DATETIME2     NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_player_patterns PRIMARY KEY CLUSTERED (batter_id, as_of_date)
+);
+"""
+
+DDL_CREATE_PATTERNS_INDEXES = """
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_player_patterns_date'
+      AND object_id = OBJECT_ID('mlb.player_patterns')
+)
+    CREATE NONCLUSTERED INDEX IX_player_patterns_date
+        ON mlb.player_patterns (as_of_date, batter_id);
 """
 
 
@@ -1492,9 +1565,12 @@ def ensure_table(engine):
         conn.execute(text(DDL_CREATE_GAME_STATCAST_INDEXES))
         conn.execute(text(DDL_ALTER_BVP_QUALITY))
         conn.execute(text(DDL_ALTER_TREND_PLATOON_QUALITY))
+        conn.execute(text(DDL_CREATE_PATTERNS))
+        conn.execute(text(DDL_CREATE_PATTERNS_INDEXES))
     log.info(
         "mlb.play_by_play, mlb.player_at_bats, mlb.career_batter_vs_pitcher, "
-        "mlb.player_trend_stats, and mlb.player_game_statcast tables ensured."
+        "mlb.player_trend_stats, mlb.player_game_statcast, and "
+        "mlb.player_patterns tables ensured."
     )
 
 
@@ -2035,6 +2111,233 @@ def rebuild_player_game_statcast(engine):
         load_player_game_statcast_for_games(engine, chunk, force=True)
 
 
+def _compute_pattern_rows(games_df, target_dates):
+    """
+    Compute mlb.player_patterns rows for ONE batter-season.
+
+    games_df: that batter-season's player_game_statcast games as a DataFrame
+    with game_date / game_pk / home_runs, any order. target_dates: the
+    as-of dates to emit rows for (must be dates the batter played).
+
+    Pure function over the game sequence so the incremental and rebuild
+    paths cannot drift. Definitions documented at DDL_CREATE_PATTERNS.
+    """
+    g = games_df.sort_values(["game_date", "game_pk"]).reset_index(drop=True)
+    hr_flags = (g["home_runs"].fillna(0) > 0).tolist()
+    dates = g["game_date"].tolist()
+
+    rows = []
+    for as_of in sorted(set(target_dates)):
+        n = max(i for i, d in enumerate(dates) if d <= as_of) + 1
+        flags = hr_flags[:n]
+        hr_seqs = [i for i, f in enumerate(flags) if f]
+
+        games_since = (n - 1) - hr_seqs[-1] if hr_seqs else None
+
+        samples = repeats = early = late = 0
+        for i in hr_seqs:
+            if i == n - 1:
+                continue  # no subsequent game yet — not a sample
+            samples += 1
+            window = flags[i + 1 : i + 1 + PATTERN_WINDOW_GAMES]
+            gap = next((j + 1 for j, f in enumerate(window) if f), None)
+            if gap is not None:
+                repeats += 1
+                if gap <= PATTERN_EARLY_GAMES:
+                    early += 1
+                else:
+                    late += 1
+
+        rate = round(repeats / samples, 3) if samples else None
+        hot = int(
+            games_since is not None
+            and games_since < PATTERN_WINDOW_GAMES
+            and samples >= HR_HOT_MIN_SAMPLES
+            and rate is not None
+            and rate >= HR_HOT_MIN_RATE
+        )
+        rows.append(
+            {
+                "as_of_date": as_of,
+                "season": as_of.year,
+                "games_played": n,
+                "hr_games": len(hr_seqs),
+                "games_since_hr": games_since,
+                "pattern_samples": samples,
+                "pattern_repeats": repeats,
+                "pattern_hit_rate": rate,
+                "hr_pattern_early": round(early / repeats, 3) if repeats else None,
+                "hr_pattern_late": round(late / repeats, 3) if repeats else None,
+                "hr_hot": hot,
+            }
+        )
+    return rows
+
+
+def load_player_patterns_for_games(engine, game_pks):
+    """
+    Materialize mlb.player_patterns rows for the (batter, game_date) pairs
+    touched by game_pks, from same-season mlb.player_game_statcast history.
+
+    NO skip-if-pair-exists pre-diff, deliberately unlike the sibling
+    loaders: a pattern row is through-date-INCLUSIVE, so when a
+    doubleheader's games split across a flush boundary (or game 2 goes
+    Final in a later run) the date's row must be recomputed with both
+    games folded in — a pre-diff would skip it forever. The MERGE write
+    makes unconditional recomputation idempotent, and the pair count per
+    flush is small. The rebuild path reuses this same function.
+
+    Runs AFTER load_player_game_statcast_for_games in the flush loop —
+    patterns are a pure derivation of that table.
+    """
+    if not game_pks:
+        return
+
+    placeholders = ", ".join(str(int(g)) for g in set(game_pks))
+    targets = pd.read_sql(
+        text(f"""
+        SELECT DISTINCT batter_id, CAST(game_date AS DATE) AS game_date
+        FROM mlb.player_game_statcast
+        WHERE game_pk IN ({placeholders}) AND game_date IS NOT NULL
+    """),
+        engine,
+    )
+    if targets.empty:
+        log.info("player_patterns: no batter-date pairs for the given games.")
+        return
+
+    batter_ids = sorted(int(b) for b in targets["batter_id"].unique())
+    seasons = sorted({d.year for d in targets["game_date"]})
+    blist = ", ".join(str(b) for b in batter_ids)
+    slist = ", ".join(str(s) for s in seasons)
+    history = pd.read_sql(
+        text(f"""
+        SELECT batter_id, game_pk, CAST(game_date AS DATE) AS game_date, home_runs
+        FROM mlb.player_game_statcast
+        WHERE batter_id IN ({blist})
+          AND YEAR(game_date) IN ({slist})
+          AND game_date IS NOT NULL
+    """),
+        engine,
+    )
+
+    out = []
+    targets_by_batter = targets.groupby("batter_id")["game_date"].apply(list)
+    for batter_id, batter_games in history.groupby("batter_id"):
+        t_dates = targets_by_batter.get(batter_id)
+        if not t_dates:
+            continue
+        for season, season_games in batter_games.groupby(batter_games["game_date"].map(lambda d: d.year)):
+            season_targets = [d for d in t_dates if d.year == season]
+            if not season_targets:
+                continue
+            for row in _compute_pattern_rows(season_games, season_targets):
+                out.append({"batter_id": int(batter_id), **row})
+
+    if not out:
+        log.info("player_patterns: nothing to write.")
+        return
+
+    # Stage into a temp table and MERGE, mirroring _merge_trend_stats — a
+    # per-pair OR predicate would balloon on 200-game rebuild chunks.
+    # Bind the record dicts directly: _compute_pattern_rows emits pure
+    # Python ints/floats/None. A pandas round-trip floats the nullable int
+    # columns (2.0), which pyodbc ships as varchar and SQL Server refuses
+    # to cast to INT (error 245 on the first rebuild dispatch).
+    cols = [
+        "batter_id",
+        "as_of_date",
+        "season",
+        "games_played",
+        "hr_games",
+        "games_since_hr",
+        "pattern_samples",
+        "pattern_repeats",
+        "pattern_hit_rate",
+        "hr_pattern_early",
+        "hr_pattern_late",
+        "hr_hot",
+    ]
+    insert_cols = ", ".join(cols)
+    param_names = ", ".join(f":{c}" for c in cols)
+    set_clause = ", ".join(f"{c} = src.{c}" for c in cols if c not in ("batter_id", "as_of_date"))
+    src_cols = ", ".join(f"src.{c}" for c in cols)
+
+    with engine.begin() as conn:
+        conn.execute(text("IF OBJECT_ID('tempdb..#pp_stage') IS NOT NULL DROP TABLE #pp_stage"))
+        conn.execute(
+            text("""
+            CREATE TABLE #pp_stage (
+                batter_id        INT          NOT NULL,
+                as_of_date       DATE         NOT NULL,
+                season           INT          NOT NULL,
+                games_played     INT          NULL,
+                hr_games         INT          NULL,
+                games_since_hr   INT          NULL,
+                pattern_samples  INT          NULL,
+                pattern_repeats  INT          NULL,
+                -- FLOAT (not DECIMAL) in the stage, like #stage_trend:
+                -- fast_executemany binds some float batches as varchar and
+                -- SQL Server refuses varchar->numeric (8114, seen on the
+                -- first rebuild dispatch); FLOAT accepts them and the MERGE
+                -- converts to the target DECIMAL(5,3) server-side.
+                pattern_hit_rate FLOAT        NULL,
+                hr_pattern_early FLOAT        NULL,
+                hr_pattern_late  FLOAT        NULL,
+                hr_hot           INT          NOT NULL,
+                PRIMARY KEY (batter_id, as_of_date)
+            )
+        """)
+        )
+        conn.execute(
+            text(f"INSERT INTO #pp_stage ({insert_cols}) VALUES ({param_names})"),
+            [{c: r[c] for c in cols} for r in out],
+        )
+        conn.execute(
+            text(f"""
+            MERGE mlb.player_patterns AS tgt
+            USING #pp_stage AS src
+              ON tgt.batter_id = src.batter_id AND tgt.as_of_date = src.as_of_date
+            WHEN MATCHED THEN UPDATE SET {set_clause}
+            WHEN NOT MATCHED THEN INSERT ({insert_cols})
+            VALUES ({src_cols});
+        """)
+        )
+
+    log.info(
+        "player_patterns: wrote %d rows for %d batters; hr_hot on %d rows.",
+        len(out),
+        len(batter_ids),
+        sum(r["hr_hot"] for r in out),
+    )
+
+
+def rebuild_player_patterns(engine):
+    """
+    Standalone rebuilder for --rebuild-patterns mode: recompute every
+    (batter, date) pair currently in mlb.player_game_statcast, chunked by
+    game_pk like the sibling rebuilders.
+    """
+    with engine.connect() as conn:
+        games = [
+            row[0] for row in conn.execute(text("SELECT DISTINCT game_pk FROM mlb.player_game_statcast")).fetchall()
+        ]
+    log.info("rebuild-patterns: %d distinct game_pks in mlb.player_game_statcast.", len(games))
+    if not games:
+        return
+
+    CHUNK = 200
+    for start in range(0, len(games), CHUNK):
+        chunk = games[start : start + CHUNK]
+        log.info(
+            "rebuild-patterns: processing games %d-%d of %d.",
+            start + 1,
+            start + len(chunk),
+            len(games),
+        )
+        load_player_patterns_for_games(engine, chunk)
+
+
 # SQL expression that classifies a row from mlb.player_at_bats into at-bat
 # count buckets. Reused by both the per-flush loader and the full rebuild.
 # Event types follow the MLB Stats API contract observed in production data.
@@ -2478,6 +2781,7 @@ def load_play_by_play(engine, seasons, batch_size):
             log.info("Wrote %d PBP rows after game %d of %d.", len(flush_rows), i, len(work))
             load_player_at_bats_for_games(engine, flush_games)
             load_player_game_statcast_for_games(engine, flush_games)
+            load_player_patterns_for_games(engine, flush_games)
             load_career_bvp_for_games(engine, flush_games)
             load_trend_stats_for_games(engine, flush_games)
             flush_rows = []
@@ -2512,30 +2816,44 @@ def main():
         action="store_true",
         help="Skip PBP fetch loop; rebuild mlb.player_game_statcast from existing player_at_bats data.",
     )
+    parser.add_argument(
+        "--rebuild-patterns",
+        action="store_true",
+        help="Skip PBP fetch loop; rebuild mlb.player_patterns from existing player_game_statcast data.",
+    )
     args = parser.parse_args()
 
     seasons = args.seasons or SEASONS
     log.info("=== MLB Play-by-Play ETL started ===")
     log.info(
-        "Seasons: %s  Batch: %d  Rebuild at-bats: %s  Rebuild BvP: %s  Rebuild trend: %s  Rebuild game-statcast: %s",
+        "Seasons: %s  Batch: %d  Rebuild at-bats: %s  Rebuild BvP: %s  Rebuild trend: %s  Rebuild game-statcast: %s  Rebuild patterns: %s",
         seasons,
         args.batch,
         args.rebuild_at_bats,
         args.rebuild_bvp,
         args.rebuild_trend_stats,
         args.rebuild_game_statcast,
+        args.rebuild_patterns,
     )
 
     engine = get_engine()
     ensure_table(engine)
 
-    rebuild_mode = args.rebuild_at_bats or args.rebuild_bvp or args.rebuild_trend_stats or args.rebuild_game_statcast
+    rebuild_mode = (
+        args.rebuild_at_bats
+        or args.rebuild_bvp
+        or args.rebuild_trend_stats
+        or args.rebuild_game_statcast
+        or args.rebuild_patterns
+    )
 
     if rebuild_mode:
         if args.rebuild_at_bats:
             rebuild_player_at_bats(engine)
         if args.rebuild_game_statcast:
             rebuild_player_game_statcast(engine)
+        if args.rebuild_patterns:
+            rebuild_player_patterns(engine)
         if args.rebuild_bvp:
             rebuild_career_bvp(engine)
         if args.rebuild_trend_stats:
