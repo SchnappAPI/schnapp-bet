@@ -2276,10 +2276,15 @@ def load_player_patterns_for_games(engine, game_pks):
                 games_since_hr   INT          NULL,
                 pattern_samples  INT          NULL,
                 pattern_repeats  INT          NULL,
-                pattern_hit_rate DECIMAL(5,3) NULL,
-                hr_pattern_early DECIMAL(5,3) NULL,
-                hr_pattern_late  DECIMAL(5,3) NULL,
-                hr_hot           BIT          NOT NULL,
+                -- FLOAT (not DECIMAL) in the stage, like #stage_trend:
+                -- fast_executemany binds some float batches as varchar and
+                -- SQL Server refuses varchar->numeric (8114, seen on the
+                -- first rebuild dispatch); FLOAT accepts them and the MERGE
+                -- converts to the target DECIMAL(5,3) server-side.
+                pattern_hit_rate FLOAT        NULL,
+                hr_pattern_early FLOAT        NULL,
+                hr_pattern_late  FLOAT        NULL,
+                hr_hot           INT          NOT NULL,
                 PRIMARY KEY (batter_id, as_of_date)
             )
         """)
