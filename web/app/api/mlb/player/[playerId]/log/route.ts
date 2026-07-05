@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { apiError } from '@/lib/apiError';
+import { apiError } from "@/lib/apiError";
 import mssql from "mssql";
 import { getPool } from "@/lib/db";
 
@@ -63,6 +63,24 @@ export interface BvpLine {
   slg: number | null;
   ops: number | null;
   lastFaced: string | null;
+}
+
+export interface PatternLine {
+  asOfDate: string;
+  gamesPlayed: number | null;
+  hrGames: number | null;
+  gamesSinceHr: number | null;
+  patternSamples: number | null;
+  patternRepeats: number | null;
+  patternHitRate: number | null;
+  hrPatternEarly: number | null;
+  hrPatternLate: number | null;
+  hrHot: boolean;
+}
+
+export interface ProjectionCell {
+  value: number;
+  confidence: number | null;
 }
 
 export interface MlbLogAverages {
@@ -237,9 +255,7 @@ export async function GET(
     let upcoming: UpcomingGame | null = null;
     let bvp: BvpLine | null = null;
     if (meta?.teamId != null) {
-      const upRes = await pool
-        .request()
-        .input("teamId", mssql.Int, meta.teamId)
+      const upRes = await pool.request().input("teamId", mssql.Int, meta.teamId)
         .query<UpcomingGame>(`
           SELECT TOP 1
             g.game_pk AS gamePk,
@@ -270,8 +286,7 @@ export async function GET(
         const bvpRes = await pool
           .request()
           .input("playerId", mssql.Int, playerId)
-          .input("pitcherId", mssql.Int, upcoming.oppPitcherId)
-          .query<BvpLine>(`
+          .input("pitcherId", mssql.Int, upcoming.oppPitcherId).query<BvpLine>(`
             SELECT plate_appearances AS pa,
                    at_bats AS ab,
                    hits AS h,
@@ -293,6 +308,63 @@ export async function GET(
       }
     }
 
+    // Latest pattern row STRICTLY BEFORE the anchor date (mirrors fetch_trend).
+    // Anchor = the upcoming game's date when one exists, else tomorrow so the
+    // latest through-date-inclusive row still returns off-season.
+    const anchorDate = upcoming?.gameDate ?? null;
+    const patRes = await pool
+      .request()
+      .input("playerId", mssql.Int, playerId)
+      .input("anchorDate", mssql.VarChar(10), anchorDate).query(`
+        SELECT TOP 1
+          CONVERT(VARCHAR(10), as_of_date, 120) AS asOfDate,
+          games_played     AS gamesPlayed,
+          hr_games         AS hrGames,
+          games_since_hr   AS gamesSinceHr,
+          pattern_samples  AS patternSamples,
+          pattern_repeats  AS patternRepeats,
+          pattern_hit_rate AS patternHitRate,
+          hr_pattern_early AS hrPatternEarly,
+          hr_pattern_late  AS hrPatternLate,
+          hr_hot           AS hrHot
+        FROM mlb.player_patterns
+        WHERE batter_id = @playerId
+          AND as_of_date < COALESCE(
+            @anchorDate,
+            DATEADD(DAY, 1, CAST(DATEADD(HOUR, -6, GETUTCDATE()) AS DATE)))
+        ORDER BY as_of_date DESC
+      `);
+    const patRow = patRes.recordset[0] ?? null;
+    const patterns: PatternLine | null = patRow
+      ? { ...patRow, hrHot: Boolean(patRow.hrHot) }
+      : null;
+
+    // Projections pivot for the upcoming game (written by the 11:30 UTC
+    // grading run — absent early morning is normal).
+    let projections: Record<string, ProjectionCell> | null = null;
+    if (upcoming != null) {
+      const projRes = await pool
+        .request()
+        .input("playerId", mssql.Int, playerId)
+        .input("gamePk", mssql.Int, upcoming.gamePk).query(`
+          SELECT market_key AS marketKey,
+                 projected_value AS value,
+                 confidence
+          FROM mlb.batter_projections
+          WHERE game_pk = @gamePk AND batter_id = @playerId
+            AND projected_value IS NOT NULL
+        `);
+      if (projRes.recordset.length > 0) {
+        projections = {};
+        for (const p of projRes.recordset) {
+          projections[p.marketKey] = {
+            value: p.value,
+            confidence: p.confidence,
+          };
+        }
+      }
+    }
+
     return NextResponse.json({
       playerId,
       playerName: meta?.playerName ?? null,
@@ -303,8 +375,10 @@ export async function GET(
       averages: computeAverages(rows),
       upcoming,
       bvp,
+      patterns,
+      projections,
     });
   } catch (err) {
-    return apiError(err, 'api/mlb/player/[playerId]/log');
+    return apiError(err, "api/mlb/player/[playerId]/log");
   }
 }
