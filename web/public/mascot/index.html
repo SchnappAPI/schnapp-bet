@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schnappy — schnapp.bet mascot sheet</title>
+<style>
+  :root {
+    --canvas:#08090A; --raised:#0F1011; --surface:#16181B; --border:#26282D;
+    --fg:#F4F5F6; --muted:#C8CBD1; --subtle:#9094A0;
+    --brand:#5E6AD2; --pos:#2EBD85; --neg:#E5484D; --warn:#F5A623;
+    --gator:#33A876; --belly:#A9E8C9;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--canvas); color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; }
+  .wrap { max-width:1020px; margin:0 auto; padding:48px 28px 80px; }
+  .eyebrow { font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--brand); font-weight:600; }
+  h1 { font-size:44px; line-height:1.05; letter-spacing:-.02em; margin:.2em 0 .15em; text-wrap:balance; }
+  h2 { font-size:20px; letter-spacing:-.01em; margin:0 0 4px; }
+  section { margin-top:56px; }
+  section > .eyebrow { display:block; margin-bottom:14px; border-bottom:1px solid var(--border); padding-bottom:8px; }
+
+  .hero { display:grid; grid-template-columns:1.2fr .8fr; gap:32px; align-items:center; }
+  .hero .art svg { width:100%; max-width:340px; display:block; margin:0 auto;
+    filter:drop-shadow(0 12px 40px rgba(51,168,118,.25)); }
+  .tag { color:var(--muted); font-size:17px; max-width:46ch; }
+  .tag b { color:var(--pos); }
+  .factrow { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+  .fact { background:var(--surface); border:1px solid var(--border); border-radius:8px;
+    padding:8px 14px; font-size:13px; color:var(--muted); }
+  .fact b { color:var(--fg); display:block; font-size:11px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--subtle); margin-bottom:2px; font-weight:600; }
+
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:28px; }
+  .card { background:var(--raised); border:1px solid var(--border); border-radius:12px; padding:22px 24px; }
+  .card p { color:var(--muted); margin:.5em 0; }
+  ul { margin:.4em 0; padding-left:20px; color:var(--muted); }
+  li { margin:.35em 0; }
+  li b { color:var(--fg); }
+  .quote { border-left:3px solid var(--gator); padding:2px 14px; color:var(--fg);
+    font-style:italic; margin:14px 0 0; }
+  .quote span { display:block; font-style:normal; color:var(--subtle); font-size:12px; margin-top:4px; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:18px; }
+  .pose, .chip { margin:0; background:var(--raised); border:1px solid var(--border);
+    border-radius:12px; padding:18px 16px 14px; display:flex; flex-direction:column; gap:10px; }
+  .pose .art svg { width:100%; height:190px; display:block; }
+  .chip .art svg { width:100%; height:120px; display:block; }
+  figcaption { font-size:13px; color:var(--subtle); display:flex; flex-direction:column; gap:3px; }
+  figcaption b { color:var(--fg); font-size:14px; }
+  code { font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--brand);
+    background:rgba(94,106,210,.10); border-radius:4px; padding:1px 6px; align-self:flex-start; }
+  .chipgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:14px; }
+
+  .swatches { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:12px; }
+  .sw { border:1px solid var(--border); border-radius:10px; overflow:hidden; background:var(--raised); }
+  .sw i { display:block; height:56px; }
+  .sw div { padding:8px 12px; font-size:12px; color:var(--muted); }
+  .sw div b { display:block; color:var(--fg); }
+
+  .rules { display:grid; grid-template-columns:1fr 1fr; gap:28px; }
+  .do b { color:var(--pos); } .dont b { color:var(--neg); }
+  @media (max-width:760px) { .hero,.cols,.rules { grid-template-columns:1fr; } h1 { font-size:34px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <div>
+      <span class="eyebrow">schnapp.bet · brand mascot · character sheet v1</span>
+      <h1>Schnappy<br>the Gator</h1>
+      <p class="tag">A bayou gator who never chases. He sits at the waterline, watches the
+      numbers drift, and strikes exactly once — when the line is wrong.
+      <b>Wait. Watch. Schnapp.</b></p>
+      <div class="factrow">
+        <div class="fact"><b>Species</b>Louisiana alligator</div>
+        <div class="fact"><b>Home</b>The Bayou Book</div>
+        <div class="fact"><b>Job</b>Prop-line analyst</div>
+        <div class="fact"><b>Motto</b>“Snap only on value.”</div>
+      </div>
+    </div>
+    <div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 250" fill="none">
+<path d="M 150 196 Q 208 200 220 176 Q 226 164 216 160 Q 222 150 210 148 Q 216 138 200 140 Q 172 146 150 172 Z" fill="#33A876" stroke="#0E3B2A" stroke-width="5" stroke-linejoin="round"/><path d="M 178 150 l 8 -12 l 6 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/><path d="M 196 144 l 8 -11 l 5 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/><rect x="88" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><rect x="126" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="188" rx="46" ry="38" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="194" rx="30" ry="27" fill="#A9E8C9"/><path d="M 84 178 L 52 148" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 84 178 L 52 148" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><path d="M 156 178 L 178 196" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 156 178 L 178 196" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 88 128 Q 120 150 152 128" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M 100 133 l 7 9 l 7 -6 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><path d="M 134 135 l 6 8 l 7 -7 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="54" r="6.5" fill="#16181B"/><circle cx="88.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="54" r="6.5" fill="#16181B"/><circle cx="156.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/>
+</svg>
+</div>
+  </div>
+
+  <section>
+    <span class="eyebrow">Backstory</span>
+    <div class="cols">
+      <div class="card">
+        <p>Schnappy grew up in a Louisiana bayou where every other gator lunged at whatever
+        splashed. They went hungry a lot. Schnappy noticed something: the water tells you
+        everything if you sit still long enough. So he waited — eyes just above the surface —
+        and struck maybe once a day. He never missed.</p>
+        <p>One flood season a riverboat casino washed a stack of odds sheets into his swamp.
+        He read them the way he read the water: most numbers were noise, a few were wrong,
+        and the wrong ones were dinner. He's been grading lines ever since. The name on the
+        door — <b>schnapp.bet</b> — is his: <i>schnappen</i>, to snap it up.</p>
+      </div>
+      <div class="card">
+        <h2>Personality</h2>
+        <ul>
+          <li><b>Patient, not passive.</b> Default state is the lurk. No pick is a fine day.</li>
+          <li><b>Numbers-first.</b> Talks in stats and edges, never in locks and vibes.</li>
+          <li><b>Dry humor.</b> Deadpan one-liners; the specs do the smiling.</li>
+          <li><b>Honest with Ls.</b> Losses get one sweat drop and a graded row, never tilt.</li>
+          <li><b>Anti-degen.</b> He is the opposite of chase culture; that is the whole point of him.</li>
+        </ul>
+        <p class="quote">“Everything that splashes ain’t food.”<span>— Schnappy, on parlays</span></p>
+        <p class="quote">“The line moved. I didn’t.”<span>— Schnappy, on discipline</span></p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Poses — full body</span>
+    <div class="grid"><figure class="pose">
+      <div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 250" fill="none">
+<path d="M 150 196 Q 208 200 220 176 Q 226 164 216 160 Q 222 150 210 148 Q 216 138 200 140 Q 172 146 150 172 Z" fill="#33A876" stroke="#0E3B2A" stroke-width="5" stroke-linejoin="round"/><path d="M 178 150 l 8 -12 l 6 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/><path d="M 196 144 l 8 -11 l 5 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/><rect x="88" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><rect x="126" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="188" rx="46" ry="38" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="194" rx="30" ry="27" fill="#A9E8C9"/><path d="M 84 178 L 52 148" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 84 178 L 52 148" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><path d="M 156 178 L 178 196" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 156 178 L 178 196" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 88 128 Q 120 150 152 128" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M 100 133 l 7 9 l 7 -6 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><path d="M 134 135 l 6 8 l 7 -7 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="54" r="6.5" fill="#16181B"/><circle cx="88.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="54" r="6.5" fill="#16181B"/><circle cx="156.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/>
+</svg>
+</div>
+      <figcaption><b>Default</b><span>Hero, nav, about page. The baseline: friendly wave, specs on.</span><code>/mascot/schnappy-default.svg</code></figcaption>
+    </figure>
+<figure class="pose">
+      <div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" fill="none">
+<ellipse cx="120" cy="118" rx="72" ry="40" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="72" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="72" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="74" r="6.5" fill="#16181B"/><circle cx="88.2" cy="71.8" r="2" fill="#FFFFFF"/><circle cx="154" cy="72" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="72" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="74" r="6.5" fill="#16181B"/><circle cx="156.2" cy="71.8" r="2" fill="#FFFFFF"/><circle cx="86" cy="72" r="20" fill="none" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="72" r="20" fill="none" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 72 Q 120 64 134 72" stroke="#5E6AD2" stroke-width="5" fill="none"/><path d="M 0 112 Q 20 104 40 112 T 80 112 T 120 112 T 160 112 T 200 112 T 240 112 L 240 150 L 0 150 Z" fill="#5E6AD2" fill-opacity="0.30"/><path d="M 0 112 Q 20 104 40 112 T 80 112 T 120 112 T 160 112 T 200 112 T 240 112" stroke="#5E6AD2" stroke-width="4" fill="none"/><path d="M 28 128 q 10 -5 20 0" stroke="#5E6AD2" stroke-width="3" fill="none" opacity="0.7"/><path d="M 190 132 q 10 -5 20 0" stroke="#5E6AD2" stroke-width="3" fill="none" opacity="0.7"/>
+</svg>
+</div>
+      <figcaption><b>The Lurk</b><span>Signature pose. Patience = the brand thesis. Empty states, 'no value today', loading screens.</span><code>/mascot/schnappy-lurk.svg</code></figcaption>
+    </figure>
+<figure class="pose">
+      <div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 250" fill="none">
+<g transform="translate(240 0) scale(-1 1)"><path d="M 150 196 Q 208 200 220 176 Q 226 164 216 160 Q 222 150 210 148 Q 216 138 200 140 Q 172 146 150 172 Z" fill="#33A876" stroke="#0E3B2A" stroke-width="5" stroke-linejoin="round"/><path d="M 178 150 l 8 -12 l 6 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/><path d="M 196 144 l 8 -11 l 5 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/></g><rect x="88" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><rect x="126" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="188" rx="46" ry="38" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="194" rx="30" ry="27" fill="#A9E8C9"/><rect x="10" y="150" width="72" height="66" rx="8" fill="#16181B" stroke="#0E3B2A" stroke-width="4"/><rect x="20" y="188" width="10" height="20" rx="2" fill="#2EBD85"/><rect x="36" y="176" width="10" height="32" rx="2" fill="#2EBD85"/><rect x="52" y="182" width="10" height="26" rx="2" fill="#E5484D"/><rect x="68" y="164" width="6" height="44" rx="2" fill="#5E6AD2" opacity="0"/><rect x="66" y="166" width="10" height="42" rx="2" fill="#2EBD85"/><path d="M 156 178 L 186 160" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 156 178 L 186 160" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 92 132 Q 120 142 148 130" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M 102 134 l 6 9 l 7 -6 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="54" r="6.5" fill="#16181B"/><circle cx="88.2" cy="51.8" r="2" fill="#FFFFFF"/><path d="M 70 46 A 16 16 0 0 1 102 46 L 102 36 A 26 26 0 0 0 70 36 Z" fill="#33A876"/><line x1="71" y1="46" x2="101" y2="46" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="54" r="6.5" fill="#16181B"/><circle cx="156.2" cy="51.8" r="2" fill="#FFFFFF"/><path d="M 138 46 A 16 16 0 0 1 170 46 L 170 36 A 26 26 0 0 0 138 36 Z" fill="#33A876"/><line x1="139" y1="46" x2="169" y2="46" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/><path d="M 84 182 L 88 180" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 84 182 L 88 180" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><circle cx="60" cy="150" r="24" fill="#4493F8" fill-opacity="0.18" stroke="#5E6AD2" stroke-width="6"/><line x1="78" y1="168" x2="96" y2="186" stroke="#4A54B0" stroke-width="9" stroke-linecap="round"/>
+</svg>
+</div>
+      <figcaption><b>Analyst</b><span>Research features, model explainers, deep-dive post thumbnails.</span><code>/mascot/schnappy-analyst.svg</code></figcaption>
+    </figure>
+<figure class="pose">
+      <div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 250" fill="none">
+<g transform="translate(240 0) scale(-1 1)"><path d="M 150 196 Q 208 200 220 176 Q 226 164 216 160 Q 222 150 210 148 Q 216 138 200 140 Q 172 146 150 172 Z" fill="#33A876" stroke="#0E3B2A" stroke-width="5" stroke-linejoin="round"/><path d="M 178 150 l 8 -12 l 6 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/><path d="M 196 144 l 8 -11 l 5 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/></g><rect x="88" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><rect x="126" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="188" rx="46" ry="38" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="194" rx="30" ry="27" fill="#A9E8C9"/><path d="M 84 178 L 60 196" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 84 178 L 60 196" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 84 124 Q 120 154 156 124 Q 120 140 84 124 Z" fill="#16181B" stroke="#0E3B2A" stroke-width="4" stroke-linejoin="round"/><path d="M 96 128 l 6 8 l 6 -5 Z" fill="#FFFFFF"/><path d="M 138 130 l 5 7 l 6 -6 Z" fill="#FFFFFF"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="54" r="6.5" fill="#16181B"/><circle cx="88.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="54" r="6.5" fill="#16181B"/><circle cx="156.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/><path d="M 150 180 L 170 166" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 150 180 L 170 166" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><g transform="rotate(-8 178 160)"><rect x="152" y="128" width="52" height="64" rx="6" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="4"/><line x1="160" y1="142" x2="196" y2="142" stroke="#9094A0" stroke-width="4" stroke-linecap="round"/><line x1="160" y1="152" x2="188" y2="152" stroke="#9094A0" stroke-width="4" stroke-linecap="round"/><path d="M 164 172 l 8 8 l 16 -16" stroke="#2EBD85" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
+</svg>
+</div>
+      <figcaption><b>The Slip</b><span>Pick published / bet tracked confirmations, daily card posts.</span><code>/mascot/schnappy-slip.svg</code></figcaption>
+    </figure>
+<figure class="pose">
+      <div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 250" fill="none">
+<rect x="30" y="40" width="9" height="9" rx="2" fill="#2EBD85" transform="rotate(20 30 40)"/><rect x="60" y="18" width="9" height="9" rx="2" fill="#5E6AD2" transform="rotate(-15 60 18)"/><rect x="196" y="30" width="9" height="9" rx="2" fill="#F5A623" transform="rotate(30 196 30)"/><rect x="216" y="64" width="9" height="9" rx="2" fill="#2EBD85" transform="rotate(-20 216 64)"/><rect x="18" y="90" width="9" height="9" rx="2" fill="#5E6AD2" transform="rotate(10 18 90)"/><rect x="222" y="110" width="9" height="9" rx="2" fill="#F5A623" transform="rotate(-30 222 110)"/><rect x="48" y="64" width="9" height="9" rx="2" fill="#F5A623" transform="rotate(45 48 64)"/><rect x="206" y="14" width="9" height="9" rx="2" fill="#5E6AD2" transform="rotate(15 206 14)"/><path d="M 150 196 Q 208 200 220 176 Q 226 164 216 160 Q 222 150 210 148 Q 216 138 200 140 Q 172 146 150 172 Z" fill="#33A876" stroke="#0E3B2A" stroke-width="5" stroke-linejoin="round"/><path d="M 178 150 l 8 -12 l 6 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/><path d="M 196 144 l 8 -11 l 5 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/><rect x="88" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><rect x="126" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="188" rx="46" ry="38" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="194" rx="30" ry="27" fill="#A9E8C9"/><path d="M 84 178 L 48 132" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 84 178 L 48 132" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><path d="M 156 178 L 192 132" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 156 178 L 192 132" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 88 128 Q 120 150 152 128" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M 100 133 l 7 9 l 7 -6 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><path d="M 134 135 l 6 8 l 7 -7 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><path d="M 86 43 L 88.6 49.2 L 95 49.4 L 90 53.8 L 91.6 60.4 L 86 56.6 L 80.4 60.4 L 82 53.8 L 77 49.4 L 83.4 49.2 Z" fill="#F5A623"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><path d="M 154 43 L 156.6 49.2 L 163 49.4 L 158 53.8 L 159.6 60.4 L 154 56.6 L 148.4 60.4 L 150 53.8 L 145 49.4 L 151.4 49.2 Z" fill="#F5A623"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/>
+</svg>
+</div>
+      <figcaption><b>Cash</b><span>Graded winners, winning-streak recaps, W posts.</span><code>/mascot/schnappy-win.svg</code></figcaption>
+    </figure>
+<figure class="pose">
+      <div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 250" fill="none">
+<path d="M 150 196 Q 208 200 220 176 Q 226 164 216 160 Q 222 150 210 148 Q 216 138 200 140 Q 172 146 150 172 Z" fill="#33A876" stroke="#0E3B2A" stroke-width="5" stroke-linejoin="round"/><path d="M 178 150 l 8 -12 l 6 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/><path d="M 196 144 l 8 -11 l 5 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/><rect x="88" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><rect x="126" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="188" rx="46" ry="38" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="194" rx="30" ry="27" fill="#A9E8C9"/><path d="M 84 178 L 58 192" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 84 178 L 58 192" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><path d="M 156 178 L 182 192" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 156 178 L 182 192" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 96 134 L 144 132" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round"/><path d="M 104 136 l 6 8 l 6 -6 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="54" r="6.5" fill="#16181B"/><circle cx="88.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="54" r="6.5" fill="#16181B"/><circle cx="156.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/><path d="M 196 58 q 9 12 0 18 q -9 -6 0 -18 Z" fill="#4493F8" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/>
+</svg>
+</div>
+      <figcaption><b>Sweat</b><span>Live-game close calls, losses, honest L recaps. No tilt, just the drop.</span><code>/mascot/schnappy-sweat.svg</code></figcaption>
+    </figure>
+<figure class="pose">
+      <div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 250" fill="none">
+<g transform="translate(240 0) scale(-1 1)"><path d="M 150 196 Q 208 200 220 176 Q 226 164 216 160 Q 222 150 210 148 Q 216 138 200 140 Q 172 146 150 172 Z" fill="#33A876" stroke="#0E3B2A" stroke-width="5" stroke-linejoin="round"/><path d="M 178 150 l 8 -12 l 6 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/><path d="M 196 144 l 8 -11 l 5 10 Z" fill="#22815A" stroke="#0E3B2A" stroke-width="3" stroke-linejoin="round"/></g><rect x="88" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><rect x="126" y="208" width="26" height="26" rx="12" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="188" rx="46" ry="38" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="194" rx="30" ry="27" fill="#A9E8C9"/><path d="M 84 178 L 60 190" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 84 178 L 60 190" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><g><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 100 136 Q 120 130 140 136" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round"/><path d="M 104 136 l 6 8 l 6 -6 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="48" r="6.5" fill="#16181B"/><circle cx="88.2" cy="45.8" r="2" fill="#FFFFFF"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="48" r="6.5" fill="#16181B"/><circle cx="156.2" cy="45.8" r="2" fill="#FFFFFF"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/></g><path d="M 150 182 L 148 158" stroke="#0E3B2A" stroke-width="18" stroke-linecap="round"/><path d="M 150 182 L 148 158" stroke="#33A876" stroke-width="13" stroke-linecap="round"/><circle cx="196" cy="46" r="5" fill="#22815A"/><circle cx="208" cy="30" r="7" fill="#22815A"/><circle cx="222" cy="10" r="9" fill="#22815A"/>
+</svg>
+</div>
+      <figcaption><b>Hmm</b><span>Line-movement alerts, 'should you take this?' content, FAQs.</span><code>/mascot/schnappy-think.svg</code></figcaption>
+    </figure></div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Expressions — head chips (avatars, reaction posts, inline UI)</span>
+    <div class="chipgrid"><figure class="chip"><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 190" fill="none">
+<g transform="translate(-40 20)"><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 88 128 Q 120 150 152 128" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M 100 133 l 7 9 l 7 -6 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><path d="M 134 135 l 6 8 l 7 -7 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="54" r="6.5" fill="#16181B"/><circle cx="88.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="54" r="6.5" fill="#16181B"/><circle cx="156.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/></g>
+</svg>
+</div>
+      <figcaption>Happy<code>/mascot/head-happy.svg</code></figcaption></figure>
+<figure class="chip"><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 190" fill="none">
+<g transform="translate(-40 20)"><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 92 132 Q 120 142 148 130" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M 102 134 l 6 9 l 7 -6 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="54" r="6.5" fill="#16181B"/><circle cx="88.2" cy="51.8" r="2" fill="#FFFFFF"/><path d="M 70 46 A 16 16 0 0 1 102 46 L 102 36 A 26 26 0 0 0 70 36 Z" fill="#33A876"/><line x1="71" y1="46" x2="101" y2="46" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="54" r="6.5" fill="#16181B"/><circle cx="156.2" cy="51.8" r="2" fill="#FFFFFF"/><path d="M 138 46 A 16 16 0 0 1 170 46 L 170 36 A 26 26 0 0 0 138 36 Z" fill="#33A876"/><line x1="139" y1="46" x2="169" y2="46" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/></g>
+</svg>
+</div>
+      <figcaption>Locked in<code>/mascot/head-focused.svg</code></figcaption></figure>
+<figure class="chip"><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 190" fill="none">
+<g transform="translate(-40 20)"><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 96 134 L 144 132" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round"/><path d="M 104 136 l 6 8 l 6 -6 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="92" cy="55" r="6.5" fill="#16181B"/><circle cx="94.2" cy="52.8" r="2" fill="#FFFFFF"/><path d="M 70 46 A 16 16 0 0 1 102 46 L 102 36 A 26 26 0 0 0 70 36 Z" fill="#33A876"/><line x1="71" y1="46" x2="101" y2="46" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="160" cy="55" r="6.5" fill="#16181B"/><circle cx="162.2" cy="52.8" r="2" fill="#FFFFFF"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/><path d="M 140 20 Q 154 14 168 22" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round" fill="none"/></g>
+</svg>
+</div>
+      <figcaption>Skeptical<code>/mascot/head-skeptical.svg</code></figcaption></figure>
+<figure class="chip"><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 190" fill="none">
+<g transform="translate(-40 20)"><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="120" cy="136" rx="12" ry="14" fill="#16181B" stroke="#0E3B2A" stroke-width="4"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="48" r="6.5" fill="#16181B"/><circle cx="88.2" cy="45.8" r="2" fill="#FFFFFF"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="48" r="6.5" fill="#16181B"/><circle cx="156.2" cy="45.8" r="2" fill="#FFFFFF"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/></g>
+</svg>
+</div>
+      <figcaption>Shocked<code>/mascot/head-shocked.svg</code></figcaption></figure>
+<figure class="chip"><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 190" fill="none">
+<g transform="translate(-40 20)"><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 88 128 Q 120 150 152 128" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M 100 133 l 7 9 l 7 -6 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><path d="M 134 135 l 6 8 l 7 -7 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><path d="M 86 43 L 88.6 49.2 L 95 49.4 L 90 53.8 L 91.6 60.4 L 86 56.6 L 80.4 60.4 L 82 53.8 L 77 49.4 L 83.4 49.2 Z" fill="#F5A623"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><path d="M 154 43 L 156.6 49.2 L 163 49.4 L 158 53.8 L 159.6 60.4 L 154 56.6 L 148.4 60.4 L 150 53.8 L 145 49.4 L 151.4 49.2 Z" fill="#F5A623"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/></g>
+</svg>
+</div>
+      <figcaption>Cashed<code>/mascot/head-starry.svg</code></figcaption></figure>
+<figure class="chip"><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 190" fill="none">
+<g transform="translate(-40 20)"><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 84 124 Q 120 154 156 124 Q 120 140 84 124 Z" fill="#16181B" stroke="#0E3B2A" stroke-width="4" stroke-linejoin="round"/><path d="M 96 128 l 6 8 l 6 -5 Z" fill="#FFFFFF"/><path d="M 138 130 l 5 7 l 6 -6 Z" fill="#FFFFFF"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="54" r="6.5" fill="#16181B"/><circle cx="88.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="54" r="6.5" fill="#16181B"/><circle cx="156.2" cy="51.8" r="2" fill="#FFFFFF"/><circle cx="86" cy="52" r="20" fill="#16181B" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 76 46 L 84 44" stroke="#6f7ae0" stroke-width="3" stroke-linecap="round" opacity="0.7"/><circle cx="154" cy="52" r="20" fill="#16181B" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 144 46 L 152 44" stroke="#6f7ae0" stroke-width="3" stroke-linecap="round" opacity="0.7"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/></g>
+</svg>
+</div>
+      <figcaption>Cool<code>/mascot/head-cool.svg</code></figcaption></figure>
+<figure class="chip"><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 190" fill="none">
+<g transform="translate(-40 20)"><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 94 140 Q 120 126 146 140" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="86" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="86" cy="59" r="6.5" fill="#16181B"/><circle cx="88.2" cy="56.8" r="2" fill="#FFFFFF"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><circle cx="154" cy="52" r="15" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="3"/><circle cx="154" cy="59" r="6.5" fill="#16181B"/><circle cx="156.2" cy="56.8" r="2" fill="#FFFFFF"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/><path d="M 196 58 q 9 12 0 18 q -9 -6 0 -18 Z" fill="#4493F8" stroke="#0E3B2A" stroke-width="3"/></g>
+</svg>
+</div>
+      <figcaption>Took the L<code>/mascot/head-down.svg</code></figcaption></figure>
+<figure class="chip"><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 190" fill="none">
+<g transform="translate(-40 20)"><ellipse cx="120" cy="105" rx="72" ry="52" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="120" cy="126" rx="48" ry="27" fill="#A9E8C9" stroke="#0E3B2A" stroke-width="5"/><ellipse cx="104" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><ellipse cx="136" cy="112" rx="4.5" ry="6" fill="#0E3B2A"/><path d="M 88 128 Q 120 150 152 128" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M 100 133 l 7 9 l 7 -6 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><path d="M 134 135 l 6 8 l 7 -7 Z" fill="#FFFFFF" stroke="#0E3B2A" stroke-width="2.5" stroke-linejoin="round"/><circle cx="86" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><path d="M 74 54 Q 86 62 98 54" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round"/><circle cx="154" cy="52" r="26" fill="#33A876" stroke="#0E3B2A" stroke-width="5"/><path d="M 142 54 Q 154 62 166 54" stroke="#0E3B2A" stroke-width="5" stroke-linecap="round"/><circle cx="86" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><circle cx="154" cy="52" r="20" fill="none" fill-opacity="0.92" stroke="#5E6AD2" stroke-width="5"/><path d="M 106 52 Q 120 44 134 52" stroke="#5E6AD2" stroke-width="5" fill="none"/></g>
+</svg>
+</div>
+      <figcaption>Off day<code>/mascot/head-sleep.svg</code></figcaption></figure></div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Construction &amp; palette</span>
+    <div class="cols">
+      <div class="card">
+        <h2>Build rules</h2>
+        <ul>
+          <li>Flat vector, dark outline <code>#0E3B2A</code> at 5px on a 240-unit canvas.</li>
+          <li>Eyes sit <b>on top of the head</b> (gator, not frog) with round violet specs — the specs are the brand tie and never come off.</li>
+          <li>Two teeth visible in almost every mouth. Ridged tail enters from either side.</li>
+          <li>Transparent background; drawn for the dark UI but holds up on white.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="swatches">
+          <div class="sw"><i style="background:#33A876"></i><div><b>#33A876</b>gator green</div></div>
+          <div class="sw"><i style="background:#A9E8C9"></i><div><b>#A9E8C9</b>belly</div></div>
+          <div class="sw"><i style="background:#0E3B2A"></i><div><b>#0E3B2A</b>outline</div></div>
+          <div class="sw"><i style="background:#5E6AD2"></i><div><b>#5E6AD2</b>specs · site brand</div></div>
+          <div class="sw"><i style="background:#2EBD85"></i><div><b>#2EBD85</b>win green · site pos</div></div>
+          <div class="sw"><i style="background:#E5484D"></i><div><b>#E5484D</b>loss red · site neg</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Usage</span>
+    <div class="rules">
+      <div class="card do">
+        <h2><b>Do</b></h2>
+        <ul>
+          <li>Use <b>The Lurk</b> as the signature mark — headers, empty states, “no plays today”.</li>
+          <li>Pair a pose with a real number (a graded pick, an EV figure). Schnappy always stands next to data.</li>
+          <li>Scale freely — it’s SVG. Head chips at 32–64px, full poses 160px+.</li>
+          <li>Recolor confetti/props to fit the sport accent; body colors stay fixed.</li>
+        </ul>
+      </div>
+      <div class="card dont">
+        <h2><b>Don’t</b></h2>
+        <ul>
+          <li>No cash emojis, fire, or “LOCK 🔒” framing next to him — he doesn’t chase and doesn’t hype.</li>
+          <li>Don’t remove the glasses or flip the eye placement off the top of the head.</li>
+          <li>Don’t use the win pose for ungraded picks. He celebrates results, not slips.</li>
+          <li>Don’t outline in black or restyle with gradients; flat + dark-green line only.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Assets</span>
+    <p style="color:var(--muted)">15 SVGs live in <code>web/public/mascot/</code> — served at
+    <code>schnapp.bet/mascot/&lt;name&gt;.svg</code>. All generated from
+    one construction system, so new poses stay on-model.</p>
+  </section>
+
+</div>
+
+</body>
+</html>

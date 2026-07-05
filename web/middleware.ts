@@ -117,6 +117,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // /mascot is the public Schnappy character sheet + SVG assets — shareable
+  // without an unlock code. Bare /mascot rewrites to the static index.html
+  // (public/ has no directory-index behavior). Rewrite is internal, so the
+  // tunnel-origin redirect problem does not apply.
+  if (pathname === "/mascot" || pathname === "/mascot/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/mascot/index.html";
+    return NextResponse.rewrite(url);
+  }
+  if (pathname.startsWith("/mascot/")) {
+    return NextResponse.next();
+  }
+
   // Bypass list for paths that must always be reachable, even during
   // maintenance: keep-alive ping, the flags endpoint itself (middleware
   // calls it), and /admin + /api/admin/* so the operator can always
