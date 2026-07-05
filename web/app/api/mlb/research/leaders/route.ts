@@ -40,6 +40,17 @@ export interface LeaderPitcher {
   pitches: number;
 }
 
+export interface LeaderHrHot {
+  batterId: number;
+  batterName: string | null;
+  teamAbbr: string | null;
+  oppAbbr: string | null;
+  gamesSinceHr: number | null;
+  patternHitRate: number | null;
+  patternRepeats: number | null;
+  patternSamples: number | null;
+}
+
 export interface LeadersResponse {
   date: string;
   resolvedDate: string | null;
@@ -49,6 +60,7 @@ export interface LeadersResponse {
   hrParkNearMiss: LeaderAtBat[];
   topPitchVelo: LeaderPitcher[];
   topWhiffs: LeaderPitcher[];
+  hrHotToday: LeaderHrHot[];
 }
 
 const TOP_N = 5;
@@ -135,8 +147,51 @@ export async function GET(req: NextRequest) {
       hrParkNearMiss: [],
       topPitchVelo: [],
       topWhiffs: [],
+      hrHotToday: [],
     };
     if (!resolvedDate) return jsonWithEtag(req, empty);
+
+    // HR-Hot today: batters whose latest pattern row STRICTLY BEFORE the
+    // requested date has hr_hot = 1 and whose team plays on that date
+    // (pregame prop scan — anchored on the slate date, not resolvedDate).
+    const hotRes = await pool.request().input("date", mssql.VarChar, date)
+      .query(`
+        WITH latest AS (
+          SELECT pp.*,
+                 ROW_NUMBER() OVER (PARTITION BY pp.batter_id
+                                    ORDER BY pp.as_of_date DESC) AS rn
+          FROM mlb.player_patterns pp
+          WHERE pp.as_of_date < @date
+        ),
+        team AS (
+          SELECT bs.player_id, bs.team_id,
+                 ROW_NUMBER() OVER (PARTITION BY bs.player_id
+                                    ORDER BY bs.game_date DESC) AS trn
+          FROM mlb.batting_stats bs
+        )
+        SELECT TOP 10
+          l.batter_id        AS batterId,
+          p.player_name      AS batterName,
+          t.team_abbreviation AS teamAbbr,
+          CASE WHEN g.home_team_id = tm.team_id
+               THEN at.team_abbreviation
+               ELSE ht.team_abbreviation END AS oppAbbr,
+          l.games_since_hr   AS gamesSinceHr,
+          l.pattern_hit_rate AS patternHitRate,
+          l.pattern_repeats  AS patternRepeats,
+          l.pattern_samples  AS patternSamples
+        FROM latest l
+        JOIN team tm ON tm.player_id = l.batter_id AND tm.trn = 1
+        JOIN mlb.games g
+          ON CAST(g.game_date AS DATE) = @date
+         AND (g.home_team_id = tm.team_id OR g.away_team_id = tm.team_id)
+        JOIN mlb.teams t ON t.team_id = tm.team_id
+        JOIN mlb.teams ht ON ht.team_id = g.home_team_id
+        JOIN mlb.teams at ON at.team_id = g.away_team_id
+        LEFT JOIN mlb.players p ON p.player_id = l.batter_id
+        WHERE l.rn = 1 AND l.hr_hot = 1
+        ORDER BY l.pattern_hit_rate DESC, l.games_since_hr ASC
+      `);
 
     const run = (sql: string) =>
       pool.request().input("d", mssql.VarChar, resolvedDate).query(sql);
@@ -173,6 +228,7 @@ export async function GET(req: NextRequest) {
       hrParkNearMiss: nearMissRes.recordset,
       topPitchVelo: veloRes.recordset,
       topWhiffs: whiffRes.recordset,
+      hrHotToday: hotRes.recordset,
     });
   } catch (err) {
     return apiError(err, "api/mlb/research/leaders");
