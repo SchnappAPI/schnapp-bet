@@ -681,7 +681,9 @@ IF NOT EXISTS (
 #   hr_pattern_early  - share of repeats whose first follow-up HR came in
 #                       the next 1..PATTERN_EARLY_GAMES games.
 #   hr_pattern_late   - share in games PATTERN_EARLY_GAMES+1..WINDOW.
-#   hr_hot            - inside the window now (games_since_hr <= WINDOW)
+#   hr_hot            - still inside the window for TONIGHT's game, i.e.
+#                       games_since_hr < WINDOW (at == WINDOW tonight would be
+#                       game WINDOW+1 after the HR, beyond the repeat horizon)
 #                       AND pattern_hit_rate >= HR_HOT_MIN_RATE
 #                       AND pattern_samples >= HR_HOT_MIN_SAMPLES.
 # Doubleheaders: both games of the date fold into one as-of row; game
@@ -2149,7 +2151,7 @@ def _compute_pattern_rows(games_df, target_dates):
         rate = round(repeats / samples, 3) if samples else None
         hot = int(
             games_since is not None
-            and games_since <= PATTERN_WINDOW_GAMES
+            and games_since < PATTERN_WINDOW_GAMES
             and samples >= HR_HOT_MIN_SAMPLES
             and rate is not None
             and rate >= HR_HOT_MIN_RATE
@@ -2172,15 +2174,18 @@ def _compute_pattern_rows(games_df, target_dates):
     return rows
 
 
-def load_player_patterns_for_games(engine, game_pks, force=False):
+def load_player_patterns_for_games(engine, game_pks):
     """
     Materialize mlb.player_patterns rows for the (batter, game_date) pairs
     touched by game_pks, from same-season mlb.player_game_statcast history.
 
-    Nightly path (force=False): skip pairs already present — same
-    self-healing pre-diff as the sibling loaders. Rebuild path (force=True):
-    DELETE + re-insert the target pairs, so definition changes or
-    late-loaded historical games are healed by a rebuild dispatch.
+    NO skip-if-pair-exists pre-diff, deliberately unlike the sibling
+    loaders: a pattern row is through-date-INCLUSIVE, so when a
+    doubleheader's games split across a flush boundary (or game 2 goes
+    Final in a later run) the date's row must be recomputed with both
+    games folded in — a pre-diff would skip it forever. The MERGE write
+    makes unconditional recomputation idempotent, and the pair count per
+    flush is small. The rebuild path reuses this same function.
 
     Runs AFTER load_player_game_statcast_for_games in the flush loop —
     patterns are a pure derivation of that table.
@@ -2200,26 +2205,6 @@ def load_player_patterns_for_games(engine, game_pks, force=False):
     if targets.empty:
         log.info("player_patterns: no batter-date pairs for the given games.")
         return
-
-    if not force:
-        with engine.connect() as conn:
-            existing = {
-                (row[0], row[1])
-                for row in conn.execute(
-                    text(f"""
-                    SELECT p.batter_id, p.as_of_date
-                    FROM mlb.player_patterns p
-                    JOIN (SELECT DISTINCT batter_id FROM mlb.player_game_statcast
-                          WHERE game_pk IN ({placeholders})) b
-                      ON b.batter_id = p.batter_id
-                """)
-                ).fetchall()
-            }
-        mask = [(int(r["batter_id"]), r["game_date"]) not in existing for _, r in targets.iterrows()]
-        targets = targets[mask]
-        if targets.empty:
-            log.info("player_patterns: all pairs already materialized.")
-            return
 
     batter_ids = sorted(int(b) for b in targets["batter_id"].unique())
     seasons = sorted({d.year for d in targets["game_date"]})
@@ -2255,8 +2240,10 @@ def load_player_patterns_for_games(engine, game_pks, force=False):
 
     # Stage into a temp table and MERGE, mirroring _merge_trend_stats — a
     # per-pair OR predicate would balloon on 200-game rebuild chunks.
-    out_df = pd.DataFrame(out)
-    out_df = out_df.astype(object).where(pd.notnull(out_df), None)
+    # Bind the record dicts directly: _compute_pattern_rows emits pure
+    # Python ints/floats/None. A pandas round-trip floats the nullable int
+    # columns (2.0), which pyodbc ships as varchar and SQL Server refuses
+    # to cast to INT (error 245 on the first rebuild dispatch).
     cols = [
         "batter_id",
         "as_of_date",
@@ -2299,7 +2286,7 @@ def load_player_patterns_for_games(engine, game_pks, force=False):
         )
         conn.execute(
             text(f"INSERT INTO #pp_stage ({insert_cols}) VALUES ({param_names})"),
-            out_df[cols].to_dict("records"),
+            [{c: r[c] for c in cols} for r in out],
         )
         conn.execute(
             text(f"""
@@ -2313,11 +2300,10 @@ def load_player_patterns_for_games(engine, game_pks, force=False):
         )
 
     log.info(
-        "player_patterns: wrote %d rows for %d batters (%s); hr_hot on %d rows.",
-        len(out_df),
+        "player_patterns: wrote %d rows for %d batters; hr_hot on %d rows.",
+        len(out),
         len(batter_ids),
-        "rebuild" if force else "incremental",
-        int(pd.to_numeric(out_df["hr_hot"]).sum()),
+        sum(r["hr_hot"] for r in out),
     )
 
 
@@ -2344,7 +2330,7 @@ def rebuild_player_patterns(engine):
             start + len(chunk),
             len(games),
         )
-        load_player_patterns_for_games(engine, chunk, force=True)
+        load_player_patterns_for_games(engine, chunk)
 
 
 # SQL expression that classifies a row from mlb.player_at_bats into at-bat
