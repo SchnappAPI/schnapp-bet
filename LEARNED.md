@@ -8,6 +8,11 @@ Format: YYYY-MM-DD: description of the mistake and the correct behavior.
 
 ---
 
+2026-07-05: Two sessions independently executed the same "merge PR #11 → deploy → live browser-pass"
+task hours apart (duplicate PR #12 merge-commit on main, second deploy, two MEMORY closeouts that
+had to be conflict-merged). Before starting a handed-off task, check open/recently-merged PRs and
+main's last few commits for evidence another session already did it — MEMORY.md can lag main.
+
 2026-05-18: When you notice something stale or wrong in passing (untracked-but-not-gitignored file,
 doc that references a retired component, missed cleanup), fix it in the next commit rather than
 queue it. The user has stated they will likely never circle back to follow-ups. This applies to
