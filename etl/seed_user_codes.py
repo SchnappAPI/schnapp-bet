@@ -16,29 +16,24 @@ import pyodbc
 
 CODES = [
     # (code,              name,          mode,   max_activations)
-    ("DRAMA-LLAMA", "Unassigned", "demo", 5),
-    ("LLAMA-DRAMA", "Unassigned", "live", 5),
-    ("SWAMP-PUPPY", "Unassigned", "demo", 5),
-    ("DIRTY-DINGO", "Unassigned", "demo", 5),
-    ("ERECT-EAGLE", "Unassigned", "demo", 5),
-    ("FERAL-FINCH", "Unassigned", "demo", 5),
-    ("GOOFY-GOOSE", "Unassigned", "demo", 5),
-    ("MOODY-MOOSE", "Unassigned", "demo", 5),
-    ("ROSSI-DEMO", "Unassigned", "demo", 10),
-    ("ROSSI-LIVE", "Unassigned", "live", 10),
+    ("DRAMA-LLAMA",      "Unassigned",  "demo",  5),
+    ("LLAMA-DRAMA",      "Unassigned",  "live",  5),
+    ("SWAMP-PUPPY",      "Unassigned",  "demo",  5),
+    ("DIRTY-DINGO",      "Unassigned",  "demo",  5),
+    ("ERECT-EAGLE",      "Unassigned",  "demo",  5),
+    ("FERAL-FINCH",      "Unassigned",  "demo",  5),
+    ("GOOFY-GOOSE",      "Unassigned",  "demo",  5),
+    ("MOODY-MOOSE",      "Unassigned",  "demo",  5),
+    ("ROSSI-DEMO",       "Unassigned",  "demo", 10),
+    ("ROSSI-LIVE",       "Unassigned",  "live", 10),
 ]
 
-# TEMPORARY (this dispatch only): deactivate the CLAUDE-VERIFY code used for
-# the Phase 4.5 live browser pass. Removed right after the run.
-DEACTIVATE = ["CLAUDE-VERIFY"]
-
-
 def get_conn():
-    server = os.environ["SQL_SERVER"]
-    database = os.environ["SQL_DATABASE"]
-    username = os.environ["SQL_USERNAME"]
-    password = os.environ["SQL_PASSWORD"]
-    trust = os.environ.get("SQL_TRUST_CERT", "no")
+    server   = os.environ['SQL_SERVER']
+    database = os.environ['SQL_DATABASE']
+    username = os.environ['SQL_USERNAME']
+    password = os.environ['SQL_PASSWORD']
+    trust    = os.environ.get('SQL_TRUST_CERT', 'no')
     conn_str = (
         f"DRIVER={{ODBC Driver 18 for SQL Server}};"
         f"SERVER={server};DATABASE={database};"
@@ -46,7 +41,6 @@ def get_conn():
         f"Encrypt=yes;TrustServerCertificate={trust};"
     )
     return pyodbc.connect(conn_str)
-
 
 def main():
     conn = get_conn()
@@ -71,7 +65,7 @@ def main():
     """)
 
     inserted = 0
-    skipped = 0
+    skipped  = 0
     for code, name, mode, max_act in CODES:
         cur.execute("SELECT 1 FROM common.user_codes WHERE code = ?", code)
         if cur.fetchone():
@@ -83,21 +77,13 @@ def main():
                 (code, name, active, activated, mode, max_activations)
             VALUES (?, ?, 1, 0, ?, ?)
             """,
-            code,
-            name,
-            mode,
-            max_act,
+            code, name, mode, max_act
         )
         inserted += 1
-
-    for code in DEACTIVATE:
-        cur.execute("UPDATE common.user_codes SET active = 0 WHERE code = ?", code)
-        print(f"Deactivated {code} ({cur.rowcount} row).")
 
     conn.commit()
     conn.close()
     print(f"Done. Inserted {inserted}, skipped {skipped} existing.")
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
