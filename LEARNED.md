@@ -8,6 +8,12 @@ Format: YYYY-MM-DD: description of the mistake and the correct behavior.
 
 ---
 
+2026-07-05: A middleware change shipped with only tsc as verification 500'd the live ?unlock=go
+path (Next's edge runtime rejects a hand-built 3xx with a relative Location — behavior tsc cannot
+catch). Middleware/edge-runtime changes must be exercised on a dev server (curl the exact path,
+check status + headers) BEFORE merge, same as the UI browser-check rule. The pass-through rewrite
+was dev-verified first and worked first try.
+
 2026-07-05: Two sessions independently executed the same "merge PR #11 → deploy → live browser-pass"
 task hours apart (duplicate PR #12 merge-commit on main, second deploy, two MEMORY closeouts that
 had to be conflict-merged). Before starting a handed-off task, check open/recently-merged PRs and
