@@ -13,13 +13,21 @@ Materializes the two remaining ADR-20260420-2 (legacy ADR-0004) entities:
                             market_key): a deterministic v1 projected value
                             per batter market plus a 0-1 confidence.
 
-Projection model (proj-v1.0, intentionally simple and inspectable):
+Projection model (proj-v1.1, intentionally simple and inspectable):
   rate markets   (hits, total_bases, home_runs):
       projection = blended per-PA rate (w10/w30/w60 weights from grading)
                    * expected PA (mean PA over last 15 games).
   count markets  (rbis, runs, singles, doubles, triples, walks,
                   strikeouts, stolen_bases, hits_runs_rbis):
       projection = mean per-game count over last 30 games.
+  probability markets (hit_prob, hr_prob — Phase 4 of
+                  docs/features/mlb-research-dashboard.md; these feed the
+                  FanDuel batter-prop scans directly):
+      P(>= 1 in the game) = 1 - (1 - p_pa)^expected_PA, where p_pa is the
+      platoon-adjusted blended per-PA rate (hit rate / HR rate). The platoon
+      factor scales the RATE, never the finished probability, so values
+      stay in [0, 1]. v1.1 = v1.0 + these two keys; no other market logic
+      changed, so pre-existing rows remain comparable.
   Platoon adjustment: when the opposing SP hand is known and the batter has
   >= 20 PA against that hand, scale by split_rate / overall_rate clamped to
   [0.8, 1.2].
@@ -41,34 +49,35 @@ from sqlalchemy import text
 
 from shared.db import get_engine
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s  %(levelname)s  %(message)s",
-                    datefmt="%Y-%m-%d %H:%M:%S")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 log = logging.getLogger(__name__)
 
-MODEL_VERSION = "proj-v1.0"
+MODEL_VERSION = "proj-v1.1"  # v1.1: + hit_prob / hr_prob probability markets
 
 # Window weights mirror grading/mlb_grade_props.py
 W10, W30, W60 = 0.25, 0.35, 0.40
 MIN_SAMPLE = 5
 MIN_SPLIT_PA = 20
 PLATOON_CLAMP = (0.8, 1.2)
+# Sanity ceiling on the platoon-adjusted per-PA rate feeding the
+# probability markets — keeps 1-(1-p)^PA well-defined on tiny samples.
+PROB_PA_RATE_CAP = 0.95
 
 RATE_MARKETS = {
-    "batter_hits":        ("hit_rate", None),
+    "batter_hits": ("hit_rate", None),
     "batter_total_bases": ("tb_per_pa", None),
-    "batter_home_runs":   (None, "home_runs"),  # derived hrs/pa from window counts
+    "batter_home_runs": (None, "home_runs"),  # derived hrs/pa from window counts
 }
 COUNT_MARKETS = {
-    "batter_rbis":           "rbi",
-    "batter_runs_scored":    "runs",
+    "batter_rbis": "rbi",
+    "batter_runs_scored": "runs",
     "batter_hits_runs_rbis": "(hits + runs + rbi)",
-    "batter_singles":        "(hits - doubles - triples - home_runs)",
-    "batter_doubles":        "doubles",
-    "batter_triples":        "triples",
-    "batter_walks":          "walks",
-    "batter_strikeouts":     "strikeouts",
-    "batter_stolen_bases":   "stolen_bases",
+    "batter_singles": "(hits - doubles - triples - home_runs)",
+    "batter_doubles": "doubles",
+    "batter_triples": "triples",
+    "batter_walks": "walks",
+    "batter_strikeouts": "strikeouts",
+    "batter_stolen_bases": "stolen_bases",
 }
 
 DDL = [
@@ -110,9 +119,7 @@ DDL = [
 
 
 def today_ct() -> str:
-    return datetime.now(timezone.utc).astimezone(
-        timezone(timedelta(hours=-5))
-    ).strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=-5))).strftime("%Y-%m-%d")
 
 
 def ensure_tables(engine):
@@ -122,28 +129,37 @@ def ensure_tables(engine):
 
 
 def fetch_games(engine, game_date):
-    return pd.read_sql(text("""
+    return pd.read_sql(
+        text("""
         SELECT game_pk, game_date, venue_id, venue_name, day_night,
                away_team_id, home_team_id,
                away_pitcher_id, away_pitcher_hand,
                home_pitcher_id, home_pitcher_hand
         FROM mlb.games
         WHERE CAST(game_date AS DATE) = :d
-    """), engine, params={"d": game_date})
+    """),
+        engine,
+        params={"d": game_date},
+    )
 
 
 def fetch_confirmed_lineup(engine, game_pk):
-    return pd.read_sql(text("""
+    return pd.read_sql(
+        text("""
         SELECT player_id, team_id, batting_order
         FROM mlb.batting_stats
         WHERE game_pk = :gp AND batting_order IS NOT NULL
-    """), engine, params={"gp": int(game_pk)})
+    """),
+        engine,
+        params={"gp": int(game_pk)},
+    )
 
 
 def fetch_recent_pool(engine, team_id, game_date, n_team_games=10):
     """Players who appeared for team_id in its last n team games before
     game_date, with their most common recent batting order."""
-    return pd.read_sql(text("""
+    return pd.read_sql(
+        text("""
         WITH team_games AS (
             SELECT DISTINCT TOP (:n) bs.game_pk, bs.game_date
             FROM mlb.batting_stats bs
@@ -158,14 +174,18 @@ def fetch_recent_pool(engine, team_id, game_date, n_team_games=10):
         JOIN team_games tg ON tg.game_pk = bs.game_pk
         WHERE bs.team_id = :tid
         GROUP BY bs.player_id
-    """), engine, params={"tid": int(team_id), "d": game_date, "n": n_team_games})
+    """),
+        engine,
+        params={"tid": int(team_id), "d": game_date, "n": n_team_games},
+    )
 
 
 def fetch_trend(engine, batter_ids, game_date):
     if not batter_ids:
         return pd.DataFrame()
     plist = ", ".join(str(int(b)) for b in batter_ids)
-    return pd.read_sql(text(f"""
+    return pd.read_sql(
+        text(f"""
         SELECT ts.*
         FROM mlb.player_trend_stats ts
         INNER JOIN (
@@ -174,7 +194,10 @@ def fetch_trend(engine, batter_ids, game_date):
             WHERE batter_id IN ({plist}) AND game_date < :d
             GROUP BY batter_id
         ) l ON l.batter_id = ts.batter_id AND l.latest = ts.game_date
-    """), engine, params={"d": game_date})
+    """),
+        engine,
+        params={"d": game_date},
+    )
 
 
 def fetch_game_averages(engine, batter_ids, game_date):
@@ -184,10 +207,10 @@ def fetch_game_averages(engine, batter_ids, game_date):
         return pd.DataFrame()
     plist = ", ".join(str(int(b)) for b in batter_ids)
     count_selects = ",\n               ".join(
-        f"AVG(CAST({expr} AS FLOAT)) AS avg_{mk}"
-        for mk, expr in COUNT_MARKETS.items()
+        f"AVG(CAST({expr} AS FLOAT)) AS avg_{mk}" for mk, expr in COUNT_MARKETS.items()
     )
-    return pd.read_sql(text(f"""
+    return pd.read_sql(
+        text(f"""
         WITH recent AS (
             SELECT bs.*,
                    ROW_NUMBER() OVER (PARTITION BY bs.player_id
@@ -202,7 +225,10 @@ def fetch_game_averages(engine, batter_ids, game_date):
         FROM recent
         WHERE rn <= 30
         GROUP BY player_id
-    """), engine, params={"d": game_date})
+    """),
+        engine,
+        params={"d": game_date},
+    )
 
 
 def _blended_rate(ts, col):
@@ -233,8 +259,14 @@ def _platoon_factor(ts, hand):
     split_rate = ts.get("vs_lhp_hit_rate" if hand == "L" else "vs_rhp_hit_rate")
     split_pa = ts.get("vs_lhp_pa" if hand == "L" else "vs_rhp_pa", 0) or 0
     overall = ts.get("w60_hit_rate")
-    if (split_rate is None or pd.isna(split_rate) or split_pa < MIN_SPLIT_PA
-            or overall is None or pd.isna(overall) or float(overall) <= 0):
+    if (
+        split_rate is None
+        or pd.isna(split_rate)
+        or split_pa < MIN_SPLIT_PA
+        or overall is None
+        or pd.isna(overall)
+        or float(overall) <= 0
+    ):
         return 1.0
     lo, hi = PLATOON_CLAMP
     return max(lo, min(hi, float(split_rate) / float(overall)))
@@ -254,15 +286,17 @@ def compute_for_date(engine, game_date):
         confirmed = fetch_confirmed_lineup(engine, game_pk)
         sides = [
             (int(g["away_team_id"]), False, g["home_pitcher_id"], g["home_pitcher_hand"]),
-            (int(g["home_team_id"]), True,  g["away_pitcher_id"], g["away_pitcher_hand"]),
+            (int(g["home_team_id"]), True, g["away_pitcher_id"], g["away_pitcher_hand"]),
         ]
         for team_id, is_home, opp_sp, opp_hand in sides:
             if not confirmed.empty:
                 team_lineup = confirmed[confirmed["team_id"] == team_id]
-                pool = pd.DataFrame({
-                    "player_id": team_lineup["player_id"],
-                    "best_order": team_lineup["batting_order"],
-                })
+                pool = pd.DataFrame(
+                    {
+                        "player_id": team_lineup["player_id"],
+                        "best_order": team_lineup["batting_order"],
+                    }
+                )
                 lineup_confirmed = True
             else:
                 recent = fetch_recent_pool(engine, team_id, game_date)
@@ -271,27 +305,28 @@ def compute_for_date(engine, game_date):
                 lineup_confirmed = False
 
             for _, p in pool.iterrows():
-                context_rows.append({
-                    "game_date": game_date,
-                    "game_pk": game_pk,
-                    "batter_id": int(p["player_id"]),
-                    "team_id": team_id,
-                    "is_home": 1 if is_home else 0,
-                    "opp_pitcher_id": int(opp_sp) if pd.notna(opp_sp) else None,
-                    "opp_pitcher_hand": opp_hand if opp_hand in ("L", "R") else None,
-                    "venue_id": int(g["venue_id"]) if pd.notna(g["venue_id"]) else None,
-                    "venue_name": g["venue_name"],
-                    "day_night": g["day_night"],
-                    "recent_batting_order": int(p["best_order"]) if pd.notna(p["best_order"]) else None,
-                    "lineup_confirmed": 1 if lineup_confirmed else 0,
-                })
+                context_rows.append(
+                    {
+                        "game_date": game_date,
+                        "game_pk": game_pk,
+                        "batter_id": int(p["player_id"]),
+                        "team_id": team_id,
+                        "is_home": 1 if is_home else 0,
+                        "opp_pitcher_id": int(opp_sp) if pd.notna(opp_sp) else None,
+                        "opp_pitcher_hand": opp_hand if opp_hand in ("L", "R") else None,
+                        "venue_id": int(g["venue_id"]) if pd.notna(g["venue_id"]) else None,
+                        "venue_name": g["venue_name"],
+                        "day_night": g["day_night"],
+                        "recent_batting_order": int(p["best_order"]) if pd.notna(p["best_order"]) else None,
+                        "lineup_confirmed": 1 if lineup_confirmed else 0,
+                    }
+                )
 
     if not context_rows:
         log.info("No batter pool resolvable for %s.", game_date)
         return 0, 0
 
-    ctx_df = pd.DataFrame(context_rows).drop_duplicates(
-        subset=["game_date", "game_pk", "batter_id"])
+    ctx_df = pd.DataFrame(context_rows).drop_duplicates(subset=["game_date", "game_pk", "batter_id"])
     batter_ids = ctx_df["batter_id"].unique().tolist()
     trend = fetch_trend(engine, batter_ids, game_date)
     trend_map = {int(r["batter_id"]): r for _, r in trend.iterrows()}
@@ -309,21 +344,45 @@ def compute_for_date(engine, game_date):
         conf = base_conf * (1.0 if c["lineup_confirmed"] else 0.5)
 
         def add(mk, value):
-            proj_rows.append({
-                "game_date": c["game_date"], "game_pk": int(c["game_pk"]),
-                "batter_id": bid, "market_key": mk,
-                "projected_value": round(float(value) * factor, 3) if value is not None else None,
-                "confidence": round(conf, 3),
-                "model_version": MODEL_VERSION,
-            })
+            proj_rows.append(
+                {
+                    "game_date": c["game_date"],
+                    "game_pk": int(c["game_pk"]),
+                    "batter_id": bid,
+                    "market_key": mk,
+                    "projected_value": round(float(value) * factor, 3) if value is not None else None,
+                    "confidence": round(conf, 3),
+                    "model_version": MODEL_VERSION,
+                }
+            )
+
+        def add_prob(mk, p_pa_rate):
+            # Probability markets bypass add(): the platoon factor scales
+            # the per-PA RATE, and the finished P(>= 1) must stay in [0, 1].
+            if p_pa_rate is None or expected_pa is None:
+                return
+            p_pa = min(PROB_PA_RATE_CAP, max(0.0, float(p_pa_rate) * factor))
+            proj_rows.append(
+                {
+                    "game_date": c["game_date"],
+                    "game_pk": int(c["game_pk"]),
+                    "batter_id": bid,
+                    "market_key": mk,
+                    "projected_value": round(1.0 - (1.0 - p_pa) ** expected_pa, 3),
+                    "confidence": round(conf, 3),
+                    "model_version": MODEL_VERSION,
+                }
+            )
 
         if expected_pa:
             rate = _blended_rate(ts, "hit_rate")
             add("batter_hits", rate * expected_pa if rate is not None else None)
+            add_prob("hit_prob", rate)
             rate = _blended_rate(ts, "tb_per_pa")
             add("batter_total_bases", rate * expected_pa if rate is not None else None)
             hr = _blended_hr_rate(ts)
             add("batter_home_runs", hr * expected_pa if hr is not None else None)
+            add_prob("hr_prob", hr)
         for mk in COUNT_MARKETS:
             v = av[f"avg_{mk}"] if av is not None and pd.notna(av.get(f"avg_{mk}")) else None
             add(mk, v)
@@ -331,19 +390,17 @@ def compute_for_date(engine, game_date):
     proj_df = pd.DataFrame([r for r in proj_rows if r["projected_value"] is not None])
 
     with engine.begin() as conn:
-        conn.execute(text(
-            "DELETE FROM mlb.batter_context WHERE game_date = :d"), {"d": game_date})
-        conn.execute(text(
-            "DELETE FROM mlb.batter_projections WHERE game_date = :d"), {"d": game_date})
+        conn.execute(text("DELETE FROM mlb.batter_context WHERE game_date = :d"), {"d": game_date})
+        conn.execute(text("DELETE FROM mlb.batter_projections WHERE game_date = :d"), {"d": game_date})
         if not ctx_df.empty:
-            ctx_df.to_sql("batter_context", conn, schema="mlb",
-                          if_exists="append", index=False)
+            ctx_df.to_sql("batter_context", conn, schema="mlb", if_exists="append", index=False)
         if not proj_df.empty:
-            proj_df.to_sql("batter_projections", conn, schema="mlb",
-                           if_exists="append", index=False)
+            proj_df.to_sql("batter_projections", conn, schema="mlb", if_exists="append", index=False)
 
-    log.info("Wrote %d batter_context and %d batter_projections rows for %s.",
-             len(ctx_df), len(proj_df), game_date)
+    log.info("Wrote %d batter_context and %d batter_projections rows for %s.", len(ctx_df), len(proj_df), game_date)
+    if not proj_df.empty:
+        per_mkt = proj_df.groupby("market_key").size().sort_index()
+        log.info("Rows per market: %s", ", ".join(f"{k}={v}" for k, v in per_mkt.items()))
     return len(ctx_df), len(proj_df)
 
 
