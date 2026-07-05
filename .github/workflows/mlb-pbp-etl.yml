@@ -37,6 +37,11 @@ on:
         required: false
         default: "false"
         type: boolean
+      rebuild_patterns:
+        description: "Skip PBP fetch; rebuild mlb.player_patterns from existing player_game_statcast data"
+        required: false
+        default: "false"
+        type: boolean
 
 env:
   SQL_TRUST_CERT: "yes"
@@ -78,14 +83,18 @@ jobs:
           REBUILD_BVP="${{ github.event.inputs.rebuild_bvp }}"
           REBUILD_TREND="${{ github.event.inputs.rebuild_trend_stats }}"
           REBUILD_GSC="${{ github.event.inputs.rebuild_game_statcast }}"
+          REBUILD_PAT="${{ github.event.inputs.rebuild_patterns }}"
 
-          if [ "$REBUILD_AB" = "true" ] || [ "$REBUILD_BVP" = "true" ] || [ "$REBUILD_TREND" = "true" ] || [ "$REBUILD_GSC" = "true" ]; then
+          if [ "$REBUILD_AB" = "true" ] || [ "$REBUILD_BVP" = "true" ] || [ "$REBUILD_TREND" = "true" ] || [ "$REBUILD_GSC" = "true" ] || [ "$REBUILD_PAT" = "true" ]; then
             FLAGS=""
             if [ "$REBUILD_AB" = "true" ]; then
               FLAGS="$FLAGS --rebuild-at-bats"
             fi
             if [ "$REBUILD_GSC" = "true" ]; then
               FLAGS="$FLAGS --rebuild-game-statcast"
+            fi
+            if [ "$REBUILD_PAT" = "true" ]; then
+              FLAGS="$FLAGS --rebuild-patterns"
             fi
             if [ "$REBUILD_BVP" = "true" ]; then
               FLAGS="$FLAGS --rebuild-bvp"
