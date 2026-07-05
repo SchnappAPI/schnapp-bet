@@ -527,6 +527,33 @@ CREATE TABLE [mlb].[players] (
     CONSTRAINT [PK_players] PRIMARY KEY ([player_id])
 );
 
+CREATE TABLE [mlb].[statcast_pitches] (
+    [game_pk] INT NOT NULL,
+    [at_bat_number] INT NOT NULL,
+    [pitch_number] INT NOT NULL,
+    [game_date] DATE,
+    [batter_id] INT,
+    [pitcher_id] INT,
+    [pitch_type] VARCHAR(5),
+    [release_speed] FLOAT,
+    [description] VARCHAR(40),
+    [events] VARCHAR(40),
+    [zone] INT,
+    [launch_speed] FLOAT,
+    [launch_angle] FLOAT,
+    [bat_speed] FLOAT,
+    [swing_length] FLOAT,
+    [attack_angle] FLOAT,
+    [est_ba] FLOAT,
+    [est_slg] FLOAT,
+    [est_woba] FLOAT,
+    [woba_value] FLOAT,
+    [updated_at] DATETIME2 DEFAULT (sysutcdatetime()) NOT NULL,
+    CONSTRAINT [PK_statcast_pitches] PRIMARY KEY ([game_pk], [at_bat_number], [pitch_number])
+);
+CREATE INDEX [IX_statcast_pitches_batter] ON [mlb].[statcast_pitches] ([batter_id], [game_date]);
+CREATE INDEX [IX_statcast_pitches_date] ON [mlb].[statcast_pitches] ([game_date], [batter_id]);
+
 CREATE TABLE [mlb].[teams] (
     [team_id] INT NOT NULL,
     [team_abbreviation] VARCHAR(10) NOT NULL,
