@@ -118,15 +118,11 @@ export async function middleware(request: NextRequest) {
   }
 
   // /mascot is the public Schnappy character sheet + SVG assets — shareable
-  // without an unlock code. Bare /mascot rewrites to the static index.html
-  // (public/ has no directory-index behavior). Rewrite is internal, so the
-  // tunnel-origin redirect problem does not apply.
-  if (pathname === "/mascot" || pathname === "/mascot/") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/mascot/index.html";
-    return NextResponse.rewrite(url);
-  }
-  if (pathname.startsWith("/mascot/")) {
+  // without an unlock code. The bare-/mascot → index.html mapping lives in
+  // next.config.mjs rewrites(): a middleware rewrite via nextUrl inherits
+  // x-forwarded-proto (https) against the localhost origin, which Next
+  // treats as an external rewrite and 500s behind the tunnel.
+  if (pathname === "/mascot" || pathname.startsWith("/mascot/")) {
     return NextResponse.next();
   }
 
