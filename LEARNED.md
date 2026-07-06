@@ -53,3 +53,15 @@ guards the swap (aborts on dirty tree / unpushed commits), but the session-side 
 stands: while working in this repo, treat every web/** push as scheduling a directory
 swap ~20 min out — commit AND verify-push everything promptly; never let work sit
 uncommitted while a deploy may be in flight.
+
+## 2026-07-06 — middleware rewrites 500 behind the tunnel (third origin-URL bug)
+
+`NextResponse.rewrite(request.nextUrl.clone())` 500s through cloudflared:
+`nextUrl` inherits `x-forwarded-proto: https` while the host stays
+`localhost:3001`, so Next classifies the rewrite as external and proxy-fetches
+HTTPS against the plain-HTTP port. Localhost curls carry no forwarded proto —
+the bug only reproduces via the tunnel (`curl -H 'X-Forwarded-Proto: https'`
+reproduces it locally). This is the third tunnel-origin absolute-URL bug
+(after 45fc29c and 6113595): in this repo's middleware, never construct
+redirect/rewrite targets from `nextUrl` — use `next.config.mjs` `rewrites()`
+for path mappings and relative Locations for redirects. Fixed in PR #23.
