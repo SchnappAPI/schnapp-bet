@@ -3,6 +3,8 @@ import { apiError } from "@/lib/apiError";
 import { jsonWithEtag } from "@/lib/etag";
 import mssql from "mssql";
 import { getPool } from "@/lib/db";
+import { todayCT } from "@/lib/mlbLive";
+import { fetchLiveGame } from "@/lib/mlbLiveStatcast";
 
 // Comprehensive per-at-bat Statcast log for one batter, current season.
 // Raw rows only — the client computes summary tiles (avg/max EV, hard-hit%,
@@ -77,7 +79,84 @@ export async function GET(
         ORDER BY ab.game_date DESC, ab.game_pk DESC, ab.at_bat_number DESC
       `);
 
-    return jsonWithEtag(req, { playerId, atBats: res.recordset });
+    const dbRows = res.recordset;
+
+    // Live overlay: if this batter's team has an in-progress game today whose
+    // pitch data has not loaded yet (the nightly play-by-play run only ingests
+    // Final games), prepend the live at-bats from the MLB Gameday feed. EV/LA
+    // arrive within seconds of contact; xba/batSpeed/hrParks are modeled
+    // (Savant) and settle in the nightly load, so they stay null live.
+    const today = todayCT();
+    const gameRes = await pool
+      .request()
+      .input("playerId", mssql.Int, playerId)
+      .input("today", mssql.VarChar, today).query<{
+      gamePk: number;
+      gameDate: string;
+      oppAbbr: string | null;
+    }>(`
+        SELECT TOP 1
+          g.game_pk AS gamePk,
+          CONVERT(VARCHAR(10), g.game_date, 120) AS gameDate,
+          CASE WHEN g.home_team_id = pl.team_id
+               THEN ta.team_abbreviation
+               ELSE th.team_abbreviation END AS oppAbbr
+        FROM mlb.players pl
+        JOIN mlb.games g
+          ON (g.home_team_id = pl.team_id OR g.away_team_id = pl.team_id)
+         AND CONVERT(VARCHAR(10), g.game_date, 120) = @today
+        JOIN mlb.teams ta ON ta.team_id = g.away_team_id
+        JOIN mlb.teams th ON th.team_id = g.home_team_id
+        WHERE pl.player_id = @playerId AND g.game_status <> 'F'
+        ORDER BY g.game_pk DESC
+      `);
+
+    const todayGame = gameRes.recordset[0];
+    let live = false;
+    let atBats: MlbAtBatRow[] = dbRows;
+
+    if (todayGame) {
+      const feed = await fetchLiveGame(todayGame.gamePk);
+      if (feed && feed.abstractState === "Live") {
+        const liveRows: MlbAtBatRow[] = feed.atBats
+          .filter((ab) => ab.batterId === playerId)
+          .sort((a, b) => b.atBatNumber - a.atBatNumber)
+          .map((ab) => ({
+            atBatId: `live-${todayGame.gamePk}-${ab.atBatNumber}`,
+            gamePk: todayGame.gamePk,
+            gameDate: todayGame.gameDate,
+            inning: ab.inning,
+            oppAbbr: todayGame.oppAbbr,
+            pitcherId: ab.pitcherId || null,
+            pitcherName: ab.pitcherName || null,
+            pitcherHand: ab.pitcherHand,
+            result: ab.resultType,
+            resultDesc: ab.resultDesc,
+            rbi: ab.rbi,
+            ev: ab.exitVelo,
+            la: ab.launchAngle,
+            dist: ab.distance,
+            trajectory: ab.trajectory,
+            hardness: ab.hardness,
+            xba: null,
+            batSpeed: null,
+            hrParks: null,
+          }));
+        if (liveRows.length > 0) {
+          live = true;
+          // Defensive de-dupe: drop any settled rows for today's game (the
+          // nightly load has not run) before prepending the live ones.
+          atBats = [
+            ...liveRows,
+            ...dbRows.filter((r) => r.gamePk !== todayGame.gamePk),
+          ];
+        }
+      }
+    }
+
+    // A live merge must never be cached; the settled-only response can be.
+    if (live) return NextResponse.json({ playerId, atBats, live });
+    return jsonWithEtag(req, { playerId, atBats, live });
   } catch (err) {
     return apiError(err, "api/mlb/player/[playerId]/atbats");
   }
