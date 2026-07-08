@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type {
   LiveHardHitBatter,
@@ -9,14 +9,19 @@ import type {
 } from "@/app/api/mlb-live-hardhit/route";
 import { resultColor, resultLabel, veloColor } from "./statcastFormat";
 
-// Live "hard-hit" board on the /mlb landing page: who is squaring the ball up
-// right now (batters) and which pitchers are getting squared up, across every
-// in-progress game. Polls /api/mlb-live-hardhit every 30s while the slate has
-// a live game. EV/LA come from the MLB Gameday feed within seconds of a play;
-// the modeled Savant stats (true xBA, bat speed) settle in the nightly load,
-// so this is labeled LIVE and sits above the settled Statcast Leaders rails.
+// Standalone /mlb/live board: who is squaring the ball up right now (batters)
+// and which pitchers are getting squared up, across every in-progress game.
+// Polls /api/mlb-live-hardhit every 30s. EV/LA come from the MLB Gameday feed
+// within seconds of a play; the modeled Savant stats (true xBA, bat speed)
+// settle in the nightly load, so this is labeled LIVE and lives on its own
+// page (linked from the sidebar) rather than buried under the games list.
 
 const POLL_MS = 30_000;
+
+function todayLocal(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 function fmtClock(ms: number | null): string {
   if (ms == null) return "";
@@ -64,7 +69,7 @@ function Rail({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded border border-border bg-surface px-3 py-2 min-w-[250px] flex-1">
+    <div className="rounded border border-border bg-surface px-3 py-2 min-w-[260px] flex-1">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mb-1.5">
         {title}
       </div>
@@ -139,66 +144,86 @@ function PitcherRail({ rows }: { rows: LiveHardHitPitcher[] }) {
   );
 }
 
-export default function MlbHardHitLive({
-  date,
-  active,
-}: {
-  date: string;
-  active: boolean;
-}) {
+export default function MlbHardHitLive() {
   const [data, setData] = useState<LiveHardHitResponse | null>(null);
-  const savedActive = useRef(active);
-  savedActive.current = active;
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    setData(null);
-
+    const date = todayLocal();
     const load = () => {
-      fetch(`/api/mlb-live-hardhit?date=${date}`)
+      fetch(`/api/mlb-live-hardhit?date=${date}`, { cache: "no-store" })
         .then((r) => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.json();
         })
         .then((d: LiveHardHitResponse) => {
-          if (!cancelled) setData(d);
+          if (!cancelled) {
+            setData(d);
+            setLoaded(true);
+          }
         })
         .catch(() => {
-          // Live board is an enrichment — fail silently, the games list is the page.
+          if (!cancelled) setLoaded(true);
         });
     };
-
     load();
-    const id = active ? setInterval(load, POLL_MS) : null;
+    const id = setInterval(load, POLL_MS);
     return () => {
       cancelled = true;
-      if (id) clearInterval(id);
+      clearInterval(id);
     };
-  }, [date, active]);
+  }, []);
 
-  if (!data || !data.live) return null;
-  if (data.batters.length === 0 && data.pitchers.length === 0) return null;
+  const hasRows =
+    !!data?.live && (data.batters.length > 0 || data.pitchers.length > 0);
 
   return (
-    <div className="px-4 pt-5 pb-1">
-      <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-pos mb-0.5 flex items-center gap-1.5">
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-pos animate-pulse" />
-        Hard-Hit · Live
-        {data.asOf != null && (
-          <span className="text-fg-disabled font-normal normal-case tracking-normal">
-            as of {fmtClock(data.asOf)}
-          </span>
-        )}
+    <div className="flex flex-col min-h-screen">
+      <div className="px-4 py-3 border-b border-border">
+        <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-fg flex items-center gap-2">
+          <span
+            className={`inline-block h-1.5 w-1.5 rounded-full ${hasRows ? "bg-pos animate-pulse" : "bg-fg-disabled"}`}
+          />
+          MLB Live · Hard-Hit Board
+          {hasRows && data?.asOf != null && (
+            <span className="text-fg-disabled font-normal normal-case tracking-normal">
+              as of {fmtClock(data.asOf)}
+            </span>
+          )}
+        </div>
+        <div className="text-[11px] text-fg-disabled mt-0.5">
+          Exit velocity from the MLB Gameday feed, updating every 30s. xBA and
+          bat speed settle in the nightly load.
+        </div>
       </div>
-      <div className="text-[11px] text-fg-disabled mb-2.5">
-        Exit velocity from the MLB Gameday feed across {data.games.length} live
-        game{data.games.length === 1 ? "" : "s"}, updating every 30s. xBA and
-        bat speed settle in tonight&apos;s load.
-      </div>
-      <div className="flex flex-wrap gap-2.5">
-        <BatterRail rows={data.batters} />
-        <PitcherRail rows={data.pitchers} />
-      </div>
+
+      {!loaded ? (
+        <div className="px-4 py-6 text-sm text-fg-subtle">Loading...</div>
+      ) : !hasRows ? (
+        <div className="px-4 py-10 text-sm text-fg-subtle">
+          No games are live right now. This board fills in with live exit
+          velocity — who&apos;s squaring it up and which pitchers are getting
+          squared up — once games are underway.
+        </div>
+      ) : (
+        <div className="px-4 py-4">
+          <div className="text-[11px] text-fg-disabled mb-2.5">
+            {data!.games.length} live game
+            {data!.games.length === 1 ? "" : "s"}:{" "}
+            {data!.games
+              .map(
+                (g) =>
+                  `${g.awayAbbr ?? "?"}@${g.homeAbbr ?? "?"}${g.label ? ` (${g.label})` : ""}`,
+              )
+              .join(" · ")}
+          </div>
+          <div className="flex flex-wrap gap-2.5">
+            <BatterRail rows={data!.batters} />
+            <PitcherRail rows={data!.pitchers} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
