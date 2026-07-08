@@ -1,11 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronsLeft, ChevronsRight, Home, Lock, Trophy } from "lucide-react";
+import {
+  Activity,
+  ChevronsLeft,
+  ChevronsRight,
+  Home,
+  Lock,
+  Trophy,
+} from "lucide-react";
 import { Suspense } from "react";
 import { cn } from "@/lib/ui/cn";
 import { useShell } from "./ShellContext";
 import { SidebarLink } from "./SidebarLink";
+import { MlbLiveNavBadge } from "@/app/mlb/MlbLiveNavBadge";
 
 export interface SidebarProps {
   isAdmin?: boolean;
@@ -90,6 +98,13 @@ export function Sidebar({
               icon={<Trophy size={14} className="text-sport-mlb" />}
               label="Games"
               collapsed={collapsed}
+            />
+            <SidebarLink
+              href="/mlb/live"
+              icon={<Activity size={14} className="text-sport-mlb" />}
+              label="Live"
+              collapsed={collapsed}
+              trailing={<MlbLiveNavBadge />}
             />
             <SidebarLink
               href="/mlb/grades"
