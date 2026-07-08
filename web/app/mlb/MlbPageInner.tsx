@@ -6,6 +6,7 @@ import Link from "next/link";
 import { openCommandPalette } from "@/lib/ui/CommandPalette";
 import { isFinalStatus, isLiveStatus } from "./gameStatus";
 import MlbLeadersRails from "./MlbLeadersRails";
+import MlbHardHitLive from "./MlbHardHitLive";
 
 type MlbTab = "games" | "players";
 type RoleFilter = "all" | "batters" | "pitchers";
@@ -427,6 +428,10 @@ export default function MlbPageInner() {
               <GameGroup label="Final" games={finalGames} />
             </>
           )}
+          <MlbHardHitLive
+            date={selectedDate}
+            active={selectedDate === todayLocal() && liveGames.length > 0}
+          />
           <MlbLeadersRails date={selectedDate} />
         </div>
       )}

@@ -566,6 +566,7 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
   const [summary, setSummary] = useState<Record<string, Summary>>({});
   const [hasPbp, setHasPbp] = useState(false);
   const [atBats, setAtBats] = useState<AtBat[]>([]);
+  const [atBatSource, setAtBatSource] = useState<string>("db");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -596,6 +597,7 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
           setSummary(lineData.summary ?? {});
           setHasPbp(lineData.hasPbp ?? false);
           setAtBats(atBatData.atBats ?? []);
+          setAtBatSource(atBatData.source ?? "db");
         })
         .catch((err) => {
           if (!cancelled && !silent) setError(err.message);
@@ -777,11 +779,19 @@ export default function MlbGameTabs({ game }: { game: MlbGame }) {
           {shownTab === "exitvelo" &&
             (atBats.length === 0 ? (
               <div className="text-sm text-fg-subtle">
-                Exit velocity data not yet available for this game. Run the
-                play-by-play ETL to load it.
+                {isLive
+                  ? "Waiting for the first tracked batted ball — live exit velocity appears here within seconds of contact."
+                  : "Exit velocity data not yet available for this game. It loads after the game finishes, in the nightly play-by-play run."}
               </div>
             ) : (
               <>
+                {atBatSource === "live" && (
+                  <div className="mb-3 flex items-center gap-1.5 text-[11px] text-pos">
+                    <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-pos" />
+                    Live from the MLB Gameday feed — EV/LA update every 30s. xBA
+                    and bat speed settle in tonight&apos;s load.
+                  </div>
+                )}
                 <StatcastLegend className="mb-3" />
                 <ExitVeloTable
                   atBats={atBats}
