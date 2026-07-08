@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
-import mssql from 'mssql';
-import { getPool } from '@/lib/db';
+import { NextRequest, NextResponse } from "next/server";
+import mssql from "mssql";
+import { getPool } from "@/lib/db";
+import { fetchLiveGame } from "@/lib/mlbLiveStatcast";
 
 export async function GET(req: NextRequest) {
-  const gamePk = req.nextUrl.searchParams.get('gamePk');
-  if (!gamePk) return NextResponse.json({ error: 'gamePk required' }, { status: 400 });
+  const gamePk = req.nextUrl.searchParams.get("gamePk");
+  if (!gamePk)
+    return NextResponse.json({ error: "gamePk required" }, { status: 400 });
 
   const pool = await getPool();
 
@@ -15,7 +17,7 @@ export async function GET(req: NextRequest) {
   // rows with a PK on player_id, so these joins are effectively free.
   const result = await pool
     .request()
-    .input('gamePk', mssql.Int, parseInt(gamePk))
+    .input("gamePk", mssql.Int, parseInt(gamePk))
     .query(
       `SELECT
          a.at_bat_number       AS atBatNumber,
@@ -42,11 +44,35 @@ export async function GET(req: NextRequest) {
        LEFT JOIN mlb.players pb ON pb.player_id = a.batter_id
        LEFT JOIN mlb.players pp ON pp.player_id = a.pitcher_id
        WHERE a.game_pk = @gamePk
-       ORDER BY a.at_bat_number`
+       ORDER BY a.at_bat_number`,
     );
+
+  if (result.recordset.length > 0) {
+    return NextResponse.json({
+      gamePk: parseInt(gamePk),
+      atBats: result.recordset,
+      source: "db",
+    });
+  }
+
+  // No settled rows yet — the nightly play-by-play load only ingests games
+  // after they go Final, so an in-progress (or just-finished, pre-load) game
+  // has nothing in mlb.player_at_bats. Fall back to the live GUMBO feed,
+  // which carries batted-ball EV/LA/distance within seconds of each play.
+  // Same DB-first / live-fallback shape as mlb-linescore. hitProb, batSpeed,
+  // and hrBallparks are modeled (Savant) and stay null until the load runs.
+  const live = await fetchLiveGame(parseInt(gamePk));
+  if (live && live.atBats.length > 0) {
+    return NextResponse.json({
+      gamePk: parseInt(gamePk),
+      atBats: live.atBats,
+      source: "live",
+    });
+  }
 
   return NextResponse.json({
     gamePk: parseInt(gamePk),
     atBats: result.recordset,
+    source: "db",
   });
 }
