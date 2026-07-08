@@ -2,19 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/apiError";
 import { fetchMlbLiveOverlay, todayCT } from "@/lib/mlbLive";
 import { fetchLiveGame, type LiveAtBat } from "@/lib/mlbLiveStatcast";
-import { HARD_HIT_EV } from "@/app/mlb/statcastFormat";
+import { HARD_HIT_EV, isBarrel } from "@/app/mlb/statcastFormat";
 
-// Live "hard-hit" board for the /mlb landing page: who is squaring the ball
-// up right now, and which pitchers are getting squared up, across every
-// in-progress game. Pure enrich — reads the live GUMBO feed (via
-// mlbLiveStatcast), writes nothing. Hard-hit is EV >= HARD_HIT_EV, the same
-// threshold the ETL uses (mlb_play_by_play.py, mirrored in statcastFormat).
+// Live "hard-hit" board for /mlb/live: who is squaring the ball up right now,
+// and which pitchers are getting squared up, across every in-progress game.
+// Pure enrich — reads the live GUMBO feed (via mlbLiveStatcast), writes
+// nothing. Hard-hit is EV >= HARD_HIT_EV and barrel is EV/LA in the HR window,
+// the same definitions the ETL uses (mlb_play_by_play.py, mirrored in
+// statcastFormat) — barrels are the strongest in-game HR signal, so batters
+// are ranked by them. LA/distance are reported for each hitter's HARDEST ball
+// (the one that matters for a HR), not disconnected maxes.
 //
-// EV/LA are live; the modeled Savant stats (true xBA, bat speed) are not in
-// the feed and settle in the nightly load — the UI labels this LIVE so it is
-// never confused with the settled Statcast Leaders rails below it.
+// EV/LA/distance are live; the modeled Savant stats (true xBA, bat speed) are
+// not in the feed and settle in the nightly load — the UI labels this LIVE.
 
-const TOP_N = 8;
+// Pitcher list is bounded (a few per game); cap it so a huge slate can't
+// produce a runaway table. Batters are returned in full (dedicated page).
+const PITCHER_CAP = 40;
 
 export interface LiveHardHitBatter {
   batterId: number;
@@ -24,8 +28,10 @@ export interface LiveHardHitBatter {
   bbe: number; // batted-ball events (tracked)
   maxEv: number | null;
   avgEv: number | null;
+  maxEvLa: number | null; // launch angle of the hardest ball
+  maxEvDist: number | null; // distance of the hardest ball
   hardHit: number;
-  bestLa: number | null;
+  barrels: number;
   lastResult: string | null;
 }
 
@@ -61,9 +67,12 @@ interface BatterAcc {
   batterName: string;
   teamAbbr: string | null;
   gamePk: number;
+  // evs / las / dists are aligned per batted ball (la/dist may be null).
   evs: number[];
-  las: number[];
+  las: (number | null)[];
+  dists: (number | null)[];
   hardHit: number;
+  barrels: number;
   lastResult: string | null;
 }
 interface PitcherAcc {
@@ -122,6 +131,8 @@ export async function GET(req: NextRequest) {
       for (const ab of feed.atBats as LiveAtBat[]) {
         const ev = num(ab.exitVelo);
         if (ev == null) continue; // batted balls only
+        const la = num(ab.launchAngle);
+        const dist = num(ab.distance);
         // Batting team is away on a top-half PA; pitching team is the other.
         const batAbbr = ab.isTop ? feed.awayAbbr : feed.homeAbbr;
         const pitchAbbr = ab.isTop ? feed.homeAbbr : feed.awayAbbr;
@@ -135,13 +146,16 @@ export async function GET(req: NextRequest) {
             gamePk: feed.gamePk,
             evs: [],
             las: [],
+            dists: [],
             hardHit: 0,
+            barrels: 0,
             lastResult: null,
           };
           b.evs.push(ev);
-          const la = num(ab.launchAngle);
-          if (la != null) b.las.push(la);
+          b.las.push(la);
+          b.dists.push(dist);
           b.hardHit += hard;
+          if (isBarrel(ev, la)) b.barrels += 1;
           b.lastResult = ab.resultType;
           batters.set(ab.batterId, b);
         }
@@ -166,21 +180,33 @@ export async function GET(req: NextRequest) {
       xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
 
     const batterRows: LiveHardHitBatter[] = [...batters.values()]
-      .map((b) => ({
-        batterId: b.batterId,
-        batterName: b.batterName,
-        teamAbbr: b.teamAbbr,
-        gamePk: b.gamePk,
-        bbe: b.evs.length,
-        maxEv: b.evs.length ? Math.max(...b.evs) : null,
-        avgEv: avg(b.evs),
-        hardHit: b.hardHit,
-        bestLa: b.las.length ? Math.max(...b.las) : null,
-        lastResult: b.lastResult,
-      }))
-      // Squaring it up: most hard-hit balls first, then the loudest single one.
-      .sort((a, b) => b.hardHit - a.hardHit || (b.maxEv ?? 0) - (a.maxEv ?? 0))
-      .slice(0, TOP_N);
+      .map((b) => {
+        // Index of the hardest ball; report its LA/distance together.
+        let mi = 0;
+        for (let i = 1; i < b.evs.length; i++) if (b.evs[i] > b.evs[mi]) mi = i;
+        return {
+          batterId: b.batterId,
+          batterName: b.batterName,
+          teamAbbr: b.teamAbbr,
+          gamePk: b.gamePk,
+          bbe: b.evs.length,
+          maxEv: b.evs.length ? b.evs[mi] : null,
+          avgEv: avg(b.evs),
+          maxEvLa: b.evs.length ? b.las[mi] : null,
+          maxEvDist: b.evs.length ? b.dists[mi] : null,
+          hardHit: b.hardHit,
+          barrels: b.barrels,
+          lastResult: b.lastResult,
+        };
+      })
+      // HR-hunting order: barrels (hard + HR-angle) first, then the loudest
+      // single ball, then most hard-hit balls. Whole slate — dedicated page.
+      .sort(
+        (a, b) =>
+          b.barrels - a.barrels ||
+          (b.maxEv ?? 0) - (a.maxEv ?? 0) ||
+          b.hardHit - a.hardHit,
+      );
 
     const pitcherRows: LiveHardHitPitcher[] = [...pitchers.values()]
       .map((p) => ({
@@ -199,7 +225,7 @@ export async function GET(req: NextRequest) {
           b.hardHitAllowed - a.hardHitAllowed ||
           (b.avgEvAllowed ?? 0) - (a.avgEvAllowed ?? 0),
       )
-      .slice(0, TOP_N);
+      .slice(0, PITCHER_CAP);
 
     return NextResponse.json({
       date,

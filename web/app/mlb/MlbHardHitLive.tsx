@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type {
   LiveHardHitBatter,
+  LiveHardHitGame,
   LiveHardHitPitcher,
   LiveHardHitResponse,
 } from "@/app/api/mlb-live-hardhit/route";
@@ -11,10 +12,12 @@ import { resultColor, resultLabel, veloColor } from "./statcastFormat";
 
 // Standalone /mlb/live board: who is squaring the ball up right now (batters)
 // and which pitchers are getting squared up, across every in-progress game.
-// Polls /api/mlb-live-hardhit every 30s. EV/LA come from the MLB Gameday feed
-// within seconds of a play; the modeled Savant stats (true xBA, bat speed)
-// settle in the nightly load, so this is labeled LIVE and lives on its own
-// page (linked from the sidebar) rather than buried under the games list.
+// Polls /api/mlb-live-hardhit every 30s. Built for HR-hunting: batters are
+// sorted by barrels (hard contact in the HR launch window) then top EV, and
+// each hitter's LA + distance are from their hardest ball. EV/LA/distance are
+// live from the MLB Gameday feed; the modeled Savant stats (true xBA, bat
+// speed) settle in the nightly load. Every name links to the player page and
+// every matchup links to the game.
 
 const POLL_MS = 30_000;
 
@@ -32,7 +35,23 @@ function fmtClock(ms: number | null): string {
   });
 }
 
-function PlayerCell({
+function dec(v: number | null, d = 1): string {
+  return v == null ? "-" : Number(v).toFixed(d);
+}
+
+function GameLink({ game }: { game: LiveHardHitGame | undefined }) {
+  if (!game) return <span className="text-fg-disabled">-</span>;
+  return (
+    <Link
+      href={`/mlb/game/${game.gamePk}`}
+      className="text-fg-subtle hover:text-brand transition-colors whitespace-nowrap"
+    >
+      {game.awayAbbr ?? "?"}@{game.homeAbbr ?? "?"}
+    </Link>
+  );
+}
+
+function PlayerLink({
   id,
   name,
   teamAbbr,
@@ -43,11 +62,11 @@ function PlayerCell({
 }) {
   const label = name ?? (id != null ? String(id) : "-");
   return (
-    <td className="py-0.5 pr-2 whitespace-nowrap max-w-[140px] overflow-hidden text-ellipsis">
+    <span className="whitespace-nowrap">
       {id != null ? (
         <Link
           href={`/mlb/player/${id}`}
-          className="hover:text-brand transition-colors"
+          className="text-fg-muted hover:text-brand transition-colors"
         >
           {label}
         </Link>
@@ -57,90 +76,166 @@ function PlayerCell({
       {teamAbbr && (
         <span className="text-fg-disabled ml-1 text-[10px]">{teamAbbr}</span>
       )}
-    </td>
+    </span>
   );
 }
 
-function Rail({
-  title,
-  children,
+const TH = "text-right px-2 py-1.5 font-medium whitespace-nowrap";
+const TD = "text-right px-2 py-1.5 tabular-nums whitespace-nowrap";
+
+function BatterTable({
+  rows,
+  gameByPk,
 }: {
-  title: string;
-  children: React.ReactNode;
+  rows: LiveHardHitBatter[];
+  gameByPk: Map<number, LiveHardHitGame>;
 }) {
   return (
-    <div className="rounded border border-border bg-surface px-3 py-2 min-w-[260px] flex-1">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mb-1.5">
-        {title}
-      </div>
+    <div className="overflow-x-auto">
       <table className="w-full text-xs text-fg-muted">
-        <tbody>{children}</tbody>
+        <thead>
+          <tr className="text-fg-subtle border-b border-border">
+            <th className="text-left px-3 py-1.5 font-medium">Batter</th>
+            <th className="text-left px-2 py-1.5 font-medium">Game</th>
+            <th className={TH} title="Hardest ball's exit velocity">
+              Max EV
+            </th>
+            <th className={TH} title="Launch angle of the hardest ball">
+              LA
+            </th>
+            <th className={TH} title="Distance of the hardest ball">
+              Dist
+            </th>
+            <th
+              className={TH}
+              title="Barrels — hard-hit in the HR launch window"
+            >
+              Brl
+            </th>
+            <th className={TH} title="Hard-hit balls (EV 95+)">
+              HH
+            </th>
+            <th className={TH} title="Batted balls tracked">
+              BBE
+            </th>
+            <th className="text-left px-2 py-1.5 font-medium">Last</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={`${r.gamePk}-${r.batterId}`}
+              className={`border-b border-border-subtle hover:bg-surface transition-colors ${
+                r.barrels > 0 ? "bg-neg-muted/40" : ""
+              }`}
+            >
+              <td className="px-3 py-1.5">
+                <PlayerLink
+                  id={r.batterId}
+                  name={r.batterName}
+                  teamAbbr={r.teamAbbr}
+                />
+              </td>
+              <td className="px-2 py-1.5 text-left text-[11px]">
+                <GameLink game={gameByPk.get(r.gamePk)} />
+              </td>
+              <td className={`${TD} font-semibold ${veloColor(r.maxEv)}`}>
+                {dec(r.maxEv)}
+              </td>
+              <td className={`${TD} text-fg-subtle`}>
+                {r.maxEvLa != null ? `${Math.round(r.maxEvLa)}°` : "-"}
+              </td>
+              <td className={`${TD} text-fg-subtle`}>
+                {r.maxEvDist != null ? Math.round(r.maxEvDist) : "-"}
+              </td>
+              <td
+                className={`${TD} ${r.barrels > 0 ? "font-semibold text-neg" : "text-fg-disabled"}`}
+              >
+                {r.barrels}
+              </td>
+              <td
+                className={`${TD} ${r.hardHit > 0 ? "text-warn" : "text-fg-disabled"}`}
+              >
+                {r.hardHit}
+              </td>
+              <td className={`${TD} text-fg-disabled`}>{r.bbe}</td>
+              <td
+                className={`px-2 py-1.5 text-left text-[11px] whitespace-nowrap ${resultColor(r.lastResult)}`}
+              >
+                {resultLabel(r.lastResult)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
       </table>
     </div>
   );
 }
 
-function BatterRail({ rows }: { rows: LiveHardHitBatter[] }) {
-  if (rows.length === 0) return null;
+function PitcherTable({
+  rows,
+  gameByPk,
+}: {
+  rows: LiveHardHitPitcher[];
+  gameByPk: Map<number, LiveHardHitGame>;
+}) {
   return (
-    <Rail title="Hitting It Hard">
-      {rows.map((r) => (
-        <tr key={`${r.gamePk}-${r.batterId}`}>
-          <PlayerCell
-            id={r.batterId}
-            name={r.batterName}
-            teamAbbr={r.teamAbbr}
-          />
-          <td
-            className={`py-0.5 px-1 text-right tabular-nums font-semibold whitespace-nowrap ${veloColor(
-              r.maxEv,
-            )}`}
-          >
-            {r.maxEv != null ? Number(r.maxEv).toFixed(1) : "-"}
-            <span className="text-fg-disabled font-normal ml-0.5 text-[10px]">
-              mph
-            </span>
-          </td>
-          <td className="py-0.5 pl-2 text-right whitespace-nowrap text-[10px] text-fg-subtle">
-            {r.hardHit > 0 ? `${r.hardHit} hard` : `${r.bbe} bbe`}
-            {r.lastResult ? (
-              <span className={`ml-1 ${resultColor(r.lastResult)}`}>
-                {resultLabel(r.lastResult)}
-              </span>
-            ) : null}
-          </td>
-        </tr>
-      ))}
-    </Rail>
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs text-fg-muted">
+        <thead>
+          <tr className="text-fg-subtle border-b border-border">
+            <th className="text-left px-3 py-1.5 font-medium">Pitcher</th>
+            <th className="text-left px-2 py-1.5 font-medium">Game</th>
+            <th className={TH} title="Hard-hit balls allowed (EV 95+)">
+              HH Allowed
+            </th>
+            <th className={TH}>Max EV</th>
+            <th className={TH}>Avg EV</th>
+            <th className={TH}>BBE</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={`${r.gamePk}-${r.pitcherId}`}
+              className="border-b border-border-subtle hover:bg-surface transition-colors"
+            >
+              <td className="px-3 py-1.5">
+                <PlayerLink
+                  id={r.pitcherId}
+                  name={r.pitcherName}
+                  teamAbbr={r.teamAbbr}
+                />
+              </td>
+              <td className="px-2 py-1.5 text-left text-[11px]">
+                <GameLink game={gameByPk.get(r.gamePk)} />
+              </td>
+              <td
+                className={`${TD} ${r.hardHitAllowed > 0 ? "font-semibold text-warn" : "text-fg-disabled"}`}
+              >
+                {r.hardHitAllowed}
+              </td>
+              <td className={`${TD} ${veloColor(r.maxEvAllowed)}`}>
+                {dec(r.maxEvAllowed)}
+              </td>
+              <td className={`${TD} text-fg-subtle`}>{dec(r.avgEvAllowed)}</td>
+              <td className={`${TD} text-fg-disabled`}>{r.bbe}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
-function PitcherRail({ rows }: { rows: LiveHardHitPitcher[] }) {
-  if (rows.length === 0) return null;
+function SectionHeader({ title, note }: { title: string; note: string }) {
   return (
-    <Rail title="Getting Squared Up">
-      {rows.map((r) => (
-        <tr key={`${r.gamePk}-${r.pitcherId}`}>
-          <PlayerCell
-            id={r.pitcherId}
-            name={r.pitcherName}
-            teamAbbr={r.teamAbbr}
-          />
-          <td className="py-0.5 px-1 text-right tabular-nums font-semibold whitespace-nowrap">
-            {r.hardHitAllowed}
-            <span className="text-fg-disabled font-normal ml-0.5 text-[10px]">
-              hard
-            </span>
-          </td>
-          <td className="py-0.5 pl-2 text-right whitespace-nowrap text-[10px] text-fg-subtle">
-            {r.avgEvAllowed != null
-              ? `${Number(r.avgEvAllowed).toFixed(1)} avg`
-              : ""}
-            {r.bbe ? ` · ${r.bbe} bbe` : ""}
-          </td>
-        </tr>
-      ))}
-    </Rail>
+    <div className="px-3 pt-4 pb-1.5">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-fg">
+        {title}
+      </div>
+      <div className="text-[10px] text-fg-disabled">{note}</div>
+    </div>
   );
 }
 
@@ -175,12 +270,17 @@ export default function MlbHardHitLive() {
     };
   }, []);
 
+  const gameByPk = useMemo(
+    () => new Map((data?.games ?? []).map((g) => [g.gamePk, g])),
+    [data],
+  );
+
   const hasRows =
     !!data?.live && (data.batters.length > 0 || data.pitchers.length > 0);
 
   return (
     <div className="flex flex-col min-h-screen">
-      <div className="px-4 py-3 border-b border-border">
+      <div className="px-3 py-3 border-b border-border">
         <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-fg flex items-center gap-2">
           <span
             className={`inline-block h-1.5 w-1.5 rounded-full ${hasRows ? "bg-pos animate-pulse" : "bg-fg-disabled"}`}
@@ -193,8 +293,9 @@ export default function MlbHardHitLive() {
           )}
         </div>
         <div className="text-[11px] text-fg-disabled mt-0.5">
-          Exit velocity from the MLB Gameday feed, updating every 30s. xBA and
-          bat speed settle in the nightly load.
+          Live batted-ball quality, updating every 30s — ranked by barrels (hard
+          contact in the HR launch window) for HR-hunting. xBA and bat speed
+          settle in the nightly load.
         </div>
       </div>
 
@@ -207,8 +308,8 @@ export default function MlbHardHitLive() {
           squared up — once games are underway.
         </div>
       ) : (
-        <div className="px-4 py-4">
-          <div className="text-[11px] text-fg-disabled mb-2.5">
+        <div className="pb-6">
+          <div className="px-3 pt-2 text-[11px] text-fg-disabled">
             {data!.games.length} live game
             {data!.games.length === 1 ? "" : "s"}:{" "}
             {data!.games
@@ -218,10 +319,18 @@ export default function MlbHardHitLive() {
               )
               .join(" · ")}
           </div>
-          <div className="flex flex-wrap gap-2.5">
-            <BatterRail rows={data!.batters} />
-            <PitcherRail rows={data!.pitchers} />
-          </div>
+
+          <SectionHeader
+            title={`Hitting It Hard — ${data!.batters.length} batters`}
+            note="Barrel rows highlighted. LA + distance are from each hitter's hardest ball."
+          />
+          <BatterTable rows={data!.batters} gameByPk={gameByPk} />
+
+          <SectionHeader
+            title="Getting Squared Up"
+            note="Pitchers allowing the most hard contact — their opposing hitters are locked in."
+          />
+          <PitcherTable rows={data!.pitchers} gameByPk={gameByPk} />
         </div>
       )}
     </div>
