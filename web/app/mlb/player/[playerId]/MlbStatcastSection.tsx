@@ -46,27 +46,6 @@ function fmtDec(val: number | null, decimals = 1): string {
   return Number(val).toFixed(decimals);
 }
 
-function Tile({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: string;
-}) {
-  return (
-    <div className="rounded border border-border bg-surface px-3 py-2 min-w-[92px]">
-      <div className="text-[10px] uppercase tracking-wider text-fg-subtle">
-        {label}
-      </div>
-      <div className={`text-lg font-bold tabular-nums ${accent ?? "text-fg"}`}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
 export default function MlbStatcastSection({
   playerId,
   range,
@@ -193,55 +172,56 @@ export default function MlbStatcastSection({
           speed settle in tonight&apos;s load).
         </div>
       )}
-      {/* Summary tiles (over the filtered set) */}
-      <div className="flex flex-wrap gap-2 px-4 py-3">
-        <Tile label="Batted Balls" value={String(summary.bbe)} />
-        <Tile
-          label="Avg EV"
-          value={summary.avgEv != null ? `${fmtDec(summary.avgEv)}` : "-"}
-          accent={veloColor(summary.avgEv)}
-        />
-        <Tile
-          label="Max EV"
-          value={summary.maxEv != null ? `${fmtDec(summary.maxEv)}` : "-"}
-          accent={veloColor(summary.maxEv)}
-        />
-        <Tile
-          label="Hard Hit%"
-          value={
-            summary.hardHitPct != null
-              ? `${Math.round(summary.hardHitPct * 100)}%`
-              : "-"
-          }
-        />
-        <Tile
-          label="Barrel%"
-          value={
-            summary.barrelPct != null
-              ? `${Math.round(summary.barrelPct * 100)}%`
-              : "-"
-          }
-        />
-        <Tile label="Avg xBA" value={fmtXba(summary.avgXba)} />
-      </div>
-
-      <div className="flex items-center gap-2 px-4 pb-2">
+      {/* Compact summary strip (over the filtered set) — condensed so the
+          per-at-bat EV/LA table is visible without scrolling. */}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border-subtle px-4 py-2 text-xs">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+          Statcast
+        </span>
+        <span className="text-fg-muted tabular-nums">
+          Avg EV{" "}
+          <span className={`font-semibold ${veloColor(summary.avgEv)}`}>
+            {fmtDec(summary.avgEv)}
+          </span>
+        </span>
+        <span className="text-fg-muted tabular-nums">
+          Max EV{" "}
+          <span className={`font-semibold ${veloColor(summary.maxEv)}`}>
+            {fmtDec(summary.maxEv)}
+          </span>
+        </span>
+        <span className="text-fg-muted tabular-nums">
+          HH{" "}
+          {summary.hardHitPct != null
+            ? `${Math.round(summary.hardHitPct * 100)}%`
+            : "-"}
+        </span>
+        <span className="text-fg-muted tabular-nums">
+          Brl{" "}
+          {summary.barrelPct != null
+            ? `${Math.round(summary.barrelPct * 100)}%`
+            : "-"}
+        </span>
+        <span className="text-fg-muted tabular-nums">
+          xBA {fmtXba(summary.avgXba)}
+        </span>
+        <span className="text-fg-disabled tabular-nums">{summary.bbe} BBE</span>
         <button
           onClick={() => setBattedOnly((v) => !v)}
-          className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+          className={`ml-auto rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
             battedOnly
               ? "bg-brand text-canvas"
               : "bg-surface-hover text-fg-subtle hover:text-fg"
           }`}
         >
-          Batted balls only
+          Batted only
         </button>
         <span className="text-[11px] text-fg-disabled">
-          {filtered.length} at-bat{filtered.length === 1 ? "" : "s"} shown
+          {filtered.length} shown
         </span>
       </div>
 
-      <StatcastLegend className="px-4 pb-2" />
+      <StatcastLegend className="px-4 py-1.5" />
 
       {/* Per-at-bat log */}
       <div className="overflow-x-auto">
