@@ -80,20 +80,46 @@ export default function MlbStatcastSection({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [battedOnly, setBattedOnly] = useState(false);
+  const [live, setLive] = useState(false);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    fetch(`/api/mlb/player/${playerId}/atbats`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d) => setAtBats(d.atBats ?? []))
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      )
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const load = (silent: boolean) => {
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
+      fetch(`/api/mlb/player/${playerId}/atbats`, { cache: "no-store" })
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then((d) => {
+          if (cancelled) return;
+          setAtBats(d.atBats ?? []);
+          const isLive = Boolean(d.live);
+          setLive(isLive);
+          // Begin polling only once we learn the player's game is live.
+          if (isLive && !timer) {
+            timer = setInterval(() => load(true), 30_000);
+          }
+        })
+        .catch((err: unknown) => {
+          if (!cancelled && !silent)
+            setError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => {
+          if (!cancelled && !silent) setLoading(false);
+        });
+    };
+
+    load(false);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
   }, [playerId]);
 
   const filtered = useMemo(() => {
@@ -160,6 +186,13 @@ export default function MlbStatcastSection({
 
   return (
     <div className="flex-1">
+      {live && (
+        <div className="flex items-center gap-1.5 px-4 pt-3 text-[11px] text-pos">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-pos" />
+          Live — today&apos;s at-bats update every 30s (EV/LA; xBA &amp; bat
+          speed settle in tonight&apos;s load).
+        </div>
+      )}
       {/* Summary tiles (over the filtered set) */}
       <div className="flex flex-wrap gap-2 px-4 py-3">
         <Tile label="Batted Balls" value={String(summary.bbe)} />
