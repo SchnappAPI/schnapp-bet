@@ -42,6 +42,27 @@ function tierLabel(tier: string): string {
   return tier === "AboveAvg" ? "Above Avg" : tier;
 }
 
+// Realized result for a past (settled) slice: did the batter clear this row's
+// market that day. DNP = the model projected them but they didn't play (the
+// board projects a pool of active hitters, not one slate).
+function ResultTag({ played, hit }: { played: boolean; hit: boolean | null }) {
+  if (!played)
+    return (
+      <span className="text-fg-disabled text-[10px]" title="Did not play">
+        DNP
+      </span>
+    );
+  return hit ? (
+    <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-pos-muted text-pos">
+      Hit
+    </span>
+  ) : (
+    <span className="text-fg-disabled text-[10px] font-medium uppercase tracking-wide">
+      Miss
+    </span>
+  );
+}
+
 function pct(p: number): string {
   return `${(p * 100).toFixed(1)}%`;
 }
@@ -113,6 +134,25 @@ export default function MlbPropsBoard() {
   const active = MARKETS.find((m) => m.key === market)!;
   const baseRate = rows[0]?.baseRate ?? null;
   const isHR = market === "HR";
+
+  // Past slices are graded. Summarize the TOP of the ranking (not the whole
+  // pool — the board spans elite->fade, so a whole-board rate washes out to the
+  // league mean and hides the model's edge): of the top-ranked hitters who
+  // played, how many cleared.
+  const settled = data?.settled ?? false;
+  const summary = useMemo(() => {
+    if (!settled) return null;
+    const n = Math.min(20, rows.length);
+    let hit = 0,
+      miss = 0,
+      dnp = 0;
+    for (const r of rows.slice(0, n)) {
+      if (!r.played) dnp++;
+      else if (r.hit) hit++;
+      else miss++;
+    }
+    return { n, hit, miss, dnp, played: hit + miss };
+  }, [rows, settled]);
 
   // Prev/next bounded by the dates the engine has written.
   const avail = data?.availableDates ?? [];
@@ -188,6 +228,14 @@ export default function MlbPropsBoard() {
             {active.sub} &middot; league avg {pct(baseRate)}
           </span>
         )}
+        {summary && summary.played > 0 && (
+          <span className="text-[11px] text-fg-disabled">
+            &middot; top {summary.n} graded{" "}
+            <span className="text-pos font-medium">{summary.hit}</span> of{" "}
+            {summary.played} cleared
+            {summary.dnp > 0 && ` · ${summary.dnp} DNP`}
+          </span>
+        )}
       </div>
 
       {!loaded ? (
@@ -223,6 +271,14 @@ export default function MlbPropsBoard() {
                     title="Trailing-20-game barrels per game (recent power form)"
                   >
                     Brl/G
+                  </th>
+                )}
+                {settled && (
+                  <th
+                    className="text-right px-2 py-1.5 pr-3 font-medium"
+                    title="Did the batter clear this market that day (DNP = did not play)"
+                  >
+                    Result
                   </th>
                 )}
               </tr>
@@ -271,6 +327,11 @@ export default function MlbPropsBoard() {
                       {r.recentBarrelsPg != null
                         ? r.recentBarrelsPg.toFixed(2)
                         : "-"}
+                    </td>
+                  )}
+                  {settled && (
+                    <td className="px-2 py-1.5 pr-3 text-right whitespace-nowrap">
+                      <ResultTag played={r.played} hit={r.hit} />
                     </td>
                   )}
                 </tr>
