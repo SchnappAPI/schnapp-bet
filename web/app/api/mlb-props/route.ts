@@ -10,15 +10,24 @@ import mssql from "mssql";
 // etl/mlb_prop_projections.py, model prop-v1) and returns each batter on that
 // date's SLATE (the engine projects a pool of active hitters with no slate
 // context; this restricts to teams actually playing that day) with their
-// probability for each market, joined to name + current team. For a PAST slice
-// (games finished + box scores loaded) each row is also graded against the
-// realized outcome on that date — did the batter clear the market — so the
-// board doubles as a backtest. Accepts an optional ?date=YYYY-MM-DD to page
-// through history; defaults to the latest slice. availableDates bounds the
-// board's prev/next nav. The board ranks and tiers client-side. NO odds
-// anywhere — pure model output vs realized results.
+// probability for each market, joined to name + current team. Each row also
+// carries SLATE CONTEXT for the reader to weigh — the opposing probable pitcher
+// (name + hand) and the batter's career line vs that pitcher (BvP). This is
+// context only: a matchup backtest showed pitcher/BvP signals are game-level
+// noise and DEGRADE the projection, so they are shown, not folded into the
+// model. For a PAST slice (games finished + box scores loaded) each row is also
+// graded against the realized outcome on that date — did the batter clear the
+// market — so the board doubles as a backtest. Accepts an optional
+// ?date=YYYY-MM-DD to page through history; defaults to the latest slice.
+// availableDates bounds the board's prev/next nav. NO odds anywhere.
 
 export type PropMarket = "HR" | "HRR" | "HITS";
+
+export interface BvpLine {
+  ab: number; // career at-bats vs the probable pitcher
+  h: number;
+  hr: number;
+}
 
 export interface PropRow {
   batterId: number;
@@ -31,6 +40,9 @@ export interface PropRow {
   tier: string; // Elite | Strong | AboveAvg | Average | Fade
   priorGames: number;
   recentBarrelsPg: number | null; // trailing-20g barrels/game (HR form input)
+  oppPitcher: string | null; // opposing probable starter (slate context)
+  oppHand: string | null; // his throwing hand (L | R | S)
+  bvp: BvpLine | null; // batter's career line vs that pitcher (null if never faced / unknown)
   played: boolean; // did the batter appear in a game on the as-of date
   hit: boolean | null; // did they clear THIS row's market (null when DNP)
 }
@@ -42,13 +54,14 @@ export interface PropsResponse {
   rows: PropRow[];
 }
 
-// One slice, joined to player name + most-recent team, and LEFT JOINed to the
-// realized outcome on the as-of date itself (the slate this slice projected).
-// Outcomes use the SAME market definitions the engine trains on: HR from
-// at-bats, HRR (h+r+rbi >= 2) / HITS (hits >= 1) from the deduped batting line
-// (a game can carry a stray second row via batter_game_id — take the max-PA
-// row). Date grain: a doubleheader counts as a clear if it happened in either
-// game. Numeric columns cast to FLOAT so they land as JSON numbers.
+// One slice, joined to player name + most-recent team, the day's opposing
+// starter + the batter's career BvP line, and the realized outcome on the
+// as-of date. Outcomes use the SAME market definitions the engine trains on:
+// HR from at-bats, HRR (h+r+rbi >= 2) / HITS (hits >= 1) from the deduped
+// batting line. `opp` maps each team to its opponent's probable starter (one
+// row per team, so a doubleheader does not fan out the projection rows); `bvp`
+// is scoped to those starters so it stays a small aggregate. Numeric columns
+// cast to FLOAT so they land as JSON numbers.
 const SQL = `
 WITH team AS (
   SELECT player_id, team_id FROM (
@@ -56,6 +69,29 @@ WITH team AS (
       ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY game_date DESC) AS rn
     FROM mlb.batting_stats
   ) z WHERE rn = 1
+),
+opp AS (
+  SELECT team_id, opp_id, opp_name, opp_hand FROM (
+    SELECT team_id, game_pk, opp_id, opp_name, opp_hand,
+      ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY game_pk) AS rn
+    FROM (
+      SELECT away_team_id AS team_id, game_pk, home_pitcher_id AS opp_id,
+             home_pitcher_name AS opp_name, home_pitcher_hand AS opp_hand
+      FROM mlb.games WHERE game_date = @d
+      UNION ALL
+      SELECT home_team_id, game_pk, away_pitcher_id, away_pitcher_name, away_pitcher_hand
+      FROM mlb.games WHERE game_date = @d
+    ) u
+  ) z WHERE rn = 1
+),
+bvp AS (
+  SELECT batter_id, pitcher_id,
+    COUNT(*) AS ab,
+    SUM(CASE WHEN result_event_type IN ('single','double','triple','home_run') THEN 1 ELSE 0 END) AS h,
+    SUM(CASE WHEN result_event_type = 'home_run' THEN 1 ELSE 0 END) AS hr
+  FROM mlb.player_at_bats
+  WHERE pitcher_id IN (SELECT opp_id FROM opp WHERE opp_id IS NOT NULL)
+  GROUP BY batter_id, pitcher_id
 ),
 pab_d AS (
   SELECT batter_id,
@@ -90,6 +126,11 @@ SELECT
   pr.prior_games                  AS priorGames,
   CAST(pr.recent_barrels_pg AS FLOAT) AS recentBarrelsPg,
   tm.team_id                      AS teamId,
+  op.opp_name                     AS oppPitcher,
+  op.opp_hand                     AS oppHand,
+  bvp.ab                          AS bvpAb,
+  bvp.h                           AS bvpH,
+  bvp.hr                          AS bvpHr,
   CASE WHEN o.batter_id IS NULL THEN 0 ELSE 1 END AS played,
   CASE pr.market
        WHEN 'HR'   THEN o.o_hr
@@ -100,6 +141,8 @@ FROM mlb.batter_prop_projections pr
 LEFT JOIN mlb.players p ON p.player_id = pr.batter_id
 LEFT JOIN team tm ON tm.player_id = pr.batter_id
 LEFT JOIN mlb.teams t ON t.team_id = tm.team_id
+LEFT JOIN opp op ON op.team_id = tm.team_id
+LEFT JOIN bvp ON bvp.batter_id = pr.batter_id AND bvp.pitcher_id = op.opp_id
 LEFT JOIN outcome o ON o.batter_id = pr.batter_id
 WHERE pr.as_of_date = @d
 ORDER BY pr.market, pr.prob DESC
@@ -117,35 +160,53 @@ interface RawRow {
   priorGames: number;
   recentBarrelsPg: number | null;
   teamId: number | null; // batter's most-recent team (for the slate filter)
+  oppPitcher: string | null;
+  oppHand: string | null;
+  bvpAb: number | null;
+  bvpH: number | null;
+  bvpHr: number | null;
   played: number; // 0 | 1
   hit: number | null; // 0 | 1 | null (null = did not play)
 }
 
-// Team ids with a game on the given date. mlb.games first (fast); for a date
-// the DB has not cached yet (a future projection slice), the schedule is
-// knowable from statsapi. Returns an empty set only when both are empty or
-// unreachable — the caller then leaves the board unfiltered rather than blank.
-async function slateTeamIds(
+// The day's slate: team ids with a game, plus each team's opposing probable
+// starter name. mlb.games first (fast, and the source of pitcher hand + BvP);
+// for a date the DB has not cached yet (a future slice) fall back to the
+// statsapi schedule for team ids + opponent names. Empty only when both are
+// empty/unreachable — the caller then leaves the board unfiltered.
+async function slateInfo(
   pool: mssql.ConnectionPool,
   date: string,
-): Promise<Set<number>> {
+): Promise<{ teams: Set<number>; oppName: Map<number, string> }> {
   const res = await pool
     .request()
     .input("d", mssql.VarChar, date)
-    .query<{ id: number | null }>(
-      `SELECT away_team_id AS id FROM mlb.games WHERE game_date = @d
-       UNION SELECT home_team_id FROM mlb.games WHERE game_date = @d`,
+    .query<{ team: number | null; opp: string | null }>(
+      `SELECT away_team_id AS team, home_pitcher_name AS opp FROM mlb.games WHERE game_date = @d
+       UNION ALL SELECT home_team_id, away_pitcher_name FROM mlb.games WHERE game_date = @d`,
     );
-  const ids = new Set<number>();
-  for (const r of res.recordset) if (r.id != null) ids.add(r.id);
-  if (ids.size > 0) return ids;
+  const teams = new Set<number>();
+  const oppName = new Map<number, string>();
+  for (const r of res.recordset) {
+    if (r.team != null) {
+      teams.add(r.team);
+      if (r.opp) oppName.set(r.team, r.opp);
+    }
+  }
+  if (teams.size > 0) return { teams, oppName };
 
   const overlay = await fetchMlbLiveOverlay(date);
   for (const o of overlay.values()) {
-    if (o.awayTeamId != null) ids.add(o.awayTeamId);
-    if (o.homeTeamId != null) ids.add(o.homeTeamId);
+    if (o.awayTeamId != null) {
+      teams.add(o.awayTeamId);
+      if (o.homePitcher) oppName.set(o.awayTeamId, o.homePitcher);
+    }
+    if (o.homeTeamId != null) {
+      teams.add(o.homeTeamId);
+      if (o.awayPitcher) oppName.set(o.homeTeamId, o.awayPitcher);
+    }
   }
-  return ids;
+  return { teams, oppName };
 }
 
 export async function GET(req: NextRequest) {
@@ -186,9 +247,10 @@ export async function GET(req: NextRequest) {
     // Restrict to the day's slate: only hitters whose team actually plays on
     // the as-of date. The engine projects a POOL of active hitters with no
     // slate context, so without this the board lists players whose team is off
-    // (e.g. Ohtani on a Dodgers off-day). Empty slate (both DB + statsapi came
-    // back empty) -> leave the board unfiltered rather than blank.
-    const slate = await slateTeamIds(pool, asOfDate);
+    // (e.g. Ohtani on a Dodgers off-day). The slate also carries opponent names
+    // for a future date the SQL opp CTE (mlb.games) has not cached. Empty slate
+    // -> leave the board unfiltered rather than blank.
+    const { teams: slate, oppName } = await slateInfo(pool, asOfDate);
     const raw = (res.recordset as RawRow[]).filter((r) =>
       slate.size === 0 ? true : r.teamId != null && slate.has(r.teamId),
     );
@@ -204,6 +266,14 @@ export async function GET(req: NextRequest) {
       tier: r.tier,
       priorGames: r.priorGames,
       recentBarrelsPg: r.recentBarrelsPg,
+      oppPitcher:
+        r.oppPitcher ??
+        (r.teamId != null ? (oppName.get(r.teamId) ?? null) : null),
+      oppHand: r.oppHand,
+      bvp:
+        r.bvpAb != null
+          ? { ab: r.bvpAb, h: r.bvpH ?? 0, hr: r.bvpHr ?? 0 }
+          : null,
       played: r.played === 1,
       hit: r.hit === null ? null : r.hit === 1,
     }));

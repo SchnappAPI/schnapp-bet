@@ -252,6 +252,12 @@ export default function MlbPropsBoard() {
               <tr className="text-fg-subtle border-b border-border">
                 <th className="text-right pl-3 pr-2 py-1.5 font-medium">#</th>
                 <th className="text-left px-2 py-1.5 font-medium">Batter</th>
+                <th
+                  className="text-left px-2 py-1.5 font-medium"
+                  title="Opposing probable starter (hand) + this batter's career line vs him. Context only — the projection does not use it (backtest: matchup signal is game-level noise)."
+                >
+                  vs SP
+                </th>
                 <th className="text-left px-2 py-1.5 font-medium">Tier</th>
                 <th
                   className="text-left px-2 py-1.5 font-medium"
@@ -305,6 +311,31 @@ export default function MlbPropsBoard() {
                       <span className="text-fg-disabled ml-1 text-[10px]">
                         {r.teamAbbr}
                       </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5 whitespace-nowrap">
+                    {r.oppPitcher ? (
+                      <>
+                        <span className="text-fg-subtle">
+                          {r.oppPitcher}
+                          {r.oppHand ? (
+                            <span className="text-fg-disabled">
+                              {" "}
+                              ({r.oppHand})
+                            </span>
+                          ) : (
+                            ""
+                          )}
+                        </span>
+                        {r.bvp && r.bvp.ab > 0 && (
+                          <span className="text-fg-disabled ml-1.5 text-[10px] tabular-nums">
+                            {r.bvp.h}-{r.bvp.ab}
+                            {r.bvp.hr > 0 ? `, ${r.bvp.hr} HR` : ""}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-fg-disabled">&ndash;</span>
                     )}
                   </td>
                   <td className="px-2 py-1.5">
