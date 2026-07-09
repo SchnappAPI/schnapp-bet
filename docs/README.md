@@ -13,7 +13,7 @@ Documentation router. Session lifecycle (read/write protocols) lives in root `/C
 - `/docs/ROADMAP.md` — active priorities. Brief by design.
 - `/docs/HEALTH.md` — git-ignored; regenerate locally with `/skill regenerate-health`.
 - `/docs/decisions/ADR-YYYYMMDD-N-slug.md` — ADRs, one per file. See `docs/decisions/README.md` for format. The commit log is the changelog (ADR-20260517-4); see root `CLAUDE.md` "Commit subject format" for filtering commands.
-- `/docs/features/` — feature methodology specs (not Claude skills). Currently: `playoff-supplemental.md`; `mlb-research-dashboard.md` (+ `mlb-research-dashboard-remainder.md`) — the PBI-port build plan; `mlb-power-bi-catalog.md` — the reverse-engineering source record for that port; `mlb-data-dictionary.md` — field-level dictionary derived from the catalog + the xlsx audit.
+- `/docs/features/` — feature methodology specs (not Claude skills). Currently: `playoff-supplemental.md`; `mlb-research-dashboard.md` (+ `mlb-research-dashboard-remainder.md`) — the PBI-port build plan; `mlb-power-bi-catalog.md` — the reverse-engineering source record for that port; `mlb-data-dictionary.md` — field-level dictionary derived from the catalog + the xlsx audit; `mlb-prop-projection-engine.md` — design spec for the odds-free batter-prop (HR/HRR/hits/TB) projection engine.
 - `/docs/runbooks/` — operational procedures. `deploy-web.md`, `runner-and-services.md`, `tunnels-and-dns.md`.
 - `/docs/reviews/` — point-in-time repo audits with prioritized backlog. Newest first; the backlog sections stay live until superseded by a newer review.
 
