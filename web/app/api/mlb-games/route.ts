@@ -36,12 +36,19 @@ export async function GET(req: NextRequest) {
        ORDER BY g.game_datetime, g.game_pk`,
     );
 
-  // Live overlay for today's slate: scores/status/inning from statsapi while
-  // games are in progress. DB rows remain the game list; overlay only enriches.
+  // Schedule source. mlb.games is a nightly-loaded cache that lags the live
+  // slate: it can hold zero rows for today until the nightly runs, and never
+  // holds a future date. The schedule is knowable in advance from statsapi,
+  // so for today and future dates we (a) ENRICH in-progress DB rows with live
+  // scores/status and (b) SEED any game on the statsapi slate the DB has not
+  // cached yet — otherwise the page renders "No games scheduled" over a live
+  // slate. Past dates stay DB-only: an empty past date genuinely has no data.
   let games: Record<string, unknown>[] = [...result.recordset];
-  if (date === todayCT() && games.some((g) => g.gameStatus !== "F")) {
+  if (date >= todayCT()) {
     const overlay = await fetchMlbLiveOverlay(date);
     if (overlay.size > 0) {
+      // (a) Enrich existing DB rows. The DB stays authoritative for identity
+      // and pitchers (incl. pitch hand); the overlay only moves live fields.
       games = games.map((g) => {
         const o = overlay.get(g.gameId as number);
         if (!o) return g;
@@ -53,6 +60,69 @@ export async function GET(req: NextRequest) {
           liveLabel: o.liveLabel,
         };
       });
+
+      // (b) Seed games the DB is missing (today before the nightly load, or a
+      // future date not yet cached). statsapi carries no team abbreviation, so
+      // resolve id -> abbr/name from mlb.teams. Pitch hand is unknown pregame.
+      const dbPks = new Set(games.map((g) => g.gameId as number));
+      const missing = [...overlay.values()].filter((o) => !dbPks.has(o.gamePk));
+      if (missing.length > 0) {
+        const teamsRes = await pool.request().query<{
+          team_id: number;
+          team_abbreviation: string;
+          full_name: string;
+        }>(`SELECT team_id, team_abbreviation, full_name FROM mlb.teams`);
+        const teamsById = new Map<number, { abbr: string; name: string }>();
+        for (const t of teamsRes.recordset) {
+          teamsById.set(t.team_id, {
+            abbr: t.team_abbreviation,
+            name: t.full_name,
+          });
+        }
+        for (const o of missing) {
+          const away =
+            o.awayTeamId != null ? teamsById.get(o.awayTeamId) : undefined;
+          const home =
+            o.homeTeamId != null ? teamsById.get(o.homeTeamId) : undefined;
+          const awayAbbr = away?.abbr ?? "";
+          const homeAbbr = home?.abbr ?? "";
+          games.push({
+            gameId: o.gamePk,
+            gameDate: date,
+            gameStatus: o.gameStatus,
+            gameDisplay: awayAbbr && homeAbbr ? `${awayAbbr}@${homeAbbr}` : "",
+            awayTeamId: o.awayTeamId,
+            homeTeamId: o.homeTeamId,
+            awayTeamAbbr: awayAbbr,
+            homeTeamAbbr: homeAbbr,
+            awayTeamName: away?.name ?? o.awayTeamName ?? "",
+            homeTeamName: home?.name ?? o.homeTeamName ?? "",
+            awayScore: o.awayScore,
+            homeScore: o.homeScore,
+            gameDateTime: o.gameDateTime,
+            awayPitcher: o.awayPitcher,
+            homePitcher: o.homePitcher,
+            awayPitcherHand: null,
+            homePitcherHand: null,
+            liveLabel: o.liveLabel,
+          });
+        }
+        // Preserve the DB ORDER BY (game_datetime, game_pk) across seeds. DB
+        // rows arrive as Date objects, seeded rows as ISO strings — normalize
+        // both to an epoch ms so the comparison never coerces a Date via
+        // toString() (which is not lexically ISO-ordered).
+        const epoch = (v: unknown): number => {
+          if (v == null) return 0;
+          const t = (v instanceof Date ? v : new Date(v as string)).getTime();
+          return Number.isNaN(t) ? 0 : t;
+        };
+        games.sort((a, b) => {
+          const at = epoch(a.gameDateTime);
+          const bt = epoch(b.gameDateTime);
+          if (at !== bt) return at - bt;
+          return (a.gameId as number) - (b.gameId as number);
+        });
+      }
     }
   }
 
