@@ -1,0 +1,235 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import type {
+  PropMarket,
+  PropRow,
+  PropsResponse,
+} from "@/app/api/mlb-props/route";
+
+// Odds-free batter-prop board (/mlb/props). Ranks every projected hitter for
+// the chosen market and LEADS WITH rank + plain tier + "x vs the average
+// hitter"; the raw probability rides along as the muted detail number (a bare
+// "15%" reads like "15% of a home run" — the ranking is the human-facing
+// signal). One fetch; projections refresh nightly, so no polling. Model
+// prop-v1 (pooled EB-shrunk rate x barrel form), validated on held-out 2026.
+
+const MARKETS: { key: PropMarket; label: string; sub: string }[] = [
+  { key: "HR", label: "Home Run", sub: "P(≥1 HR)" },
+  { key: "HRR", label: "H+R+RBI", sub: "hits+runs+RBI ≥ 1.5" },
+  { key: "HITS", label: "Hits", sub: "P(≥1 hit)" },
+];
+
+function tierChip(tier: string): string {
+  switch (tier) {
+    case "Elite":
+      return "bg-pos-muted text-pos";
+    case "Strong":
+      return "bg-brand-muted text-brand";
+    case "AboveAvg":
+      return "bg-surface-hover text-fg";
+    case "Average":
+      return "bg-surface-hover text-fg-subtle";
+    default: // Fade
+      return "text-fg-disabled";
+  }
+}
+
+function tierLabel(tier: string): string {
+  return tier === "AboveAvg" ? "Above Avg" : tier;
+}
+
+function pct(p: number): string {
+  return `${(p * 100).toFixed(1)}%`;
+}
+
+function LiftBar({ lift }: { lift: number }) {
+  // 1x sits at the middle; cap the bar at 3x for scale.
+  const w = Math.max(4, Math.min(100, (lift / 3) * 100));
+  const strong = lift >= 1.6;
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className={`tabular-nums font-semibold ${strong ? "text-pos" : "text-fg-muted"}`}
+      >
+        {lift.toFixed(1)}&times;
+      </span>
+      <span className="hidden sm:block h-1.5 w-16 rounded-full bg-border overflow-hidden">
+        <span
+          className={`block h-full rounded-full ${strong ? "bg-pos" : "bg-fg-disabled"}`}
+          style={{ width: `${w}%` }}
+        />
+      </span>
+    </div>
+  );
+}
+
+export default function MlbPropsBoard() {
+  const [data, setData] = useState<PropsResponse | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [market, setMarket] = useState<PropMarket>("HR");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/mlb-props", { cache: "no-store" })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d: PropsResponse) => {
+        if (!cancelled) {
+          setData(d);
+          setLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const rows = useMemo(() => {
+    const r = (data?.rows ?? []).filter((x) => x.market === market);
+    return [...r].sort((a, b) => b.prob - a.prob);
+  }, [data, market]);
+
+  const active = MARKETS.find((m) => m.key === market)!;
+  const baseRate = rows[0]?.baseRate ?? null;
+  const isHR = market === "HR";
+
+  return (
+    <div className="flex flex-col min-h-screen">
+      <div className="px-3 py-3 border-b border-border">
+        <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-fg">
+          MLB Prop Projections
+          {data?.asOfDate && (
+            <span className="text-fg-disabled font-normal normal-case tracking-normal ml-2">
+              as of {data.asOfDate}
+            </span>
+          )}
+        </div>
+        <div className="text-[11px] text-fg-disabled mt-0.5">
+          Model-ranked, odds-free. Leads with tier and how many &times; the
+          average hitter clears the market; the probability is the detail. Model
+          prop-v1, validated on held-out 2026.
+        </div>
+      </div>
+
+      {/* Market toggle */}
+      <div className="flex flex-wrap items-center gap-1.5 px-3 pt-3">
+        {MARKETS.map((m) => (
+          <button
+            key={m.key}
+            onClick={() => setMarket(m.key)}
+            className={`rounded px-2.5 py-1 text-[12px] font-medium transition-colors ${
+              market === m.key
+                ? "bg-brand text-canvas"
+                : "bg-surface-hover text-fg-subtle hover:text-fg"
+            }`}
+            title={m.sub}
+          >
+            {m.label}
+          </button>
+        ))}
+        {baseRate != null && (
+          <span className="ml-1 text-[11px] text-fg-disabled">
+            {active.sub} &middot; league avg {pct(baseRate)}
+          </span>
+        )}
+      </div>
+
+      {!loaded ? (
+        <div className="px-4 py-6 text-sm text-fg-subtle">Loading...</div>
+      ) : rows.length === 0 ? (
+        <div className="px-4 py-10 text-sm text-fg-subtle">
+          No projections loaded yet. The nightly engine writes them after the
+          day&apos;s stats land.
+        </div>
+      ) : (
+        <div className="overflow-x-auto pb-8 mt-2">
+          <table className="w-full text-xs text-fg-muted">
+            <thead>
+              <tr className="text-fg-subtle border-b border-border">
+                <th className="text-right pl-3 pr-2 py-1.5 font-medium">#</th>
+                <th className="text-left px-2 py-1.5 font-medium">Batter</th>
+                <th className="text-left px-2 py-1.5 font-medium">Tier</th>
+                <th
+                  className="text-left px-2 py-1.5 font-medium"
+                  title="How many times the league-average hitter's rate"
+                >
+                  vs Avg
+                </th>
+                <th
+                  className="text-right px-2 py-1.5 font-medium"
+                  title="Projected probability (the detail behind the ranking)"
+                >
+                  Prob
+                </th>
+                {isHR && (
+                  <th
+                    className="text-right px-2 py-1.5 font-medium"
+                    title="Trailing-20-game barrels per game (recent power form)"
+                  >
+                    Brl/G
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr
+                  key={r.batterId}
+                  className={`border-b border-border-subtle hover:bg-surface transition-colors ${
+                    r.tier === "Elite" ? "bg-pos-muted/30" : ""
+                  }`}
+                >
+                  <td className="text-right pl-3 pr-2 py-1.5 tabular-nums text-fg-disabled">
+                    {i + 1}
+                  </td>
+                  <td className="px-2 py-1.5 whitespace-nowrap">
+                    <Link
+                      href={`/mlb/player/${r.batterId}`}
+                      className="text-fg-muted hover:text-brand transition-colors"
+                    >
+                      {r.batterName ?? String(r.batterId)}
+                    </Link>
+                    {r.teamAbbr && (
+                      <span className="text-fg-disabled ml-1 text-[10px]">
+                        {r.teamAbbr}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tierChip(
+                        r.tier,
+                      )}`}
+                    >
+                      {tierLabel(r.tier)}
+                    </span>
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <LiftBar lift={r.lift} />
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-fg-subtle">
+                    {pct(r.prob)}
+                  </td>
+                  {isHR && (
+                    <td className="px-2 py-1.5 text-right tabular-nums text-fg-disabled">
+                      {r.recentBarrelsPg != null
+                        ? r.recentBarrelsPg.toFixed(2)
+                        : "-"}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
