@@ -1,25 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import type {
-  LiveHardHitBall,
-  LiveHardHitBatter,
+  LiveHardHitBattedBall,
   LiveHardHitGame,
   LiveHardHitPitcher,
   LiveHardHitResponse,
 } from "@/app/api/mlb-live-hardhit/route";
 import { resultColor, resultLabel, veloColor } from "./statcastFormat";
 
-// Standalone /mlb/live board: who is squaring the ball up right now (batters)
-// and which pitchers are getting squared up, across every in-progress game.
-// Polls /api/mlb-live-hardhit every 30s. Built for HR-hunting: batters ranked
-// by barrels then top EV; each hitter's EV/LA/distance/inning/result are from
-// their HARDEST ball (so a row is internally consistent), and every hitter row
-// expands to show each individual batted ball. Columns are click-to-sort and a
-// game filter narrows to one matchup. EV/LA/distance are live from the MLB
-// Gameday feed; modeled Savant stats settle in the nightly load. Every name
-// links to the player page and every matchup links to the game.
+// Standalone /mlb/live board: every batted ball being hit hard right now — ONE
+// ROW PER AT-BAT (no per-hitter roll-up) — and which pitchers are getting
+// squared up, across every in-progress game. Polls /api/mlb-live-hardhit every
+// 30s. Built for HR-hunting: rows default to loudest exit velocity first, every
+// column is click-to-sort (incl. AB# for chronological order), and a game
+// filter narrows to one matchup. EV/LA/distance are live from the MLB Gameday
+// feed; modeled Savant stats settle in the nightly load. Every batter links to
+// the player page and every matchup links to the game.
 
 const POLL_MS = 30_000;
 
@@ -82,20 +80,11 @@ function PlayerLink({
   );
 }
 
-// ---- Batter table (sortable + expandable) ----------------------------------
-
-type BatterSortKey =
-  | "batterName"
-  | "latestAb"
-  | "maxEv"
-  | "maxEvLa"
-  | "maxEvDist"
-  | "topInning"
-  | "barrels"
-  | "hardHit"
-  | "bbe";
-
 const NUM = "text-right px-2 py-1.5 tabular-nums whitespace-nowrap";
+
+// ---- Batted-ball table (flat, one row per at-bat, sortable) ----------------
+
+type BallSortKey = "abNumber" | "batterName" | "inning" | "ev" | "la" | "dist";
 
 function SortTh({
   label,
@@ -107,10 +96,10 @@ function SortTh({
   title,
 }: {
   label: string;
-  col: BatterSortKey;
-  sortKey: BatterSortKey;
+  col: BallSortKey;
+  sortKey: BallSortKey;
   sortDir: "asc" | "desc";
-  onSort: (k: BatterSortKey) => void;
+  onSort: (k: BallSortKey) => void;
   align?: "left" | "right";
   title?: string;
 }) {
@@ -131,34 +120,44 @@ function SortTh({
   );
 }
 
-function BallRow({ b }: { b: LiveHardHitBall }) {
+function BallRow({
+  b,
+  game,
+}: {
+  b: LiveHardHitBattedBall;
+  game: LiveHardHitGame | undefined;
+}) {
   const chip = b.barrel ? "Barrel" : b.hard ? "Hard" : null;
   const chipCls = b.barrel
     ? "bg-neg-muted text-neg"
     : "bg-warn-muted text-warn";
   return (
-    <tr className="text-[11px]">
-      <td className="py-0.5 pr-3 text-fg-disabled tabular-nums">
-        {b.abNumber != null ? `${b.abNumber}` : "-"}
+    <tr
+      className={`border-b border-border-subtle hover:bg-surface transition-colors ${
+        b.barrel ? "bg-neg-muted/40" : ""
+      }`}
+    >
+      <td className={`${NUM} text-fg-subtle`}>{b.abNumber ?? "-"}</td>
+      <td className="px-2 py-1.5">
+        <PlayerLink id={b.batterId} name={b.batterName} teamAbbr={b.teamAbbr} />
       </td>
-      <td className="py-0.5 pr-3 text-fg-subtle tabular-nums">
-        {b.inning != null ? `${b.inning}` : "-"}
+      <td className="px-2 py-1.5 text-left text-[11px]">
+        <GameLink game={game} />
       </td>
-      <td
-        className={`py-0.5 pr-3 text-right tabular-nums font-semibold ${veloColor(b.ev)}`}
-      >
-        {dec(b.ev)}
-      </td>
-      <td className="py-0.5 pr-3 text-right tabular-nums text-fg-subtle">
+      <td className={`${NUM} text-fg-subtle`}>{b.inning ?? "-"}</td>
+      <td className={`${NUM} font-semibold ${veloColor(b.ev)}`}>{dec(b.ev)}</td>
+      <td className={`${NUM} text-fg-subtle`}>
         {b.la != null ? `${Math.round(b.la)}°` : "-"}
       </td>
-      <td className="py-0.5 pr-3 text-right tabular-nums text-fg-subtle">
+      <td className={`${NUM} text-fg-subtle`}>
         {b.dist != null ? Math.round(b.dist) : "-"}
       </td>
-      <td className={`py-0.5 pr-3 ${resultColor(b.result)}`}>
+      <td
+        className={`px-2 py-1.5 text-left text-[11px] whitespace-nowrap ${resultColor(b.result)}`}
+      >
         {resultLabel(b.result)}
       </td>
-      <td className="py-0.5">
+      <td className="px-2 py-1.5">
         {chip && (
           <span
             className={`rounded px-1 py-px text-[9px] font-medium uppercase ${chipCls}`}
@@ -171,116 +170,18 @@ function BallRow({ b }: { b: LiveHardHitBall }) {
   );
 }
 
-// Rendered as a fragment of <tr>s (main row + optional expanded row).
-function BatterRow({
-  r,
-  game,
-  open,
-  onToggle,
-}: {
-  r: LiveHardHitBatter;
-  game: LiveHardHitGame | undefined;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <>
-      <tr
-        className={`border-b border-border-subtle hover:bg-surface transition-colors ${
-          r.barrels > 0 ? "bg-neg-muted/40" : ""
-        }`}
-      >
-        <td className="pl-2">
-          <button
-            onClick={onToggle}
-            aria-label={open ? "Collapse" : "Expand"}
-            className="text-fg-disabled hover:text-fg"
-          >
-            {open ? "▾" : "▸"}
-          </button>
-        </td>
-        <td className="px-2 py-1.5">
-          <PlayerLink
-            id={r.batterId}
-            name={r.batterName}
-            teamAbbr={r.teamAbbr}
-          />
-        </td>
-        <td className="px-2 py-1.5 text-left text-[11px]">
-          <GameLink game={game} />
-        </td>
-        <td className={`${NUM} text-fg-subtle`}>{r.latestAb ?? "-"}</td>
-        <td className={`${NUM} font-semibold ${veloColor(r.maxEv)}`}>
-          {dec(r.maxEv)}
-        </td>
-        <td className={`${NUM} text-fg-subtle`}>
-          {r.maxEvLa != null ? `${Math.round(r.maxEvLa)}°` : "-"}
-        </td>
-        <td className={`${NUM} text-fg-subtle`}>
-          {r.maxEvDist != null ? Math.round(r.maxEvDist) : "-"}
-        </td>
-        <td
-          className={`px-2 py-1.5 text-left text-[11px] whitespace-nowrap ${resultColor(r.topResult)}`}
-        >
-          {resultLabel(r.topResult)}
-        </td>
-        <td className={`${NUM} text-fg-subtle`}>{r.topInning ?? "-"}</td>
-        <td
-          className={`${NUM} ${r.barrels > 0 ? "font-semibold text-neg" : "text-fg-disabled"}`}
-        >
-          {r.barrels}
-        </td>
-        <td
-          className={`${NUM} ${r.hardHit > 0 ? "text-warn" : "text-fg-disabled"}`}
-        >
-          {r.hardHit}
-        </td>
-        <td className={`${NUM} text-fg-disabled`}>{r.bbe}</td>
-      </tr>
-      {open && (
-        <tr className="bg-canvas">
-          <td />
-          <td colSpan={11} className="px-3 pb-2 pt-1">
-            <div className="text-[10px] uppercase tracking-wider text-fg-disabled mb-1">
-              Each batted ball
-            </div>
-            <table className="text-fg-muted">
-              <thead>
-                <tr className="text-fg-disabled text-[10px]">
-                  <th className="text-left pr-3 font-medium">AB#</th>
-                  <th className="text-left pr-3 font-medium">Inn</th>
-                  <th className="text-right pr-3 font-medium">EV</th>
-                  <th className="text-right pr-3 font-medium">LA</th>
-                  <th className="text-right pr-3 font-medium">Dist</th>
-                  <th className="text-left pr-3 font-medium">Result</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {r.balls.map((b, i) => (
-                  <BallRow key={i} b={b} />
-                ))}
-              </tbody>
-            </table>
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-function BatterTable({
+function BallTable({
   rows,
   gameByPk,
 }: {
-  rows: LiveHardHitBatter[];
+  rows: LiveHardHitBattedBall[];
   gameByPk: Map<number, LiveHardHitGame>;
 }) {
-  const [sortKey, setSortKey] = useState<BatterSortKey>("barrels");
+  // Loudest contact first by default; click AB# for chronological order.
+  const [sortKey, setSortKey] = useState<BallSortKey>("ev");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
-  const onSort = (k: BatterSortKey) => {
+  const onSort = (k: BallSortKey) => {
     if (k === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
       setSortKey(k);
@@ -299,14 +200,6 @@ function BatterTable({
     });
   }, [rows, sortKey, sortDir]);
 
-  const toggle = (id: number) =>
-    setExpanded((s) => {
-      const n = new Set(s);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
-
   const shared = { sortKey, sortDir, onSort };
 
   return (
@@ -314,73 +207,58 @@ function BatterTable({
       <table className="w-full text-xs text-fg-muted">
         <thead>
           <tr className="text-fg-subtle border-b border-border">
-            <th className="w-5" />
+            <SortTh
+              label="AB#"
+              col="abNumber"
+              title="Game at-bat number (1..N in PA order) — sort to order chronologically"
+              {...shared}
+            />
             <SortTh label="Batter" col="batterName" align="left" {...shared} />
             <th className="text-left px-2 py-1.5 font-medium">Game</th>
             <SortTh
-              label="AB#"
-              col="latestAb"
-              title="Game at-bat number of this hitter's most recent at-bat — sort to order chronologically"
+              label="Inn"
+              col="inning"
+              title="Inning of this batted ball"
               {...shared}
             />
             <SortTh
-              label="Max EV"
-              col="maxEv"
-              title="Hardest ball's exit velocity"
+              label="EV"
+              col="ev"
+              title="Exit velocity (mph)"
               {...shared}
             />
             <SortTh
               label="LA"
-              col="maxEvLa"
-              title="Launch angle of the hardest ball"
+              col="la"
+              title="Launch angle (degrees)"
               {...shared}
             />
             <SortTh
               label="Dist"
-              col="maxEvDist"
-              title="Distance of the hardest ball"
+              col="dist"
+              title="Projected distance (ft)"
               {...shared}
             />
             <th
               className="text-left px-2 py-1.5 font-medium"
-              title="Result of the hardest ball"
+              title="Result of this at-bat"
             >
               Event
             </th>
-            <SortTh
-              label="Inn"
-              col="topInning"
-              title="Inning of the hardest ball"
-              {...shared}
-            />
-            <SortTh
-              label="Brl"
-              col="barrels"
-              title="Barrels — hard-hit in the HR launch window"
-              {...shared}
-            />
-            <SortTh
-              label="HH"
-              col="hardHit"
-              title="Hard-hit balls (EV 95+)"
-              {...shared}
-            />
-            <SortTh
-              label="BBE"
-              col="bbe"
-              title="Batted balls tracked"
-              {...shared}
-            />
+            <th
+              className="text-left px-2 py-1.5 font-medium"
+              title="Barrel (HR launch window) or Hard-hit (EV 95+) tag"
+            >
+              Tag
+            </th>
           </tr>
         </thead>
         <tbody>
-          {sorted.map((r) => (
-            <BatterRow
-              key={`${r.gamePk}-${r.batterId}`}
-              r={r}
-              game={gameByPk.get(r.gamePk)}
-              open={expanded.has(r.batterId)}
-              onToggle={() => toggle(r.batterId)}
+          {sorted.map((b, i) => (
+            <BallRow
+              key={`${b.gamePk}-${b.batterId}-${b.abNumber ?? "?"}-${i}`}
+              b={b}
+              game={gameByPk.get(b.gamePk)}
             />
           ))}
         </tbody>
@@ -389,7 +267,7 @@ function BatterTable({
   );
 }
 
-// ---- Pitcher table ---------------------------------------------------------
+// ---- Pitcher table (aggregate — "who is getting squared up") ----------------
 
 function PitcherTable({
   rows,
@@ -496,14 +374,14 @@ export default function MlbHardHitLive() {
   );
 
   const hasRows =
-    !!data?.live && (data.batters.length > 0 || data.pitchers.length > 0);
+    !!data?.live && (data.balls.length > 0 || data.pitchers.length > 0);
 
   // A selected game that has since ended falls back to "all".
   const activeGame =
     gameFilter != null && gameByPk.has(gameFilter) ? gameFilter : null;
-  const shownBatters = activeGame
-    ? (data?.batters ?? []).filter((b) => b.gamePk === activeGame)
-    : (data?.batters ?? []);
+  const shownBalls = activeGame
+    ? (data?.balls ?? []).filter((b) => b.gamePk === activeGame)
+    : (data?.balls ?? []);
   const shownPitchers = activeGame
     ? (data?.pitchers ?? []).filter((p) => p.gamePk === activeGame)
     : (data?.pitchers ?? []);
@@ -530,9 +408,10 @@ export default function MlbHardHitLive() {
           )}
         </div>
         <div className="text-[11px] text-fg-disabled mt-0.5">
-          Live batted-ball quality, updating every 30s — filter by game, click a
-          column to sort, click ▸ to see each batted ball. Ranked by barrels
-          (hard contact in the HR launch window) for HR-hunting.
+          Every batted ball, one row per at-bat, updating every 30s — filter by
+          game and click any column to sort (AB# for chronological order).
+          Sorted by exit velocity for HR-hunting; barrels (hard contact in the
+          HR launch window) are highlighted.
         </div>
       </div>
 
@@ -541,7 +420,7 @@ export default function MlbHardHitLive() {
       ) : !hasRows ? (
         <div className="px-4 py-10 text-sm text-fg-subtle">
           No games are live right now. This board fills in with live exit
-          velocity — who&apos;s squaring it up and which pitchers are getting
+          velocity — every ball being hit hard and which pitchers are getting
           squared up — once games are underway.
         </div>
       ) : (
@@ -572,10 +451,10 @@ export default function MlbHardHitLive() {
           </div>
 
           <SectionHeader
-            title={`Hitting It Hard — ${shownBatters.length} batter${shownBatters.length === 1 ? "" : "s"}`}
-            note="Barrel rows highlighted. Click ▸ to expand each hitter's batted balls (with inning)."
+            title={`Hitting It Hard — ${shownBalls.length} batted ball${shownBalls.length === 1 ? "" : "s"}`}
+            note="One row per at-bat. Barrel rows highlighted. Sort AB# for chronological order."
           />
-          <BatterTable rows={shownBatters} gameByPk={gameByPk} />
+          <BallTable rows={shownBalls} gameByPk={gameByPk} />
 
           <SectionHeader
             title="Getting Squared Up"
