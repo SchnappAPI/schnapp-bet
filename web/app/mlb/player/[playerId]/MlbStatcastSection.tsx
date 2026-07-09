@@ -235,9 +235,6 @@ export default function MlbStatcastSection({
                 Opp
               </th>
               <th className="text-left px-2 py-1.5 font-medium whitespace-nowrap">
-                Pitcher
-              </th>
-              <th className="text-left px-2 py-1.5 font-medium whitespace-nowrap">
                 Result
               </th>
               <th className="text-right px-2 py-1.5 font-medium">EV</th>
@@ -246,6 +243,12 @@ export default function MlbStatcastSection({
               <th className="text-right px-2 py-1.5 font-medium">xBA</th>
               <th className="text-right px-2 py-1.5 font-medium">Bat Spd</th>
               <th className="text-right px-2 py-1.5 font-medium">HR/Pk</th>
+              <th className="text-left px-2 py-1.5 font-medium whitespace-nowrap">
+                Tags
+              </th>
+              <th className="text-left px-2 py-1.5 font-medium whitespace-nowrap">
+                Pitcher
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -265,14 +268,6 @@ export default function MlbStatcastSection({
                 <td className="px-2 py-1.5 text-fg-subtle whitespace-nowrap">
                   {ab.oppAbbr ?? "?"}
                 </td>
-                <td className="px-2 py-1.5 text-fg-subtle whitespace-nowrap">
-                  {ab.pitcherName ?? "-"}
-                  {ab.pitcherHand && (
-                    <span className="text-fg-disabled ml-1">
-                      ({ab.pitcherHand})
-                    </span>
-                  )}
-                </td>
                 <td
                   className={`px-2 py-1.5 whitespace-nowrap ${resultColor(ab.result)}`}
                 >
@@ -280,11 +275,6 @@ export default function MlbStatcastSection({
                   {ab.rbi != null && ab.rbi > 0 && (
                     <span className="text-fg-disabled ml-1">{ab.rbi} RBI</span>
                   )}
-                  <StatcastChips
-                    ev={ab.ev != null ? Number(ab.ev) : null}
-                    la={ab.la != null ? Number(ab.la) : null}
-                    batSpeed={ab.batSpeed != null ? Number(ab.batSpeed) : null}
-                  />
                 </td>
                 <td
                   className={`px-2 py-1.5 text-right tabular-nums font-semibold ${veloColor(
@@ -307,6 +297,21 @@ export default function MlbStatcastSection({
                 </td>
                 <td className="px-2 py-1.5 text-right tabular-nums text-fg-muted">
                   {fmtHrParks(ab.hrParks != null ? Number(ab.hrParks) : null)}
+                </td>
+                <td className="px-2 py-1.5 whitespace-nowrap">
+                  <StatcastChips
+                    ev={ab.ev != null ? Number(ab.ev) : null}
+                    la={ab.la != null ? Number(ab.la) : null}
+                    batSpeed={ab.batSpeed != null ? Number(ab.batSpeed) : null}
+                  />
+                </td>
+                <td className="px-2 py-1.5 text-fg-subtle whitespace-nowrap">
+                  {ab.pitcherName ?? "-"}
+                  {ab.pitcherHand && (
+                    <span className="text-fg-disabled ml-1">
+                      ({ab.pitcherHand})
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}
