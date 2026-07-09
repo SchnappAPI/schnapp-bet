@@ -11,8 +11,10 @@ import { HARD_HIT_EV, isBarrel } from "@/app/mlb/statcastFormat";
 // the same definitions the ETL uses (mlb_play_by_play.py, mirrored in
 // statcastFormat) — barrels are the strongest in-game HR signal, so batters
 // are ranked by them. LA/distance/inning/result are reported for each hitter's
-// HARDEST ball (so the row is internally consistent); the full per-ball list
-// (chronological) rides along so the UI can expand a hitter to show each ball.
+// HARDEST ball (so the row is internally consistent); each ball also carries
+// its game at-bat number (abNumber, 1..N in the order PAs happen) and the
+// batter carries latestAb (their most recent at-bat) so the board can be
+// sorted chronologically. The full per-ball list rides along for the expand.
 //
 // EV/LA/distance are live; the modeled Savant stats (true xBA, bat speed) are
 // not in the feed and settle in the nightly load — the UI labels this LIVE.
@@ -22,6 +24,7 @@ import { HARD_HIT_EV, isBarrel } from "@/app/mlb/statcastFormat";
 const PITCHER_CAP = 40;
 
 export interface LiveHardHitBall {
+  abNumber: number | null; // game at-bat number (1..N, order PAs happen)
   inning: number | null;
   ev: number | null;
   la: number | null;
@@ -43,6 +46,7 @@ export interface LiveHardHitBatter {
   maxEvDist: number | null; // distance of the hardest ball
   topInning: number | null; // inning of the hardest ball
   topResult: string | null; // result of the hardest ball
+  latestAb: number | null; // game at-bat number of the most recent at-bat
   hardHit: number;
   barrels: number;
   balls: LiveHardHitBall[]; // every tracked batted ball, chronological
@@ -80,12 +84,13 @@ interface BatterAcc {
   batterName: string;
   teamAbbr: string | null;
   gamePk: number;
-  // evs / las / dists / innings / results are aligned per batted ball.
+  // evs / las / dists / innings / results / abNumbers are aligned per ball.
   evs: number[];
   las: (number | null)[];
   dists: (number | null)[];
   innings: (number | null)[];
   results: (string | null)[];
+  abNumbers: (number | null)[];
   hardHit: number;
   barrels: number;
 }
@@ -163,6 +168,7 @@ export async function GET(req: NextRequest) {
             dists: [],
             innings: [],
             results: [],
+            abNumbers: [],
             hardHit: 0,
             barrels: 0,
           };
@@ -171,6 +177,7 @@ export async function GET(req: NextRequest) {
           b.dists.push(dist);
           b.innings.push(ab.inning ?? null);
           b.results.push(ab.resultType);
+          b.abNumbers.push(ab.atBatNumber ?? null);
           b.hardHit += hard;
           if (isBarrel(ev, la)) b.barrels += 1;
           batters.set(ab.batterId, b);
@@ -201,6 +208,7 @@ export async function GET(req: NextRequest) {
         let mi = 0;
         for (let i = 1; i < b.evs.length; i++) if (b.evs[i] > b.evs[mi]) mi = i;
         const balls: LiveHardHitBall[] = b.evs.map((ev, i) => ({
+          abNumber: b.abNumbers[i],
           inning: b.innings[i],
           ev,
           la: b.las[i],
@@ -209,6 +217,11 @@ export async function GET(req: NextRequest) {
           hard: ev >= HARD_HIT_EV,
           barrel: isBarrel(ev, b.las[i]),
         }));
+        // Most recent at-bat = highest game at-bat number.
+        const latestAb = b.abNumbers.reduce<number | null>(
+          (m, n) => (n != null && (m == null || n > m) ? n : m),
+          null,
+        );
         return {
           batterId: b.batterId,
           batterName: b.batterName,
@@ -221,13 +234,14 @@ export async function GET(req: NextRequest) {
           maxEvDist: b.evs.length ? b.dists[mi] : null,
           topInning: b.evs.length ? b.innings[mi] : null,
           topResult: b.evs.length ? b.results[mi] : null,
+          latestAb,
           hardHit: b.hardHit,
           barrels: b.barrels,
           balls,
         };
       })
       // HR-hunting default order: barrels first, then loudest ball, then most
-      // hard-hit balls. (The UI can re-sort by any column.)
+      // hard-hit balls. (The UI can re-sort by any column, incl. AB#.)
       .sort(
         (a, b) =>
           b.barrels - a.barrels ||
