@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type {
   PropMarket,
   PropRow,
@@ -12,8 +13,9 @@ import type {
 // the chosen market and LEADS WITH rank + plain tier + "x vs the average
 // hitter"; the raw probability rides along as the muted detail number (a bare
 // "15%" reads like "15% of a home run" — the ranking is the human-facing
-// signal). One fetch; projections refresh nightly, so no polling. Model
-// prop-v1 (pooled EB-shrunk rate x barrel form), validated on held-out 2026.
+// signal). Prev/next arrows page through the as-of dates the engine has
+// written. Model prop-v1 (pooled EB-shrunk rate x barrel form), validated on
+// held-out 2026.
 
 const MARKETS: { key: PropMarket; label: string; sub: string }[] = [
   { key: "HR", label: "Home Run", sub: "P(≥1 HR)" },
@@ -44,6 +46,15 @@ function pct(p: number): string {
   return `${(p * 100).toFixed(1)}%`;
 }
 
+function fmtDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function LiftBar({ lift }: { lift: number }) {
   // 1x sits at the middle; cap the bar at 3x for scale.
   const w = Math.max(4, Math.min(100, (lift / 3) * 100));
@@ -69,10 +80,13 @@ export default function MlbPropsBoard() {
   const [data, setData] = useState<PropsResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [market, setMarket] = useState<PropMarket>("HR");
+  const [date, setDate] = useState<string | null>(null); // null = latest slice
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/mlb-props", { cache: "no-store" })
+    fetch(`/api/mlb-props${date ? `?date=${date}` : ""}`, {
+      cache: "no-store",
+    })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -89,7 +103,7 @@ export default function MlbPropsBoard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [date]);
 
   const rows = useMemo(() => {
     const r = (data?.rows ?? []).filter((x) => x.market === market);
@@ -100,22 +114,57 @@ export default function MlbPropsBoard() {
   const baseRate = rows[0]?.baseRate ?? null;
   const isHR = market === "HR";
 
+  // Prev/next bounded by the dates the engine has written.
+  const avail = data?.availableDates ?? [];
+  const cur = data?.asOfDate ?? null;
+  const idx = cur ? avail.indexOf(cur) : -1;
+  const prevDate = idx > 0 ? avail[idx - 1] : null;
+  const nextDate = idx >= 0 && idx < avail.length - 1 ? avail[idx + 1] : null;
+
+  const navBtn = (enabled: boolean) =>
+    `flex items-center justify-center h-6 w-6 rounded transition-colors ${
+      enabled
+        ? "text-fg-subtle hover:text-fg hover:bg-surface-hover"
+        : "text-fg-disabled cursor-not-allowed"
+    }`;
+
   return (
     <div className="flex flex-col min-h-screen">
-      <div className="px-3 py-3 border-b border-border">
-        <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-fg">
-          MLB Prop Projections
-          {data?.asOfDate && (
-            <span className="text-fg-disabled font-normal normal-case tracking-normal ml-2">
-              as of {data.asOfDate}
+      <div className="px-3 py-3 border-b border-border flex items-start justify-between gap-3">
+        <div>
+          <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-fg">
+            MLB Prop Projections
+          </div>
+          <div className="text-[11px] text-fg-disabled mt-0.5 max-w-xl">
+            Model-ranked, odds-free. Leads with tier and how many &times; the
+            average hitter clears the market; the probability is the detail.
+            Model prop-v1, validated on held-out 2026.
+          </div>
+        </div>
+        {/* Date nav */}
+        {cur && (
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              className={navBtn(!!prevDate)}
+              disabled={!prevDate}
+              onClick={() => prevDate && setDate(prevDate)}
+              aria-label="Previous date"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-[12px] font-medium text-fg tabular-nums whitespace-nowrap min-w-[92px] text-center">
+              {fmtDate(cur)}
             </span>
-          )}
-        </div>
-        <div className="text-[11px] text-fg-disabled mt-0.5">
-          Model-ranked, odds-free. Leads with tier and how many &times; the
-          average hitter clears the market; the probability is the detail. Model
-          prop-v1, validated on held-out 2026.
-        </div>
+            <button
+              className={navBtn(!!nextDate)}
+              disabled={!nextDate}
+              onClick={() => nextDate && setDate(nextDate)}
+              aria-label="Next date"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Market toggle */}
@@ -145,7 +194,7 @@ export default function MlbPropsBoard() {
         <div className="px-4 py-6 text-sm text-fg-subtle">Loading...</div>
       ) : rows.length === 0 ? (
         <div className="px-4 py-10 text-sm text-fg-subtle">
-          No projections loaded yet. The nightly engine writes them after the
+          No projections for this date. The nightly engine writes them after the
           day&apos;s stats land.
         </div>
       ) : (
