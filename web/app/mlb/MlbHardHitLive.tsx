@@ -86,6 +86,7 @@ function PlayerLink({
 
 type BatterSortKey =
   | "batterName"
+  | "latestAb"
   | "maxEv"
   | "maxEvLa"
   | "maxEvDist"
@@ -137,6 +138,9 @@ function BallRow({ b }: { b: LiveHardHitBall }) {
     : "bg-warn-muted text-warn";
   return (
     <tr className="text-[11px]">
+      <td className="py-0.5 pr-3 text-fg-disabled tabular-nums">
+        {b.abNumber != null ? `${b.abNumber}` : "-"}
+      </td>
       <td className="py-0.5 pr-3 text-fg-subtle tabular-nums">
         {b.inning != null ? `${b.inning}` : "-"}
       </td>
@@ -205,6 +209,7 @@ function BatterRow({
         <td className="px-2 py-1.5 text-left text-[11px]">
           <GameLink game={game} />
         </td>
+        <td className={`${NUM} text-fg-subtle`}>{r.latestAb ?? "-"}</td>
         <td className={`${NUM} font-semibold ${veloColor(r.maxEv)}`}>
           {dec(r.maxEv)}
         </td>
@@ -235,13 +240,14 @@ function BatterRow({
       {open && (
         <tr className="bg-canvas">
           <td />
-          <td colSpan={10} className="px-3 pb-2 pt-1">
+          <td colSpan={11} className="px-3 pb-2 pt-1">
             <div className="text-[10px] uppercase tracking-wider text-fg-disabled mb-1">
               Each batted ball
             </div>
             <table className="text-fg-muted">
               <thead>
                 <tr className="text-fg-disabled text-[10px]">
+                  <th className="text-left pr-3 font-medium">AB#</th>
                   <th className="text-left pr-3 font-medium">Inn</th>
                   <th className="text-right pr-3 font-medium">EV</th>
                   <th className="text-right pr-3 font-medium">LA</th>
@@ -311,6 +317,12 @@ function BatterTable({
             <th className="w-5" />
             <SortTh label="Batter" col="batterName" align="left" {...shared} />
             <th className="text-left px-2 py-1.5 font-medium">Game</th>
+            <SortTh
+              label="AB#"
+              col="latestAb"
+              title="Game at-bat number of this hitter's most recent at-bat — sort to order chronologically"
+              {...shared}
+            />
             <SortTh
               label="Max EV"
               col="maxEv"
