@@ -1,0 +1,63 @@
+name: MLB Prop Projections
+
+on:
+  schedule:
+    # 11:00 UTC daily - after the nightly MLB ETL (09:00), play-by-play (09:30),
+    # and statcast (10:30) loads, so the model projects off fully-refreshed
+    # history for the upcoming slate.
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "Backfill start date YYYY-MM-DD (optional; requires end_date)"
+        required: false
+      end_date:
+        description: "Backfill end date YYYY-MM-DD (optional; requires start_date)"
+        required: false
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  project:
+    runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+
+      - name: Activate venv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Compute batter prop projections
+        run: |
+          if [ -n "${{ inputs.start_date }}" ] && [ -n "${{ inputs.end_date }}" ]; then
+            python etl/mlb_prop_projections.py --start "${{ inputs.start_date }}" --end "${{ inputs.end_date }}"
+          else
+            python etl/mlb_prop_projections.py
+          fi
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
