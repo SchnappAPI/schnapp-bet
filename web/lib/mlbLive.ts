@@ -1,10 +1,20 @@
 // Live MLB overlay from the public MLB Stats API (statsapi.mlb.com).
 //
 // Mirrors the NBA pattern in /api/games/today: the DB (mlb.games, loaded by
-// the nightly ETL + intraday poller) always owns the game LIST; statsapi is
-// only an enrichment overlay for scores/status/inning while games are in
-// progress. Every consumer must survive this returning an empty map — a
-// slow or unreachable statsapi drops the overlay, never the page.
+// the nightly ETL + intraday poller) owns the game LIST for past dates and,
+// once cached, for today. statsapi enriches scores/status/inning while games
+// are in progress. Every consumer must survive this returning an empty map —
+// a slow or unreachable statsapi drops the overlay, never the page.
+//
+// Invariant relaxation (schedule gap): mlb.games is a nightly-loaded cache
+// that lags today's slate — it can hold zero rows for today until the nightly
+// runs, and never holds a future date. But the schedule is knowable in
+// advance, so this overlay now also captures each game's IDENTITY (teams,
+// start time, probable pitchers). /api/mlb-games SEEDS the game list from that
+// identity for today/future dates the DB has not cached yet, instead of
+// rendering "No games scheduled" over a live slate. statsapi's schedule team
+// object carries id + full name but NO abbreviation, so seeding callers must
+// resolve the abbreviation from mlb.teams by team id.
 //
 // statsapi is a public unauthenticated API; the ETL already depends on the
 // same host (etl/mlb_play_by_play.py API_BASE), so no proxy hop via Flask.
@@ -36,6 +46,17 @@ export interface MlbLiveOverlay {
   innings: MlbLiveInning[];
   awayHits: number | null;
   homeHits: number | null;
+  // --- Schedule identity (for seeding a game list the DB has not cached) ---
+  /** Full ISO start datetime, e.g. "2026-07-10T22:40:00Z". */
+  gameDateTime: string | null;
+  awayTeamId: number | null;
+  homeTeamId: number | null;
+  /** statsapi full name, e.g. "Philadelphia Phillies" — NO abbreviation. */
+  awayTeamName: string | null;
+  homeTeamName: string | null;
+  /** Probable pitcher full name when announced (schedule carries no hand). */
+  awayPitcher: string | null;
+  homePitcher: string | null;
 }
 
 export function todayCT(): string {
@@ -54,7 +75,8 @@ function collapseStatus(
   // Postponed/Cancelled/Suspended carry abstractGameState "Final" in the
   // API but were not played — keep the detailedState, don't show Final.
   if (/^(Postponed|Cancelled|Suspended)/.test(d)) return d;
-  if (abstractState === "Final" || d === "Final" || d === "Game Over") return "F";
+  if (abstractState === "Final" || d === "Final" || d === "Game Over")
+    return "F";
   return d;
 }
 
@@ -68,7 +90,7 @@ export async function fetchMlbLiveOverlay(
   const out = new Map<number, MlbLiveOverlay>();
   try {
     const res = await fetch(
-      `${SCHEDULE_URL}?sportId=1&date=${date}&hydrate=linescore`,
+      `${SCHEDULE_URL}?sportId=1&date=${date}&hydrate=probablePitcher,linescore`,
       { signal: AbortSignal.timeout(OVERLAY_TIMEOUT_MS), cache: "no-store" },
     );
     if (!res.ok) return out;
@@ -109,6 +131,13 @@ export async function fetchMlbLiveOverlay(
         innings,
         awayHits: ls.teams?.away?.hits ?? null,
         homeHits: ls.teams?.home?.hits ?? null,
+        gameDateTime: g?.gameDate ?? null,
+        awayTeamId: g?.teams?.away?.team?.id ?? null,
+        homeTeamId: g?.teams?.home?.team?.id ?? null,
+        awayTeamName: g?.teams?.away?.team?.name ?? null,
+        homeTeamName: g?.teams?.home?.team?.name ?? null,
+        awayPitcher: g?.teams?.away?.probablePitcher?.fullName ?? null,
+        homePitcher: g?.teams?.home?.probablePitcher?.fullName ?? null,
       });
     }
     return out;
