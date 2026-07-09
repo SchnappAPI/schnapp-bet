@@ -2,12 +2,14 @@ import { NextRequest } from "next/server";
 import { apiError } from "@/lib/apiError";
 import { jsonWithEtag } from "@/lib/etag";
 import { getPool } from "@/lib/db";
-import { todayCT } from "@/lib/mlbLive";
+import { fetchMlbLiveOverlay, todayCT } from "@/lib/mlbLive";
 import mssql from "mssql";
 
 // Odds-free batter-prop projections board (/mlb/props). Reads one as-of slice
 // of mlb.batter_prop_projections (written nightly by
-// etl/mlb_prop_projections.py, model prop-v1) and returns every batter's
+// etl/mlb_prop_projections.py, model prop-v1) and returns each batter on that
+// date's SLATE (the engine projects a pool of active hitters with no slate
+// context; this restricts to teams actually playing that day) with their
 // probability for each market, joined to name + current team. For a PAST slice
 // (games finished + box scores loaded) each row is also graded against the
 // realized outcome on that date — did the batter clear the market — so the
@@ -87,6 +89,7 @@ SELECT
   pr.tier                         AS tier,
   pr.prior_games                  AS priorGames,
   CAST(pr.recent_barrels_pg AS FLOAT) AS recentBarrelsPg,
+  tm.team_id                      AS teamId,
   CASE WHEN o.batter_id IS NULL THEN 0 ELSE 1 END AS played,
   CASE pr.market
        WHEN 'HR'   THEN o.o_hr
@@ -113,8 +116,36 @@ interface RawRow {
   tier: string;
   priorGames: number;
   recentBarrelsPg: number | null;
+  teamId: number | null; // batter's most-recent team (for the slate filter)
   played: number; // 0 | 1
   hit: number | null; // 0 | 1 | null (null = did not play)
+}
+
+// Team ids with a game on the given date. mlb.games first (fast); for a date
+// the DB has not cached yet (a future projection slice), the schedule is
+// knowable from statsapi. Returns an empty set only when both are empty or
+// unreachable — the caller then leaves the board unfiltered rather than blank.
+async function slateTeamIds(
+  pool: mssql.ConnectionPool,
+  date: string,
+): Promise<Set<number>> {
+  const res = await pool
+    .request()
+    .input("d", mssql.VarChar, date)
+    .query<{ id: number | null }>(
+      `SELECT away_team_id AS id FROM mlb.games WHERE game_date = @d
+       UNION SELECT home_team_id FROM mlb.games WHERE game_date = @d`,
+    );
+  const ids = new Set<number>();
+  for (const r of res.recordset) if (r.id != null) ids.add(r.id);
+  if (ids.size > 0) return ids;
+
+  const overlay = await fetchMlbLiveOverlay(date);
+  for (const o of overlay.values()) {
+    if (o.awayTeamId != null) ids.add(o.awayTeamId);
+    if (o.homeTeamId != null) ids.add(o.homeTeamId);
+  }
+  return ids;
 }
 
 export async function GET(req: NextRequest) {
@@ -152,7 +183,17 @@ export async function GET(req: NextRequest) {
       .input("d", mssql.VarChar, asOfDate)
       .query(SQL);
 
-    const rows: PropRow[] = (res.recordset as RawRow[]).map((r) => ({
+    // Restrict to the day's slate: only hitters whose team actually plays on
+    // the as-of date. The engine projects a POOL of active hitters with no
+    // slate context, so without this the board lists players whose team is off
+    // (e.g. Ohtani on a Dodgers off-day). Empty slate (both DB + statsapi came
+    // back empty) -> leave the board unfiltered rather than blank.
+    const slate = await slateTeamIds(pool, asOfDate);
+    const raw = (res.recordset as RawRow[]).filter((r) =>
+      slate.size === 0 ? true : r.teamId != null && slate.has(r.teamId),
+    );
+
+    const rows: PropRow[] = raw.map((r) => ({
       batterId: r.batterId,
       batterName: r.batterName,
       teamAbbr: r.teamAbbr,
