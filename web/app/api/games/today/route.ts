@@ -178,13 +178,13 @@ async function fetchMlbGames(
        ORDER BY g.game_datetime, g.game_pk`,
     );
 
-  // Live overlay (statsapi) for today's slate — same enrich-only contract as
-  // the NBA CDN overlay above: the DB owns the list, overlay never adds games.
+  // Live overlay + schedule seed (statsapi). Unlike the NBA CDN overlay above,
+  // mlb.games is a nightly-loaded cache that lags today's slate and never holds
+  // a future date, so for today/future dates we both enrich in-progress rows
+  // AND seed games the DB has not cached yet (mirrors /api/mlb-games) — else
+  // the dashboard shows 0 MLB games over a live slate.
   let liveByGamePk: Map<number, MlbLiveOverlay> = new Map();
-  if (
-    date === todayCT() &&
-    result.recordset.some((g) => g.gameStatus !== "F")
-  ) {
+  if (date >= todayCT()) {
     liveByGamePk = await fetchMlbLiveOverlay(date);
   }
 
@@ -221,6 +221,66 @@ async function fetchMlbGames(
 
     return sg;
   });
+
+  // Seed statsapi games the DB has not cached (today before the nightly load,
+  // or a future date). statsapi's schedule carries no team abbreviation, so
+  // resolve id -> abbr/name from mlb.teams.
+  const dbPks = new Set(result.recordset.map((g) => Number(g.gameId)));
+  const missing = [...liveByGamePk.values()].filter(
+    (o) => !dbPks.has(o.gamePk),
+  );
+  if (missing.length > 0) {
+    const teamsRes = await pool.request().query<{
+      team_id: number;
+      team_abbreviation: string;
+      full_name: string;
+    }>(`SELECT team_id, team_abbreviation, full_name FROM mlb.teams`);
+    const teamsById = new Map<number, { abbr: string; name: string }>();
+    for (const t of teamsRes.recordset) {
+      teamsById.set(t.team_id, {
+        abbr: t.team_abbreviation,
+        name: t.full_name,
+      });
+    }
+    for (const o of missing) {
+      const away =
+        o.awayTeamId != null ? teamsById.get(o.awayTeamId) : undefined;
+      const home =
+        o.homeTeamId != null ? teamsById.get(o.homeTeamId) : undefined;
+      const status: Status =
+        o.abstractState === "Live" ? "live" : mlbStatus(o.gameStatus);
+      const sg: SportGame = {
+        id: String(o.gamePk),
+        sport: "mlb",
+        away: {
+          abbr: away?.abbr ?? "",
+          name: away?.name ?? o.awayTeamName ?? "",
+        },
+        home: {
+          abbr: home?.abbr ?? "",
+          name: home?.name ?? o.homeTeamName ?? "",
+        },
+        tipoff_iso: o.gameDateTime,
+        status,
+      };
+      if (status === "live" || status === "final") {
+        sg.live = {
+          period: o.liveLabel ?? null,
+          clock: null,
+          away_score: o.awayScore,
+          home_score: o.homeScore,
+        };
+      }
+      games.push(sg);
+    }
+    // DB rows and seeds are both ISO strings here; order by start time.
+    games.sort((a, b) => {
+      const at = a.tipoff_iso ?? "";
+      const bt = b.tipoff_iso ?? "";
+      if (at !== bt) return at < bt ? -1 : 1;
+      return a.id.localeCompare(b.id);
+    });
+  }
 
   return { count: games.length, games };
 }
