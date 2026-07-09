@@ -11,7 +11,12 @@ every game of the day:
     schedule?sportId=1&date=YYYY-MM-DD&hydrate=probablePitcher,lineups
 
 Per run:
-    1. Early-exit unless mlb.games has non-final games today.
+    1. Seed today's schedule: INSERT any regular-season game on the statsapi
+       slate that mlb.games has not cached yet (the nightly may not have run
+       for today) so the strip / props / lineups are not bare while a slate is
+       live. Insert-only on schedule-known columns; scores and winner flags
+       stay NULL for the steps below and the nightly to fill. Then early-exit
+       only if there are still no non-final games today.
     2. Targeted UPDATE of mlb.games probable pitcher id/name (never a
        full-row upsert - the nightly box-score MERGE owns the other columns),
        then a set-based hand fix from mlb.players.pitch_hand scoped to today.
@@ -395,6 +400,114 @@ def write_lineups(engine, lineup_rows_by_game_team):
              len(all_rows), len(lineup_rows_by_game_team))
 
 
+def load_team_abbr(engine):
+    """{team_id: team_abbreviation} for building game_display on seeded rows."""
+    with engine.connect() as conn:
+        return {
+            r[0]: r[1]
+            for r in conn.execute(
+                text("SELECT team_id, team_abbreviation FROM mlb.teams")
+            )
+        }
+
+
+def build_seed_row(game, today, team_abbr):
+    """
+    Minimal mlb.games row for a scheduled game the nightly has not loaded yet.
+
+    Only schedule-known columns are set. Scores, winner flags, and pitcher
+    fields are intentionally left NULL: update_game_scores /
+    update_probable_pitchers fill them this run, and the nightly box-score MERGE
+    reconciles the rest. We never derive a winner here (build_game_row in
+    mlb_etl only does so on true finals), so an in-progress game seeded
+    mid-poll cannot land a bogus is_winner. Finals collapse to 'F' to match the
+    mlb.games convention.
+    """
+    teams = game.get("teams", {})
+    away_id = (teams.get("away", {}).get("team") or {}).get("id")
+    home_id = (teams.get("home", {}).get("team") or {}).get("id")
+    status = game.get("status") or {}
+    detailed = status.get("detailedState")
+    venue = game.get("venue") or {}
+    away_abbr = team_abbr.get(away_id, "")
+    home_abbr = team_abbr.get(home_id, "")
+    return {
+        "game_pk":             game.get("gamePk"),
+        "game_date":           today,
+        "game_datetime":       game.get("gameDate"),
+        "game_type":           game.get("gameType", "R"),
+        "game_status":         "F" if detailed in ("Final", "Game Over") else detailed,
+        "abstract_game_state": status.get("abstractGameState"),
+        "away_team_id":        away_id,
+        "home_team_id":        home_id,
+        "game_display":        f"{away_abbr}@{home_abbr}" if away_abbr and home_abbr else None,
+        "venue_id":            venue.get("id"),
+        "venue_name":          venue.get("name"),
+    }
+
+
+def seed_missing_games(engine, sched_games, today, dry_run=False):
+    """
+    INSERT non-final regular-season games on today's schedule that mlb.games is
+    missing, so the strip / props / lineups are not bare while the nightly lags.
+    Returns the number of games seeded.
+
+    Rows are built only for game_pks absent from the DB, so in the normal
+    (non-overlapping) case the validated upsert MERGE only inserts. Correctness
+    does not depend on that: build_seed_row emits only schedule-known columns, so
+    even if a concurrent write made the MERGE match an existing row, its SET
+    clause could touch only schedule facts - never the scores, winner flags, or
+    pitcher fields, which are absent from the frame and owned by the nightly.
+    """
+    regular = [
+        g for g in sched_games
+        if g.get("gameType") == "R" and g.get("gamePk") is not None
+    ]
+    if not regular:
+        return 0
+
+    with engine.connect() as conn:
+        existing = {
+            r[0]
+            for r in conn.execute(
+                text("SELECT game_pk FROM mlb.games WHERE game_date = :today"),
+                {"today": today},
+            )
+        }
+
+    team_abbr = load_team_abbr(engine)
+    rows = [
+        build_seed_row(g, today, team_abbr)
+        for g in regular
+        if g["gamePk"] not in existing
+    ]
+    # Only seed games that are not yet final. A game already final at seed time
+    # would land as a scoreless 'F' row that the non-final re-read in main()
+    # excludes, so update_game_scores would never fill its score - leaving a
+    # bogus scoreless final until the nightly. Leave finals for the nightly,
+    # which loads them with their box score. Also drop rows missing a required
+    # key (validate_and_filter would quarantine those anyway).
+    rows = [
+        r for r in rows
+        if r["game_status"] != "F"
+        and r["game_pk"] and r["away_team_id"] and r["home_team_id"]
+    ]
+    if not rows:
+        log.info("No missing scheduled games to seed.")
+        return 0
+
+    if dry_run:
+        log.info("[dry-run] would seed %d game(s): %s", len(rows),
+                 ", ".join(str(r["game_pk"]) for r in rows))
+        return len(rows)
+
+    df = pd.DataFrame(rows).where(pd.notna(pd.DataFrame(rows)), other=None)
+    upsert(engine, df, "mlb", "games", ["game_pk"],
+           source_workflow="mlb-lineups")
+    log.info("Seeded %d missing scheduled game(s) into mlb.games", len(rows))
+    return len(rows)
+
+
 def main():
     # Game-day convention: the baseball day rolls at 06:00 Central, so the
     # post-midnight ticks (west-coast finals) still poll yesterday's slate
@@ -407,12 +520,23 @@ def main():
     engine = get_engine()
     ensure_table(engine)
 
+    # Seed today's schedule before the early-exit. mlb.games is nightly-loaded
+    # and can lag the live slate (the nightly may not have run for today yet),
+    # which used to leave this poll early-exiting on an empty DB and the game
+    # strip / props / lineups bare until the next nightly. fetch_hydrated_schedule
+    # returns [] on a true off-day and still raises (failing the run, as before)
+    # on a real API outage, so seeding never masks statsapi being down.
+    sched_games = fetch_hydrated_schedule(today)
+    if sched_games:
+        seed_missing_games(engine, sched_games, today)
+
+    # Re-read after seeding so freshly-inserted (non-final) games get their
+    # scores, probable pitchers, and lineups filled in this same run.
     db_games = get_todays_nonfinal_games(engine, today)
     if not db_games:
         log.info("No non-final MLB games today. Nothing to do.")
         return
 
-    sched_games = fetch_hydrated_schedule(today)
     sched_by_pk = {g.get("gamePk"): g for g in sched_games}
     log.info("%d game(s) in DB, %d in schedule response.",
              len(db_games), len(sched_games))
