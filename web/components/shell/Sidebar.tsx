@@ -7,6 +7,7 @@ import {
   ChevronsRight,
   Home,
   Lock,
+  Target,
   Trophy,
 } from "lucide-react";
 import { Suspense } from "react";
@@ -116,6 +117,12 @@ export function Sidebar({
               href="/mlb/research"
               icon={<Trophy size={14} className="text-sport-mlb" />}
               label="Research"
+              collapsed={collapsed}
+            />
+            <SidebarLink
+              href="/mlb/props"
+              icon={<Target size={14} className="text-sport-mlb" />}
+              label="Props"
               collapsed={collapsed}
             />
           </div>
