@@ -152,7 +152,8 @@ export default function MlbPlayerPageInner({ playerId }: { playerId: string }) {
   const urlRange = searchParams.get("range") ?? "season";
   const urlHa = searchParams.get("ha") ?? null;
   const urlPitcherHand = searchParams.get("pitcherHand") ?? null;
-  const urlView = searchParams.get("view") === "statcast" ? "statcast" : "log";
+  // Default to the Statcast (exit-velocity) view; Game Log is opt-in via ?view=log.
+  const urlView = searchParams.get("view") === "log" ? "log" : "statcast";
 
   const [logData, setLogData] = useState<MlbLogResponse | null>(null);
   const [splitsData, setSplitsData] = useState<MlbSplitsResponse | null>(null);
@@ -276,7 +277,9 @@ export default function MlbPlayerPageInner({ playerId }: { playerId: string }) {
           {(["log", "statcast"] as const).map((v) => (
             <button
               key={v}
-              onClick={() => updateFilter({ view: v === "log" ? null : v })}
+              onClick={() =>
+                updateFilter({ view: v === "statcast" ? null : v })
+              }
               className={`px-3 py-1 text-xs font-medium transition-colors ${
                 urlView === v
                   ? "bg-brand text-canvas"
