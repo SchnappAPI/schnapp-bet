@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import type {
   PropMarket,
   PropRow,
   PropsResponse,
 } from "@/app/api/mlb-props/route";
+import { useMlbFilters } from "@/components/mlb/MlbFilterProvider";
 
 // Odds-free batter-prop board (/mlb/props). Ranks every projected hitter for
 // the chosen market and LEADS WITH rank + plain tier + "x vs the average
@@ -67,15 +67,6 @@ function pct(p: number): string {
   return `${(p * 100).toFixed(1)}%`;
 }
 
-function fmtDate(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
 function LiftBar({ lift }: { lift: number }) {
   // 1x sits at the middle; cap the bar at 3x for scale.
   const w = Math.max(4, Math.min(100, (lift / 3) * 100));
@@ -98,15 +89,14 @@ function LiftBar({ lift }: { lift: number }) {
 }
 
 export default function MlbPropsBoard() {
+  const { date: ctxDate, market: ctxMarket, game } = useMlbFilters();
   const [data, setData] = useState<PropsResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [market, setMarket] = useState<PropMarket>("HR");
-  const [date, setDate] = useState<string | null>(null); // null = latest slice
   const [convictionOnly, setConvictionOnly] = useState(true); // locks by default
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/mlb-props${date ? `?date=${date}` : ""}`, {
+    fetch(`/api/mlb-props?date=${ctxDate}`, {
       cache: "no-store",
     })
       .then((r) => {
@@ -125,13 +115,13 @@ export default function MlbPropsBoard() {
     return () => {
       cancelled = true;
     };
-  }, [date]);
+  }, [ctxDate]);
 
   // Conviction view (default ON): only track-record-validated locks, ranked by
   // the REALIZED bucket rate (the empirical conviction), not the raw model
   // number. Toggle off to see the full ranked pool.
   const rows = useMemo(() => {
-    let r = (data?.rows ?? []).filter((x) => x.market === market);
+    let r = (data?.rows ?? []).filter((x) => x.market === ctxMarket);
     if (convictionOnly) {
       r = r.filter((x) => x.qualifies);
       return [...r].sort(
@@ -139,11 +129,22 @@ export default function MlbPropsBoard() {
       );
     }
     return [...r].sort((a, b) => b.prob - a.prob);
-  }, [data, market, convictionOnly]);
+  }, [data, ctxMarket, convictionOnly]);
 
-  const active = MARKETS.find((m) => m.key === market)!;
-  const baseRate = rows[0]?.baseRate ?? null;
-  const isHR = market === "HR";
+  // Client-side game filter — composes with the market/conviction filtering
+  // above. No game selected = show every row (no narrowing).
+  const gameFilteredRows = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          !game || r.teamAbbr === game.awayAbbr || r.teamAbbr === game.homeAbbr,
+      ),
+    [rows, game],
+  );
+
+  const active = MARKETS.find((m) => m.key === ctxMarket)!;
+  const baseRate = gameFilteredRows[0]?.baseRate ?? null;
+  const isHR = ctxMarket === "HR";
 
   // Past slices are graded. Summarize the TOP of the ranking (not the whole
   // pool — the board spans elite->fade, so a whole-board rate washes out to the
@@ -152,31 +153,17 @@ export default function MlbPropsBoard() {
   const settled = data?.settled ?? false;
   const summary = useMemo(() => {
     if (!settled) return null;
-    const n = Math.min(20, rows.length);
+    const n = Math.min(20, gameFilteredRows.length);
     let hit = 0,
       miss = 0,
       dnp = 0;
-    for (const r of rows.slice(0, n)) {
+    for (const r of gameFilteredRows.slice(0, n)) {
       if (!r.played) dnp++;
       else if (r.hit) hit++;
       else miss++;
     }
     return { n, hit, miss, dnp, played: hit + miss };
-  }, [rows, settled]);
-
-  // Prev/next bounded by the dates the engine has written.
-  const avail = data?.availableDates ?? [];
-  const cur = data?.asOfDate ?? null;
-  const idx = cur ? avail.indexOf(cur) : -1;
-  const prevDate = idx > 0 ? avail[idx - 1] : null;
-  const nextDate = idx >= 0 && idx < avail.length - 1 ? avail[idx + 1] : null;
-
-  const navBtn = (enabled: boolean) =>
-    `flex items-center justify-center h-6 w-6 rounded transition-colors ${
-      enabled
-        ? "text-fg-subtle hover:text-fg hover:bg-surface-hover"
-        : "text-fg-disabled cursor-not-allowed"
-    }`;
+  }, [gameFilteredRows, settled]);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -203,48 +190,9 @@ export default function MlbPropsBoard() {
             )}
           </div>
         </div>
-        {/* Date nav */}
-        {cur && (
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              className={navBtn(!!prevDate)}
-              disabled={!prevDate}
-              onClick={() => prevDate && setDate(prevDate)}
-              aria-label="Previous date"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span className="text-[12px] font-medium text-fg tabular-nums whitespace-nowrap min-w-[92px] text-center">
-              {fmtDate(cur)}
-            </span>
-            <button
-              className={navBtn(!!nextDate)}
-              disabled={!nextDate}
-              onClick={() => nextDate && setDate(nextDate)}
-              aria-label="Next date"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* Market toggle */}
       <div className="flex flex-wrap items-center gap-1.5 px-3 pt-3">
-        {MARKETS.map((m) => (
-          <button
-            key={m.key}
-            onClick={() => setMarket(m.key)}
-            className={`rounded px-2.5 py-1 text-[12px] font-medium transition-colors ${
-              market === m.key
-                ? "bg-brand text-canvas"
-                : "bg-surface-hover text-fg-subtle hover:text-fg"
-            }`}
-            title={m.sub}
-          >
-            {m.label}
-          </button>
-        ))}
         {baseRate != null && (
           <span className="ml-1 text-[11px] text-fg-disabled">
             {active.sub} &middot; league avg {pct(baseRate)}
@@ -273,7 +221,7 @@ export default function MlbPropsBoard() {
 
       {!loaded ? (
         <div className="px-4 py-6 text-sm text-fg-subtle">Loading...</div>
-      ) : rows.length === 0 ? (
+      ) : gameFilteredRows.length === 0 ? (
         <div className="px-4 py-10 text-sm text-fg-subtle">
           {convictionOnly
             ? "No conviction picks for this market today — nothing cleared the track-record bar. An honest empty is better than a forced pick; toggle Show all to see the full pool."
@@ -332,7 +280,7 @@ export default function MlbPropsBoard() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {gameFilteredRows.map((r, i) => (
                 <tr
                   key={r.batterId}
                   className={`border-b border-border-subtle hover:bg-surface transition-colors ${
