@@ -75,7 +75,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.stats import gaussian_kde
+from scipy.stats import gaussian_kde, nbinom, poisson
 from sqlalchemy import create_engine, text
 
 from shared.integrity import validate_and_filter, ensure_tables as ensure_integrity_tables
@@ -94,8 +94,12 @@ log = logging.getLogger(__name__)
 
 BOOKMAKER = "fanduel"
 # v1.1: market coverage widened 4 -> 16 (batter counting markets + three new
-# pitcher markets); v1.0 rows (the original 4 markets) remain valid history.
-MODEL_VERSION = "mlb-v1.1"
+#       pitcher markets); v1.0 rows (the original 4 markets) remain valid history.
+# v1.2: analytic discrete-tail tier engine for batter_hits / total_bases /
+#       home_runs / hits_runs_rbis (ANALYTIC_TIER_MODELS); sharper raw
+#       probabilities than KDE on all four (ADR-20260712-2). Invalidates the
+#       tier probabilities of prior rows for those four markets.
+MODEL_VERSION = "mlb-v1.2"
 MIN_SAMPLE = 5  # minimum PA in a window before using it
 SEASON_START = "2024-03-20"  # historical floor of player_at_bats (backfill start), NOT the current season
 
@@ -128,6 +132,26 @@ KDE_WINDOW_MID = 30
 KDE_WINDOW_COLD = 60
 KDE_MIN_GAMES = 5
 KDE_THIN_SAMPLE_PROB_CAP = 0.85
+
+# Analytic tier engine (mlb-v1.2). For these markets an empirical-Bayes
+# shrunk, recency-decayed per-game mean feeds a discrete tail probability
+# (Poisson for equidispersed counts, negative-binomial for overdispersed
+# aggregates) instead of the KDE. Selected and tuned by a 168k-row
+# chronological-holdout backtest (docs/decisions/ADR-20260712-2): analytic
+# beat KDE out-of-sample on log loss AND resolution for all four —
+# batter_home_runs was the biggest win (log loss 0.289->0.247, resolution
+# doubled). Markets absent here keep the KDE engine.
+#   dist: "poisson" | "negbin";  k: empirical-Bayes shrink weight toward the
+#   league per-game mean;  alpha: negbin overdispersion (var = mu(1+alpha*mu),
+#   0 => Poisson);  league_mean: population per-game rate (stable prior).
+ANALYTIC_HALF_LIFE = 30  # games; recency half-life for the decayed mean
+ANALYTIC_MIN_GAMES = 10  # need this many prior games before trusting analytic
+ANALYTIC_TIER_MODELS = {
+    "batter_hits": {"dist": "poisson", "k": 25, "alpha": 0.000, "league_mean": 0.790},
+    "batter_total_bases": {"dist": "negbin", "k": 25, "alpha": 0.478, "league_mean": 1.278},
+    "batter_home_runs": {"dist": "poisson", "k": 50, "alpha": 0.000, "league_mean": 0.111},
+    "batter_hits_runs_rbis": {"dist": "negbin", "k": 25, "alpha": 0.575, "league_mean": 1.630},
+}
 
 TIER_SAFE_PROB = 0.80
 TIER_VALUE_PROB = 0.58
@@ -812,11 +836,35 @@ def ev(prob: float, price: int) -> float:
     return prob / implied - 1.0
 
 
+def _decayed_shrunk_mean(values: np.ndarray, cfg: dict) -> float:
+    """Recency-weighted per-game mean, empirical-Bayes shrunk toward the
+    market's league mean by k pseudo-observations. `values` is most-recent
+    first (index 0 = latest game), matching the game_log order."""
+    n = len(values)
+    w = 0.5 ** (np.arange(n) / ANALYTIC_HALF_LIFE)  # index 0 (latest) weight 1
+    decayed = float(np.sum(w * values) / np.sum(w))
+    k = cfg["k"]
+    return (n * decayed + k * cfg["league_mean"]) / (n + k)
+
+
+def _analytic_prob_over(mu: float, line: float, cfg: dict) -> float:
+    """P(stat > line) for an integer/half-integer line under the market's
+    discrete law with mean mu. A 0.5 line => P(stat >= 1) => 1 - P(<=0)."""
+    k = int(np.floor(line))
+    alpha = cfg["alpha"]
+    if cfg["dist"] == "poisson" or alpha <= 1e-9:
+        return float(1.0 - poisson.cdf(k, mu))
+    r = 1.0 / alpha  # negbin: var = mu(1 + alpha*mu)
+    p = r / (r + mu)
+    return float(1.0 - nbinom.cdf(k, r, p))
+
+
 def compute_kde_tier_lines(game_log: pd.DataFrame, composite: float, market_key: str, calibrator=None) -> dict:
     """
-    Fit a KDE over the grade-weighted game log. Return safe/value/highrisk/lotto
-    lines and their probabilities. Lines are rounded to the nearest 0.5.
-    Returns empty dict if insufficient data.
+    Return safe/value/highrisk/lotto lines and their probabilities for a
+    market. Markets in ANALYTIC_TIER_MODELS use the analytic discrete-tail
+    engine (mlb-v1.2); all others fit a KDE over the game log. Lines are
+    rounded to the nearest 0.5. Returns empty dict if insufficient data.
 
     calibrator: optional callable raw_prob -> calibrated prob (the sport='mlb'
     entry in common.grade_calibration). Tier selection and the stored
@@ -825,41 +873,51 @@ def compute_kde_tier_lines(game_log: pd.DataFrame, composite: float, market_key:
     if game_log.empty or len(game_log) < KDE_MIN_GAMES:
         return {}
 
-    # Select window size based on composite grade
-    if composite >= 80:
-        window = KDE_WINDOW_HOT
-    elif composite >= 50:
-        window = KDE_WINDOW_MID
-    else:
-        window = KDE_WINDOW_COLD
-
-    df = game_log.head(window).copy()
-    n = len(df)
-
-    values = df["stat_value"].astype(float).values
-
-    if n < KDE_MIN_GAMES:
-        # Fall back to normal distribution
-        mu, sigma = float(np.mean(values)), float(np.std(values))
-        if sigma < 0.01:
-            sigma = 0.5
+    analytic_cfg = ANALYTIC_TIER_MODELS.get(market_key)
+    if analytic_cfg is not None and len(game_log) >= ANALYTIC_MIN_GAMES:
+        # Analytic engine (mlb-v1.2): recency-decayed, shrunk mean over the
+        # FULL game log (not a composite-sized window) -> discrete tail.
+        values = game_log["stat_value"].astype(float).values
+        mu = _decayed_shrunk_mean(values, analytic_cfg)
 
         def prob_over(line):
-            from scipy.stats import norm
+            return _analytic_prob_over(mu, line, analytic_cfg)
 
-            p = 1 - norm.cdf(line, loc=mu, scale=sigma)
-            return min(p, KDE_THIN_SAMPLE_PROB_CAP)
     else:
-        # Reflect at 0 to prevent negative probability mass
-        reflected = np.concatenate([values, -values])
-        try:
-            kde = gaussian_kde(reflected)
-        except Exception:
-            return {}
+        # KDE engine. Select window size based on composite grade.
+        if composite >= 80:
+            window = KDE_WINDOW_HOT
+        elif composite >= 50:
+            window = KDE_WINDOW_MID
+        else:
+            window = KDE_WINDOW_COLD
 
-        def prob_over(line):
-            p = float(kde.integrate_box_1d(line, np.inf) * 2)
-            return min(max(p, 0.0), 1.0)
+        df = game_log.head(window).copy()
+        n = len(df)
+        values = df["stat_value"].astype(float).values
+
+        if n < KDE_MIN_GAMES:
+            # Fall back to normal distribution
+            mu, sigma = float(np.mean(values)), float(np.std(values))
+            if sigma < 0.01:
+                sigma = 0.5
+
+            def prob_over(line):
+                from scipy.stats import norm
+
+                p = 1 - norm.cdf(line, loc=mu, scale=sigma)
+                return min(p, KDE_THIN_SAMPLE_PROB_CAP)
+        else:
+            # Reflect at 0 to prevent negative probability mass
+            reflected = np.concatenate([values, -values])
+            try:
+                kde = gaussian_kde(reflected)
+            except Exception:
+                return {}
+
+            def prob_over(line):
+                p = float(kde.integrate_box_1d(line, np.inf) * 2)
+                return min(max(p, 0.0), 1.0)
 
     # Scan candidate lines in 0.5 increments
     results = {}
