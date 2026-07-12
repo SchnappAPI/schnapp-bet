@@ -57,7 +57,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-MODEL_VERSION = "prop-v1"
+MODEL_VERSION = "prop-v1.1"
 
 # League per-game base rates (share of qualifying batter-games clearing each
 # market), measured over 2024-2026. These are the empirical-Bayes shrink
@@ -174,11 +174,6 @@ projected AS (
         prob,
         base_rate,
         CAST(prob / base_rate AS DECIMAL(6,3)) AS lift,
-        CASE WHEN prob / base_rate >= 2.00 THEN 'Elite'
-             WHEN prob / base_rate >= 1.60 THEN 'Strong'
-             WHEN prob / base_rate >= 1.25 THEN 'AboveAvg'
-             WHEN prob / base_rate >= 0.85 THEN 'Average'
-             ELSE 'Fade' END          AS tier,
         g                             AS prior_games,
         CAST(brl_pg AS DECIMAL(5,3))  AS recent_barrels_pg,
         CAST(:version AS VARCHAR(16)) AS model_version
@@ -190,9 +185,30 @@ projected AS (
         ('HRR',  CAST(base_hrr AS DECIMAL(6,4)), CAST({LEAGUE_HRR} AS DECIMAL(6,4))),
         ('HITS', CAST(base_hit AS DECIMAL(6,4)), CAST({LEAGUE_HITS} AS DECIMAL(6,4)))
     ) AS m(market, prob, base_rate)
+),
+ranked AS (
+    -- prop-v1.1: tier by the batter's probability percentile WITHIN the market,
+    -- not by lift. Lift (prob / league avg) is structurally capped for
+    -- high-base-rate markets — you cannot be 2x more likely than average to
+    -- get a hit when average is 58%, so HITS/HRR could never reach Elite/Strong
+    -- and collapsed to Average/Fade. Percentile gives every market a full
+    -- Elite->Fade spread (Elite = the day's top plays for THAT market) and is
+    -- exactly what the transparency board checks (do top tiers hit more).
+    SELECT *,
+        PERCENT_RANK() OVER (PARTITION BY market ORDER BY prob) AS pctile
+    FROM projected
+),
+tiered AS (
+    SELECT *,
+        CASE WHEN pctile >= 0.95 THEN 'Elite'
+             WHEN pctile >= 0.85 THEN 'Strong'
+             WHEN pctile >= 0.65 THEN 'AboveAvg'
+             WHEN pctile >= 0.35 THEN 'Average'
+             ELSE 'Fade' END AS tier
+    FROM ranked
 )
 MERGE mlb.batter_prop_projections AS t
-USING projected AS s
+USING tiered AS s
 ON (t.batter_id = s.batter_id AND t.as_of_date = s.as_of_date AND t.market = s.market)
 WHEN MATCHED THEN UPDATE SET
     t.prob = s.prob, t.base_rate = s.base_rate, t.lift = s.lift, t.tier = s.tier,
