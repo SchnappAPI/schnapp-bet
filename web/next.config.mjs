@@ -11,6 +11,10 @@ const nextConfig = {
       beforeFiles: [
         { source: "/mascot", destination: "/mascot/index.html" },
         { source: "/mascot/", destination: "/mascot/index.html" },
+        // schnapp-qb (Quickbase-style app) - proxy to the local Flask
+        // service on 5100; all its routes already live under /qb.
+        { source: "/qb", destination: "http://127.0.0.1:5100/qb/" },
+        { source: "/qb/:path*", destination: "http://127.0.0.1:5100/qb/:path*" },
       ],
     };
   },
@@ -52,7 +56,7 @@ const nextConfig = {
         ],
       },
       {
-        // Today Terminal — Top Grades panel polls every 60s.
+        // Today Terminal - Top Grades panel polls every 60s.
         source: "/api/grades/top",
         headers: [
           {
@@ -62,7 +66,7 @@ const nextConfig = {
         ],
       },
       {
-        // Today Terminal — Games panel polls every 30s; live data, short TTL.
+        // Today Terminal - Games panel polls every 30s; live data, short TTL.
         source: "/api/games/today",
         headers: [
           {
@@ -72,7 +76,7 @@ const nextConfig = {
         ],
       },
       {
-        // Player history (sparklines on hover) — slow-changing, can sit in
+        // Player history (sparklines on hover) - slow-changing, can sit in
         // the browser cache for 5 minutes and the SW for an hour.
         source: "/api/player/:id/history",
         headers: [
@@ -104,7 +108,7 @@ const nextConfig = {
       },
       {
         // Contextual defense: cache for 10 minutes. Changes only when new
-        // games are added to the season — very stable data.
+        // games are added to the season - very stable data.
         source: "/api/contextual",
         headers: [
           {
