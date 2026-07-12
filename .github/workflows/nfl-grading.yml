@@ -1,0 +1,83 @@
+name: NFL Grading
+
+# Daily at 13:00 UTC in-season (script exits clean offseason — no games
+# within 3 days). Settles yesterday's outcomes, then grades today's posted
+# FanDuel props. Odds arrive via odds-etl (10:00 UTC).
+
+on:
+  schedule:
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Grade a specific date (YYYY-MM-DD). Leave blank for today UTC."
+        required: false
+        default: ""
+      batch:
+        description: "Max props to grade per run."
+        required: false
+        default: "200"
+      force:
+        description: "Re-grade even if already graded today."
+        required: false
+        default: "false"
+        type: boolean
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+# Prevent overlapping runs (e.g. a slow run vs the next cron tick, or a manual
+# dispatch racing a scheduled one). New runs queue instead of cancelling.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  grade:
+    runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+
+      - name: Activate virtualenv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Settle outcomes
+        run: python grading/nfl_grade_props.py --mode outcomes
+
+      - name: Run NFL grading
+        env:
+          DATE_INPUT: ${{ github.event.inputs.date  || '' }}
+          BATCH: ${{ github.event.inputs.batch || '200' }}
+          FORCE: ${{ github.event.inputs.force || 'false' }}
+        run: |
+          set -euo pipefail
+          ARGS="--batch $BATCH"
+          [ -n "$DATE_INPUT" ] && ARGS="$ARGS --date $DATE_INPUT"
+          [ "$FORCE" = "true" ] && ARGS="$ARGS --force"
+          python grading/nfl_grade_props.py $ARGS
+
+      - name: Record workflow run timestamp
+        run: python -c "from shared.db import record_workflow_run; record_workflow_run('nfl-grading')"
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
