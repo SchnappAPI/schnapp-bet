@@ -163,6 +163,7 @@ export default function MlbPropsBoard() {
   const [loaded, setLoaded] = useState(false);
   const [market, setMarket] = useState<PropMarket>("HR");
   const [date, setDate] = useState<string | null>(null); // null = latest slice
+  const [convictionOnly, setConvictionOnly] = useState(true); // locks by default
 
   useEffect(() => {
     let cancelled = false;
@@ -187,10 +188,19 @@ export default function MlbPropsBoard() {
     };
   }, [date]);
 
+  // Conviction view (default ON): only track-record-validated locks, ranked by
+  // the REALIZED bucket rate (the empirical conviction), not the raw model
+  // number. Toggle off to see the full ranked pool.
   const rows = useMemo(() => {
-    const r = (data?.rows ?? []).filter((x) => x.market === market);
+    let r = (data?.rows ?? []).filter((x) => x.market === market);
+    if (convictionOnly) {
+      r = r.filter((x) => x.qualifies);
+      return [...r].sort(
+        (a, b) => (b.bucketRate ?? 0) - (a.bucketRate ?? 0) || b.prob - a.prob,
+      );
+    }
     return [...r].sort((a, b) => b.prob - a.prob);
-  }, [data, market]);
+  }, [data, market, convictionOnly]);
 
   const active = MARKETS.find((m) => m.key === market)!;
   const baseRate = rows[0]?.baseRate ?? null;
@@ -237,10 +247,21 @@ export default function MlbPropsBoard() {
             MLB Prop Projections
           </div>
           <div className="text-[11px] text-fg-disabled mt-0.5 max-w-xl">
-            Model-ranked, odds-free. Leads with tier and how many &times; the
-            average hitter clears the market; the probability is the detail. The
-            Situation column shows each batter&apos;s current streak/drought and
-            how often the event followed from that exact state.
+            {convictionOnly ? (
+              <>
+                <span className="text-fg-subtle">Conviction view.</span> Only
+                picks the model has enough history on AND whose probability band
+                has actually hit — over the last 30 days — at 1.25&times; the
+                league rate. Ranked by that realized rate, not the model number.
+                Fewer, validated. Toggle off for the full pool.
+              </>
+            ) : (
+              <>
+                Full model-ranked pool, odds-free. The Situation column shows
+                each batter&apos;s current streak/drought and how often the
+                event followed from that exact state.
+              </>
+            )}
           </div>
         </div>
         {/* Date nav */}
@@ -298,14 +319,26 @@ export default function MlbPropsBoard() {
             {summary.dnp > 0 && ` · ${summary.dnp} DNP`}
           </span>
         )}
+        <button
+          onClick={() => setConvictionOnly((v) => !v)}
+          className={`ml-auto rounded px-2.5 py-1 text-[12px] font-medium transition-colors ${
+            convictionOnly
+              ? "bg-pos-muted text-pos"
+              : "bg-surface-hover text-fg-subtle hover:text-fg"
+          }`}
+          title="Show only track-record-validated conviction picks"
+        >
+          {convictionOnly ? "✓ Conviction only" : "Show all"}
+        </button>
       </div>
 
       {!loaded ? (
         <div className="px-4 py-6 text-sm text-fg-subtle">Loading...</div>
       ) : rows.length === 0 ? (
         <div className="px-4 py-10 text-sm text-fg-subtle">
-          No projections for this date. The nightly engine writes them after the
-          day&apos;s stats land.
+          {convictionOnly
+            ? "No conviction picks for this market today — nothing cleared the track-record bar. An honest empty is better than a forced pick; toggle Show all to see the full pool."
+            : "No projections for this date. The nightly engine writes them after the day's stats land."}
         </div>
       ) : (
         <div className="overflow-x-auto pb-8 mt-2">
@@ -333,6 +366,14 @@ export default function MlbPropsBoard() {
                 >
                   vs Avg
                 </th>
+                {convictionOnly && (
+                  <th
+                    className="text-right px-2 py-1.5 font-medium"
+                    title="Realized hit rate of this pick's probability band over the last 30 days (settled samples). The empirical conviction — what actually happened, not the model's claim."
+                  >
+                    Hit rate 30d
+                  </th>
+                )}
                 <th
                   className="text-right px-2 py-1.5 font-medium"
                   title="Projected probability (the detail behind the ranking)"
@@ -421,6 +462,23 @@ export default function MlbPropsBoard() {
                   <td className="px-2 py-1.5">
                     <LiftBar lift={r.lift} />
                   </td>
+                  {convictionOnly && (
+                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                      {r.bucketRate != null ? (
+                        <span
+                          className="text-pos font-semibold"
+                          title={`This probability band hit ${Math.round(r.bucketRate * 100)}% over the last 30 days (${r.bucketN} settled samples)`}
+                        >
+                          {Math.round(r.bucketRate * 100)}%
+                          <span className="text-fg-disabled text-[9px] ml-0.5 font-normal">
+                            n{r.bucketN}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-fg-disabled">&ndash;</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-2 py-1.5 text-right tabular-nums text-fg-subtle">
                     {pct(r.prob)}
                   </td>

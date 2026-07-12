@@ -23,6 +23,24 @@ import mssql from "mssql";
 
 export type PropMarket = "HR" | "HRR" | "HITS";
 
+// Conviction bar (A+C, odds-free). A pick is a "Lock" only when the model has
+// enough of the hitter (A: prior-games floor) AND its probability bucket has
+// empirically hit, over the trailing window, at or above an ABSOLUTE
+// per-market floor (C: track record). Absolute floors — not a lift multiple —
+// because low-base markets (HR) clear any reasonable lift, so lift surfaced 140+
+// "conviction" HR. The floors ARE the "how certain": HR tops out ~26% (nothing
+// is a lock; these are the best validated HR leans), HRR/HITS allow real
+// certainty. Tune these to taste — higher = fewer, surer.
+const TRACK_TRAIL_DAYS = 30;
+const BUCKET_W = 0.05;
+const CONVICTION_MIN_PRIOR_GAMES = 30;
+const CONVICTION_MIN_BUCKET_N = 20;
+const CONVICTION_FLOOR: Record<PropMarket, number> = {
+  HR: 0.22, // top HR bands only (base ~0.11)
+  HRR: 0.55, // more-likely-than-not H+R+RBI (base ~0.43)
+  HITS: 0.72, // genuinely likely hits (base ~0.58)
+};
+
 export interface BvpLine {
   ab: number; // career at-bats vs the probable pitcher
   h: number;
@@ -65,6 +83,12 @@ export interface PropRow {
   played: boolean; // did the batter appear in a game on the as-of date
   hit: boolean | null; // did they clear THIS row's market (null when DNP)
   situation: Situation | null; // current run-state conditional frequency
+  // Conviction (A+C): the trailing-30d REALIZED hit rate of this pick's
+  // probability bucket for this market, and whether the pick clears the
+  // conviction bar. Track-record-grounded, odds-free.
+  bucketRate: number | null; // realized hit rate of the prob bucket, last 30d
+  bucketN: number | null; // settled samples in that bucket (denominator)
+  qualifies: boolean; // clears prior-games + bucket-N + realized-lift bar
 }
 
 export interface PropsResponse {
@@ -196,6 +220,55 @@ WHERE pr.as_of_date = @d
 ORDER BY pr.market, pr.prob DESC
 `;
 
+// Trailing-window realized hit rate per (market, probability bucket): of the
+// projections made in [@d-N, @d) that settled, what fraction cleared. Graded
+// with the SAME outcome definitions the board uses (HR from at-bats; HRR>=2 /
+// HITS>=1 from the deduped batting line). This is the "C" track record that
+// validates the "A" probability bar.
+const TRACK_SQL = `
+WITH proj AS (
+  SELECT batter_id, as_of_date, market,
+         FLOOR(prob / ${BUCKET_W}) * ${BUCKET_W} AS bucket
+  FROM mlb.batter_prop_projections
+  WHERE as_of_date >= DATEADD(day, -${TRACK_TRAIL_DAYS}, @d) AND as_of_date < @d
+),
+pdates AS (SELECT DISTINCT as_of_date FROM proj),
+pab_d AS (
+  SELECT batter_id, CAST(game_date AS DATE) AS d,
+    MAX(CASE WHEN result_event_type = 'home_run' THEN 1 ELSE 0 END) AS hr
+  FROM mlb.player_at_bats
+  WHERE CAST(game_date AS DATE) IN (SELECT as_of_date FROM pdates)
+  GROUP BY batter_id, CAST(game_date AS DATE)
+),
+bs_d AS (
+  SELECT batter_id, d, MAX(hrr) AS hrr, MAX(hit) AS hit FROM (
+    SELECT player_id AS batter_id, CAST(game_date AS DATE) AS d,
+      CASE WHEN (hits + runs + rbi) >= 2 THEN 1 ELSE 0 END AS hrr,
+      CASE WHEN hits >= 1 THEN 1 ELSE 0 END AS hit,
+      ROW_NUMBER() OVER (PARTITION BY game_pk, player_id ORDER BY plate_appearances DESC) AS rn
+    FROM mlb.batting_stats
+    WHERE CAST(game_date AS DATE) IN (SELECT as_of_date FROM pdates)
+      AND (at_bats > 0 OR plate_appearances > 0)
+  ) z WHERE rn = 1 GROUP BY batter_id, d
+),
+outcome AS (
+  SELECT COALESCE(p.batter_id, b.batter_id) AS batter_id, COALESCE(p.d, b.d) AS d,
+    ISNULL(p.hr, 0) AS hr, ISNULL(b.hrr, 0) AS hrr, ISNULL(b.hit, 0) AS hit
+  FROM pab_d p FULL OUTER JOIN bs_d b ON p.batter_id = b.batter_id AND p.d = b.d
+),
+graded AS (
+  SELECT pr.market, pr.bucket,
+    CASE WHEN o.batter_id IS NULL THEN NULL
+         ELSE CASE pr.market WHEN 'HR' THEN o.hr WHEN 'HRR' THEN o.hrr WHEN 'HITS' THEN o.hit END
+    END AS won
+  FROM proj pr
+  LEFT JOIN outcome o ON o.batter_id = pr.batter_id AND o.d = pr.as_of_date
+)
+SELECT market, bucket, COUNT(won) AS n, AVG(CAST(won AS FLOAT)) AS rate
+FROM graded WHERE won IS NOT NULL
+GROUP BY market, bucket
+`;
+
 interface RawRow {
   batterId: number;
   batterName: string | null;
@@ -316,6 +389,23 @@ export async function GET(req: NextRequest) {
       slate.size === 0 ? true : r.teamId != null && slate.has(r.teamId),
     );
 
+    // Trailing track record per (market, prob bucket) for the conviction bar.
+    const trackRes = await pool
+      .request()
+      .input("d", mssql.VarChar, asOfDate)
+      .query(TRACK_SQL);
+    const track = new Map<string, { n: number; rate: number }>();
+    for (const t of trackRes.recordset as {
+      market: string;
+      bucket: number;
+      n: number;
+      rate: number;
+    }[]) {
+      track.set(`${t.market}|${t.bucket.toFixed(2)}`, { n: t.n, rate: t.rate });
+    }
+    const bucketKey = (market: string, prob: number) =>
+      `${market}|${(Math.floor(prob / BUCKET_W) * BUCKET_W).toFixed(2)}`;
+
     const rows: PropRow[] = raw.map((r) => ({
       batterId: r.batterId,
       batterName: r.batterName,
@@ -337,6 +427,18 @@ export async function GET(req: NextRequest) {
           : null,
       played: r.played === 1,
       hit: r.hit === null ? null : r.hit === 1,
+      ...(() => {
+        const tr = track.get(bucketKey(r.market, r.prob));
+        const bucketRate = tr ? tr.rate : null;
+        const bucketN = tr ? tr.n : null;
+        const qualifies =
+          r.priorGames >= CONVICTION_MIN_PRIOR_GAMES &&
+          bucketN != null &&
+          bucketN >= CONVICTION_MIN_BUCKET_N &&
+          bucketRate != null &&
+          bucketRate >= CONVICTION_FLOOR[r.market];
+        return { bucketRate, bucketN, qualifies };
+      })(),
       situation:
         r.ssState == null
           ? null
