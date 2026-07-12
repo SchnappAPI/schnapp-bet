@@ -1,0 +1,58 @@
+name: Seed Calibration Corpus
+
+# Manual dispatch only. Replays the production KDE tier machinery over
+# historical game logs into common.calibration_corpus (leakage-safe) so
+# MLB/NFL calibrators have a corpus before live outcomes accrue.
+# Re-run after loading more NFL seasons (nfl-etl season backfills) —
+# the MERGE is idempotent. Obsolete once both sports clear 2,000 live
+# resolved rows (calibration_core.LIVE_CORPUS_MIN); delete then.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sport:
+        description: "mlb / nfl / all"
+        required: false
+        default: "all"
+
+env:
+  SQL_TRUST_CERT: "yes"
+  PYTHONPATH: /Users/schnapp/code/schnapp-bet
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    runs-on: [self-hosted, mac-runner]
+    permissions:
+      issues: write
+      contents: read
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SQL_DATABASE: op://web-variables/Database/database
+          SQL_PASSWORD: op://web-variables/Database/password
+          SQL_SERVER: op://web-variables/Database/server
+          SQL_USERNAME: op://web-variables/Database/username
+
+      - name: Activate virtualenv
+        run: echo "$HOME/venv/bin" >> $GITHUB_PATH
+
+      - name: Seed corpus
+        run: python grading/seed_calibration_corpus.py --sport ${{ github.event.inputs.sport || 'all' }}
+
+      - name: Notify failure (deduped GitHub Issue)
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
