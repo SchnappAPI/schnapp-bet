@@ -26,9 +26,11 @@ Model (prop-v1), all from data STRICTLY BEFORE the as-of date (no leakage):
 The pooled + shrunk rates are already well-calibrated out-of-sample (backtested
 on held-out 2026: predicted tracks actual within ~1-3 pts per decile, and the
 model's Brier beats the league-flat and raw-rate baselines for both HR and
-HRR). A learned isotonic calibration layer is a prop-v1.1 refinement; matchup
-context (park, platoon, pitcher) is prop-v1.1 as well - applied per slate on
-top of these base projections.
+HRR). prop-v1.1 changed the TIER assignment to per-market probability
+percentiles (see the `ranked`/`tiered` CTEs): lift-based tiers were structurally
+unreachable for high-base-rate markets (HITS/HRR), so those markets had no
+Elite/Strong. A learned isotonic calibration layer and matchup context (park,
+platoon, pitcher) remain future refinements applied on top of these projections.
 
 Outcomes come from two facts, joined per batter-game:
   - mlb.player_at_bats : home runs + barrels (EV>=95 & LA 8-32, ETL-lockstep).
