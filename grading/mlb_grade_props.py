@@ -79,6 +79,7 @@ from scipy.stats import gaussian_kde
 from sqlalchemy import create_engine, text
 
 from shared.integrity import validate_and_filter, ensure_tables as ensure_integrity_tables
+from grading.calibration_core import load_calibrator, apply_calibrator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -91,12 +92,12 @@ log = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-BOOKMAKER       = "fanduel"
+BOOKMAKER = "fanduel"
 # v1.1: market coverage widened 4 -> 16 (batter counting markets + three new
 # pitcher markets); v1.0 rows (the original 4 markets) remain valid history.
-MODEL_VERSION   = "mlb-v1.1"
-MIN_SAMPLE      = 5       # minimum PA in a window before using it
-SEASON_START    = "2024-03-20"  # historical floor of player_at_bats (backfill start), NOT the current season
+MODEL_VERSION = "mlb-v1.1"
+MIN_SAMPLE = 5  # minimum PA in a window before using it
+SEASON_START = "2024-03-20"  # historical floor of player_at_bats (backfill start), NOT the current season
 
 # Rolling window weights (must sum to 1.0)
 W10_WEIGHT = 0.25
@@ -105,39 +106,39 @@ W60_WEIGHT = 0.40
 
 # Grade component weights
 GRADE_HIT_RATE_WEIGHT = 0.40
-GRADE_EV_WEIGHT       = 0.30
-GRADE_MATCHUP_WEIGHT  = 0.30
+GRADE_EV_WEIGHT = 0.30
+GRADE_MATCHUP_WEIGHT = 0.30
 
 # Population ceilings for normalization (empirical MLB 2023-2026 data)
-CEIL_HIT_RATE   = 0.370   # MLB batting avg ceiling for normalization
-CEIL_TB_PER_PA  = 0.650   # total bases per PA ceiling
-CEIL_HR_RATE    = 0.080   # home run rate ceiling
-CEIL_HARD_HIT   = 0.600   # hard-hit % ceiling
-CEIL_BARREL     = 0.200   # barrel % ceiling
-CEIL_XBA        = 0.420   # xBA ceiling
-CEIL_K9         = 14.0    # pitcher K/9 ceiling (elite SP)
-CEIL_LINEUP_K   = 0.300   # opposing lineup aggregate K rate ceiling
+CEIL_HIT_RATE = 0.370  # MLB batting avg ceiling for normalization
+CEIL_TB_PER_PA = 0.650  # total bases per PA ceiling
+CEIL_HR_RATE = 0.080  # home run rate ceiling
+CEIL_HARD_HIT = 0.600  # hard-hit % ceiling
+CEIL_BARREL = 0.200  # barrel % ceiling
+CEIL_XBA = 0.420  # xBA ceiling
+CEIL_K9 = 14.0  # pitcher K/9 ceiling (elite SP)
+CEIL_LINEUP_K = 0.300  # opposing lineup aggregate K rate ceiling
 
 # Minimum career BvP PA before using it in matchup grade
 MIN_BVP_PA = 10
 
 # KDE parameters (mirrors NBA grade_props.py)
-KDE_WINDOW_HOT  = 15
-KDE_WINDOW_MID  = 30
+KDE_WINDOW_HOT = 15
+KDE_WINDOW_MID = 30
 KDE_WINDOW_COLD = 60
-KDE_MIN_GAMES   = 5
+KDE_MIN_GAMES = 5
 KDE_THIN_SAMPLE_PROB_CAP = 0.85
 
-TIER_SAFE_PROB     = 0.80
-TIER_VALUE_PROB    = 0.58
+TIER_SAFE_PROB = 0.80
+TIER_VALUE_PROB = 0.58
 TIER_HIGHRISK_PROB = 0.28
-TIER_LOTTO_PROB    = 0.07
+TIER_LOTTO_PROB = 0.07
 
 TIER_HIGHRISK_MIN_PRICE = 150
-TIER_LOTTO_MIN_PRICE    = 400
+TIER_LOTTO_MIN_PRICE = 400
 
 IMPLIED_ODDS_CEILING = -500
-TIER_SAFE_EV_FLOOR   = -0.05
+TIER_SAFE_EV_FLOOR = -0.05
 
 BATCH_DEFAULT = 20
 
@@ -160,43 +161,127 @@ BATCH_DEFAULT = 20
 # batter_first_home_run is deliberately NOT graded: it is an ordering market
 # (first HR of the game), not a counting market, and needs its own model.
 MARKET_CONFIG = {
-    "batter_hits":         {"family": "batter_rate", "source": "at_bats", "stat": "hits",        "standard_line": 0.5},
-    "batter_total_bases":  {"family": "batter_rate", "source": "at_bats", "stat": "total_bases", "standard_line": 1.5},
-    "batter_home_runs":    {"family": "batter_rate", "source": "at_bats", "stat": "home_runs",   "standard_line": 0.5},
-
-    "batter_rbis":           {"family": "batter_count", "source": "boxscore", "expr": "rbi",                                   "standard_line": 0.5,  "avg_ceil": 1.20},
-    "batter_runs_scored":    {"family": "batter_count", "source": "boxscore", "expr": "runs",                                  "standard_line": 0.5,  "avg_ceil": 1.00},
-    "batter_hits_runs_rbis": {"family": "batter_count", "source": "boxscore", "expr": "(hits + runs + rbi)",                   "standard_line": None, "avg_ceil": 3.20},
-    "batter_singles":        {"family": "batter_count", "source": "boxscore", "expr": "(hits - doubles - triples - home_runs)", "standard_line": 0.5,  "avg_ceil": 1.10},
-    "batter_doubles":        {"family": "batter_count", "source": "boxscore", "expr": "doubles",                               "standard_line": 0.5,  "avg_ceil": 0.45},
-    "batter_triples":        {"family": "batter_count", "source": "boxscore", "expr": "triples",                               "standard_line": 0.5,  "avg_ceil": 0.12},
-    "batter_walks":          {"family": "batter_count", "source": "boxscore", "expr": "walks",                                 "standard_line": 0.5,  "avg_ceil": 0.90},
-    "batter_strikeouts":     {"family": "batter_count", "source": "boxscore", "expr": "strikeouts",                            "standard_line": 0.5,  "avg_ceil": 1.60},
-    "batter_stolen_bases":   {"family": "batter_count", "source": "boxscore", "expr": "stolen_bases",                          "standard_line": 0.5,  "avg_ceil": 0.50},
-
+    "batter_hits": {"family": "batter_rate", "source": "at_bats", "stat": "hits", "standard_line": 0.5},
+    "batter_total_bases": {"family": "batter_rate", "source": "at_bats", "stat": "total_bases", "standard_line": 1.5},
+    "batter_home_runs": {"family": "batter_rate", "source": "at_bats", "stat": "home_runs", "standard_line": 0.5},
+    "batter_rbis": {
+        "family": "batter_count",
+        "source": "boxscore",
+        "expr": "rbi",
+        "standard_line": 0.5,
+        "avg_ceil": 1.20,
+    },
+    "batter_runs_scored": {
+        "family": "batter_count",
+        "source": "boxscore",
+        "expr": "runs",
+        "standard_line": 0.5,
+        "avg_ceil": 1.00,
+    },
+    "batter_hits_runs_rbis": {
+        "family": "batter_count",
+        "source": "boxscore",
+        "expr": "(hits + runs + rbi)",
+        "standard_line": None,
+        "avg_ceil": 3.20,
+    },
+    "batter_singles": {
+        "family": "batter_count",
+        "source": "boxscore",
+        "expr": "(hits - doubles - triples - home_runs)",
+        "standard_line": 0.5,
+        "avg_ceil": 1.10,
+    },
+    "batter_doubles": {
+        "family": "batter_count",
+        "source": "boxscore",
+        "expr": "doubles",
+        "standard_line": 0.5,
+        "avg_ceil": 0.45,
+    },
+    "batter_triples": {
+        "family": "batter_count",
+        "source": "boxscore",
+        "expr": "triples",
+        "standard_line": 0.5,
+        "avg_ceil": 0.12,
+    },
+    "batter_walks": {
+        "family": "batter_count",
+        "source": "boxscore",
+        "expr": "walks",
+        "standard_line": 0.5,
+        "avg_ceil": 0.90,
+    },
+    "batter_strikeouts": {
+        "family": "batter_count",
+        "source": "boxscore",
+        "expr": "strikeouts",
+        "standard_line": 0.5,
+        "avg_ceil": 1.60,
+    },
+    "batter_stolen_bases": {
+        "family": "batter_count",
+        "source": "boxscore",
+        "expr": "stolen_bases",
+        "standard_line": 0.5,
+        "avg_ceil": 0.50,
+    },
     "pitcher_strikeouts": {
-        "family": "pitcher", "source": "pitching", "expr": "strikeouts", "standard_line": None,
-        "season_rate": "k_per_9", "rate_ceil": CEIL_K9, "rate_floor": 5.0,
-        "recent_ceil": 10.0, "recent_floor": 3.0,
-        "opp_rate_col": "w30_k_rate", "opp_ceil": CEIL_LINEUP_K, "opp_floor": 0.10,
+        "family": "pitcher",
+        "source": "pitching",
+        "expr": "strikeouts",
+        "standard_line": None,
+        "season_rate": "k_per_9",
+        "rate_ceil": CEIL_K9,
+        "rate_floor": 5.0,
+        "recent_ceil": 10.0,
+        "recent_floor": 3.0,
+        "opp_rate_col": "w30_k_rate",
+        "opp_ceil": CEIL_LINEUP_K,
+        "opp_floor": 0.10,
     },
     "pitcher_hits_allowed": {
-        "family": "pitcher", "source": "pitching", "expr": "hits_allowed", "standard_line": None,
-        "season_rate": "h_per_9", "rate_ceil": 12.0, "rate_floor": 5.0,
-        "recent_ceil": 9.0, "recent_floor": 2.0,
-        "opp_rate_col": "w30_hit_rate", "opp_ceil": CEIL_HIT_RATE, "opp_floor": 0.180,
+        "family": "pitcher",
+        "source": "pitching",
+        "expr": "hits_allowed",
+        "standard_line": None,
+        "season_rate": "h_per_9",
+        "rate_ceil": 12.0,
+        "rate_floor": 5.0,
+        "recent_ceil": 9.0,
+        "recent_floor": 2.0,
+        "opp_rate_col": "w30_hit_rate",
+        "opp_ceil": CEIL_HIT_RATE,
+        "opp_floor": 0.180,
     },
     "pitcher_walks": {
-        "family": "pitcher", "source": "pitching", "expr": "walks", "standard_line": None,
-        "season_rate": "bb_per_9", "rate_ceil": 5.5, "rate_floor": 1.0,
-        "recent_ceil": 5.0, "recent_floor": 0.5,
-        "opp_rate_col": "w30_bb_rate", "opp_ceil": 0.14, "opp_floor": 0.04,
+        "family": "pitcher",
+        "source": "pitching",
+        "expr": "walks",
+        "standard_line": None,
+        "season_rate": "bb_per_9",
+        "rate_ceil": 5.5,
+        "rate_floor": 1.0,
+        "recent_ceil": 5.0,
+        "recent_floor": 0.5,
+        "opp_rate_col": "w30_bb_rate",
+        "opp_ceil": 0.14,
+        "opp_floor": 0.04,
     },
     "pitcher_earned_runs": {
-        "family": "pitcher", "source": "pitching", "expr": "earned_runs", "standard_line": None,
-        "season_rate": "era", "rate_ceil": 6.5, "rate_floor": 2.0,
-        "recent_ceil": 6.0, "recent_floor": 1.0,
-        "opp_rate_col": "w30_hit_rate", "opp_ceil": CEIL_HIT_RATE, "opp_floor": 0.180,
+        "family": "pitcher",
+        "source": "pitching",
+        "expr": "earned_runs",
+        "standard_line": None,
+        "season_rate": "era",
+        "rate_ceil": 6.5,
+        "rate_floor": 2.0,
+        "recent_ceil": 6.0,
+        "recent_floor": 1.0,
+        "opp_rate_col": "w30_hit_rate",
+        "opp_ceil": CEIL_HIT_RATE,
+        "opp_floor": 0.180,
     },
 }
 
@@ -204,6 +289,7 @@ MARKET_CONFIG = {
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
+
 
 def get_engine(max_retries=3, retry_wait=60):
     conn_str = (
@@ -230,14 +316,13 @@ def get_engine(max_retries=3, retry_wait=60):
 
 
 def today_ct() -> str:
-    return datetime.now(timezone.utc).astimezone(
-        timezone(timedelta(hours=-5))
-    ).strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=-5))).strftime("%Y-%m-%d")
 
 
 # ---------------------------------------------------------------------------
 # Data fetching
 # ---------------------------------------------------------------------------
+
 
 def fetch_upcoming_mlb_props(engine, grade_date: str) -> pd.DataFrame:
     """
@@ -252,7 +337,8 @@ def fetch_upcoming_mlb_props(engine, grade_date: str) -> pd.DataFrame:
       batter_home_runs_alternate     @ 0.5  -> batter_home_runs
       pitcher_strikeouts             (any)  -> pitcher_strikeouts
     """
-    df = pd.read_sql(text("""
+    df = pd.read_sql(
+        text("""
         SELECT
             e.event_id,
             CAST(egm.game_id AS INT) AS game_pk,
@@ -303,7 +389,10 @@ def fetch_upcoming_mlb_props(engine, grade_date: str) -> pd.DataFrame:
           AND pp.outcome_name IN ('Over','Under')
           AND CAST(e.commence_time AS DATE) = :grade_date
         ORDER BY e.commence_time, pp.market_key, pp.player_name
-    """), engine, params={"bookmaker": BOOKMAKER, "grade_date": grade_date})
+    """),
+        engine,
+        params={"bookmaker": BOOKMAKER, "grade_date": grade_date},
+    )
 
     log.info("Upcoming props: %d rows for %s.", len(df), grade_date)
     return df
@@ -314,7 +403,8 @@ def fetch_trend_stats(engine, player_ids: list, grade_date: str) -> pd.DataFrame
     if not player_ids:
         return pd.DataFrame()
     plist = ", ".join(str(p) for p in player_ids)
-    df = pd.read_sql(text(f"""
+    df = pd.read_sql(
+        text(f"""
         SELECT ts.*
         FROM mlb.player_trend_stats ts
         INNER JOIN (
@@ -324,7 +414,10 @@ def fetch_trend_stats(engine, player_ids: list, grade_date: str) -> pd.DataFrame
               AND game_date < :grade_date
             GROUP BY batter_id
         ) latest ON ts.batter_id = latest.batter_id AND ts.game_date = latest.latest_date
-    """), engine, params={"grade_date": grade_date})
+    """),
+        engine,
+        params={"grade_date": grade_date},
+    )
     log.info("Trend stats: %d rows.", len(df))
     return df
 
@@ -342,13 +435,16 @@ def fetch_bvp_for_games(engine, matchups: list) -> pd.DataFrame:
     if not batter_ids:
         return pd.DataFrame()
     plist = ", ".join(str(b) for b in batter_ids)
-    df = pd.read_sql(text(f"""
+    df = pd.read_sql(
+        text(f"""
         SELECT batter_id, pitcher_id, plate_appearances, at_bats, hits,
                home_runs, walks, strikeouts, batting_avg, obp, slg, ops,
                total_bases, last_faced_date
         FROM mlb.career_batter_vs_pitcher
         WHERE batter_id IN ({plist})
-    """), engine)
+    """),
+        engine,
+    )
     # Filter to requested pairs
     pair_set = set(matchups)
     df = df[df.apply(lambda r: (r["batter_id"], r["pitcher_id"]) in pair_set, axis=1)]
@@ -360,22 +456,24 @@ def fetch_pitcher_season_stats(engine, pitcher_ids: list) -> pd.DataFrame:
     if not pitcher_ids:
         return pd.DataFrame()
     plist = ", ".join(str(p) for p in pitcher_ids)
-    df = pd.read_sql(text(f"""
+    df = pd.read_sql(
+        text(f"""
         SELECT player_id AS pitcher_id, k_per_9, bb_per_9, h_per_9, era, whip,
                batting_avg_against, obp_against, slg_against, ops_against,
                hr_per_9, strikeouts, innings_pitched, games_started, season_year
         FROM mlb.pitcher_season_stats
         WHERE player_id IN ({plist})
         ORDER BY season_year DESC
-    """), engine)
+    """),
+        engine,
+    )
     # Keep most recent season per pitcher
     df = df.sort_values("season_year", ascending=False).drop_duplicates("pitcher_id")
     log.info("Pitcher season stats: %d rows.", len(df))
     return df
 
 
-def fetch_game_log(engine, player_id: int, market_key: str, grade_date: str,
-                   n_games: int = 60) -> pd.DataFrame:
+def fetch_game_log(engine, player_id: int, market_key: str, grade_date: str, n_games: int = 60) -> pd.DataFrame:
     """
     Per-game stat history for a market, newest first.
       at_bats  (batter_rate) - aggregated from mlb.player_at_bats events.
@@ -388,26 +486,35 @@ def fetch_game_log(engine, player_id: int, market_key: str, grade_date: str,
     source = cfg.get("source", "at_bats")
 
     if source == "pitching":
-        df = pd.read_sql(text(f"""
-            SELECT ps.game_date, ps.{cfg['expr']} AS stat_value
+        df = pd.read_sql(
+            text(f"""
+            SELECT ps.game_date, ps.{cfg["expr"]} AS stat_value
             FROM mlb.pitching_stats ps
             WHERE ps.player_id = :player_id
               AND ps.game_date < :grade_date
               AND ps.note = 'SP'
             ORDER BY ps.game_date DESC
-        """), engine, params={"player_id": player_id, "grade_date": grade_date})
+        """),
+            engine,
+            params={"player_id": player_id, "grade_date": grade_date},
+        )
         return df.head(n_games)
     elif source == "boxscore":
-        df = pd.read_sql(text(f"""
-            SELECT bs.game_date, {cfg['expr']} AS stat_value
+        df = pd.read_sql(
+            text(f"""
+            SELECT bs.game_date, {cfg["expr"]} AS stat_value
             FROM mlb.batting_stats bs
             WHERE bs.player_id = :player_id
               AND bs.game_date < :grade_date
             ORDER BY bs.game_date DESC
-        """), engine, params={"player_id": player_id, "grade_date": grade_date})
+        """),
+            engine,
+            params={"player_id": player_id, "grade_date": grade_date},
+        )
         return df.head(n_games)
     else:
-        df = pd.read_sql(text("""
+        df = pd.read_sql(
+            text("""
             SELECT ab.game_date,
                    SUM(CASE WHEN ab.result_event_type IN ('single','double','triple','home_run') THEN 1 ELSE 0 END) AS hits,
                    SUM(CASE ab.result_event_type WHEN 'single' THEN 1 WHEN 'double' THEN 2
@@ -424,15 +531,18 @@ def fetch_game_log(engine, player_id: int, market_key: str, grade_date: str,
                 'pickoff_error_1b','stolen_base_2b','wild_pitch')
             GROUP BY ab.game_date
             ORDER BY ab.game_date DESC
-        """), engine, params={"player_id": player_id, "grade_date": grade_date})
+        """),
+            engine,
+            params={"player_id": player_id, "grade_date": grade_date},
+        )
         stat_col = cfg["stat"]
         df = df.rename(columns={stat_col: "stat_value"})
         return df.head(n_games)[["game_date", "stat_value"]]
 
 
-def fetch_opposing_lineup_rate(engine, game_pk: int, is_pitcher_home: bool,
-                               grade_date: str,
-                               rate_col: str = "w30_k_rate") -> float | None:
+def fetch_opposing_lineup_rate(
+    engine, game_pk: int, is_pitcher_home: bool, grade_date: str, rate_col: str = "w30_k_rate"
+) -> float | None:
     """
     Average of a w30 trend rate across the opposing lineup's starters.
     rate_col comes from MARKET_CONFIG (trusted constant): w30_k_rate for
@@ -441,7 +551,8 @@ def fetch_opposing_lineup_rate(engine, game_pk: int, is_pitcher_home: bool,
     if rate_col not in ("w30_k_rate", "w30_hit_rate", "w30_bb_rate"):
         raise ValueError(f"unsupported lineup rate column: {rate_col}")
 
-    df = pd.read_sql(text(f"""
+    df = pd.read_sql(
+        text(f"""
         SELECT AVG(ts.{rate_col}) AS avg_k_rate
         FROM mlb.player_trend_stats ts
         INNER JOIN (
@@ -458,7 +569,10 @@ def fetch_opposing_lineup_rate(engine, game_pk: int, is_pitcher_home: bool,
               AND bs.batting_order % 100 = 0
         ) starters ON starters.player_id = ts.batter_id
         WHERE ts.{rate_col} IS NOT NULL
-    """), engine, params={"game_pk": game_pk, "grade_date": grade_date})
+    """),
+        engine,
+        params={"game_pk": game_pk, "grade_date": grade_date},
+    )
 
     val = df["avg_k_rate"].iloc[0] if not df.empty else None
     return float(val) if val is not None and not pd.isna(val) else None
@@ -467,6 +581,7 @@ def fetch_opposing_lineup_rate(engine, game_pk: int, is_pitcher_home: bool,
 # ---------------------------------------------------------------------------
 # Grading logic
 # ---------------------------------------------------------------------------
+
 
 def clamp(v, lo=0.0, hi=100.0):
     return max(lo, min(hi, v))
@@ -479,8 +594,7 @@ def normalize(val, ceiling, floor=0.0) -> float:
     return clamp((val - floor) / (ceiling - floor) * 100.0)
 
 
-def weighted_rate(ts: pd.Series, col_prefix: str, w10=W10_WEIGHT,
-                  w30=W30_WEIGHT, w60=W60_WEIGHT) -> float | None:
+def weighted_rate(ts: pd.Series, col_prefix: str, w10=W10_WEIGHT, w30=W30_WEIGHT, w60=W60_WEIGHT) -> float | None:
     """Blend three window rates, falling back gracefully when windows are thin."""
     v10 = ts.get(f"w10_{col_prefix}")
     v30 = ts.get(f"w30_{col_prefix}")
@@ -514,7 +628,7 @@ def compute_hit_rate_grade(ts: pd.Series, market_key: str) -> float:
         weights = []
         for w, wt in [(10, W10_WEIGHT), (30, W30_WEIGHT), (60, W60_WEIGHT)]:
             hrs = ts.get(f"w{w}_home_runs", 0) or 0
-            pa  = ts.get(f"w{w}_pa", 0) or 0
+            pa = ts.get(f"w{w}_pa", 0) or 0
             if pa >= MIN_SAMPLE:
                 rates.append(hrs / pa * wt)
                 weights.append(wt)
@@ -526,8 +640,7 @@ def compute_hit_rate_grade(ts: pd.Series, market_key: str) -> float:
     return normalize(rate, ceil) if rate is not None else 50.0
 
 
-def compute_game_avg_grade(game_log: pd.DataFrame, cfg: dict,
-                           n_games: int = 30) -> float:
+def compute_game_avg_grade(game_log: pd.DataFrame, cfg: dict, n_games: int = 30) -> float:
     """
     Form grade for batter_count markets (no trend-window rates exist for
     RBI/runs/walks/etc). Recent per-game average over the last n_games,
@@ -542,22 +655,20 @@ def compute_game_avg_grade(game_log: pd.DataFrame, cfg: dict,
 
 def compute_ev_grade(ts: pd.Series) -> float:
     """EV quality grade from w30 hard-hit %, barrel %, and xBA."""
-    hh  = ts.get("w30_hard_hit_pct")
+    hh = ts.get("w30_hard_hit_pct")
     brr = ts.get("w30_barrel_pct")
     xba = ts.get("w30_avg_xba")
 
-    hh_grade  = normalize(hh,  CEIL_HARD_HIT) if hh  is not None else 50.0
-    brr_grade = normalize(brr, CEIL_BARREL)   if brr is not None else 50.0
-    xba_grade = normalize(xba, CEIL_XBA)      if xba is not None else 50.0
+    hh_grade = normalize(hh, CEIL_HARD_HIT) if hh is not None else 50.0
+    brr_grade = normalize(brr, CEIL_BARREL) if brr is not None else 50.0
+    xba_grade = normalize(xba, CEIL_XBA) if xba is not None else 50.0
 
     return 0.40 * hh_grade + 0.35 * brr_grade + 0.25 * xba_grade
 
 
-def compute_batter_matchup_grade(pitcher_stats: pd.Series | None,
-                                 bvp: pd.Series | None,
-                                 ts: pd.Series,
-                                 market_key: str,
-                                 pitcher_hand: str | None) -> float:
+def compute_batter_matchup_grade(
+    pitcher_stats: pd.Series | None, bvp: pd.Series | None, ts: pd.Series, market_key: str, pitcher_hand: str | None
+) -> float:
     """
     Matchup grade (0-100) for batter props.
     Combines pitcher season stats, career BvP (if >=MIN_BVP_PA),
@@ -568,9 +679,16 @@ def compute_batter_matchup_grade(pitcher_stats: pd.Series | None,
     # Market groups sharing a pitcher-quality signal. Contact-driven counting
     # markets (RBI/runs/singles/doubles/triples/H+R+RBI) follow the hits
     # signal (H/9 + OBP-against); home runs keep their own HR/9 + OPS branch.
-    _HITS_LIKE = ("batter_hits", "batter_total_bases", "batter_rbis",
-                  "batter_runs_scored", "batter_hits_runs_rbis",
-                  "batter_singles", "batter_doubles", "batter_triples")
+    _HITS_LIKE = (
+        "batter_hits",
+        "batter_total_bases",
+        "batter_rbis",
+        "batter_runs_scored",
+        "batter_hits_runs_rbis",
+        "batter_singles",
+        "batter_doubles",
+        "batter_triples",
+    )
 
     if pitcher_stats is not None:
         if market_key == "batter_walks":
@@ -620,7 +738,7 @@ def compute_batter_matchup_grade(pitcher_stats: pd.Series | None,
         split_col = "vs_lhp_hit_rate" if pitcher_hand == "L" else "vs_rhp_hit_rate"
         split_pa_col = "vs_lhp_pa" if pitcher_hand == "L" else "vs_rhp_pa"
         split_rate = ts.get(split_col)
-        split_pa   = ts.get(split_pa_col, 0) or 0
+        split_pa = ts.get(split_pa_col, 0) or 0
         if split_rate is not None and not pd.isna(split_rate) and split_pa >= 20:
             ceil = CEIL_HIT_RATE if market_key != "batter_home_runs" else CEIL_HR_RATE
             split_grade = normalize(float(split_rate), ceiling=ceil)
@@ -637,10 +755,9 @@ def compute_batter_matchup_grade(pitcher_stats: pd.Series | None,
     return clamp(sum(components) / total_w * 100.0) if total_w > 0 else 50.0
 
 
-def compute_pitcher_market_grade(cfg: dict,
-                                 pitcher_stats: pd.Series | None,
-                                 recent_form: pd.DataFrame,
-                                 opp_lineup_rate: float | None) -> float:
+def compute_pitcher_market_grade(
+    cfg: dict, pitcher_stats: pd.Series | None, recent_form: pd.DataFrame, opp_lineup_rate: float | None
+) -> float:
     """
     Composite grade for pitcher props (Ks, hits allowed, walks, earned runs).
     0.50 season rate (k_per_9 / h_per_9 / bb_per_9 / era) + 0.30 recent
@@ -652,26 +769,21 @@ def compute_pitcher_market_grade(cfg: dict,
     if pitcher_stats is not None:
         rate = pitcher_stats.get(cfg["season_rate"])
         if rate is not None and not pd.isna(rate):
-            season_grade = normalize(float(rate), ceiling=cfg["rate_ceil"],
-                                     floor=cfg["rate_floor"])
+            season_grade = normalize(float(rate), ceiling=cfg["rate_ceil"], floor=cfg["rate_floor"])
 
     recent_grade = 50.0
     if not recent_form.empty and len(recent_form) >= 3:
-        recent_avg = pd.to_numeric(recent_form["stat_value"].head(5),
-                                   errors="coerce").mean()
-        recent_grade = normalize(recent_avg, ceiling=cfg["recent_ceil"],
-                                 floor=cfg["recent_floor"])
+        recent_avg = pd.to_numeric(recent_form["stat_value"].head(5), errors="coerce").mean()
+        recent_grade = normalize(recent_avg, ceiling=cfg["recent_ceil"], floor=cfg["recent_floor"])
 
     opp_grade = 50.0
     if opp_lineup_rate is not None:
-        opp_grade = normalize(opp_lineup_rate, ceiling=cfg["opp_ceil"],
-                              floor=cfg["opp_floor"])
+        opp_grade = normalize(opp_lineup_rate, ceiling=cfg["opp_ceil"], floor=cfg["opp_floor"])
 
     return 0.50 * season_grade + 0.30 * recent_grade + 0.20 * opp_grade
 
 
-def compute_composite(hit_rate_grade: float, ev_grade: float,
-                      matchup_grade: float, no_ev: bool = False) -> float:
+def compute_composite(hit_rate_grade: float, ev_grade: float, matchup_grade: float, no_ev: bool = False) -> float:
     if no_ev:
         # Markets where quality-of-contact has no (or inverted) signal:
         # walks, batter strikeouts, stolen bases. Burner/slap-hitter
@@ -679,14 +791,13 @@ def compute_composite(hit_rate_grade: float, ev_grade: float,
         # pushes the grade the wrong way for exactly the players who steal
         # bases / draw walks. Redistribute EV's weight to form + matchup.
         return 0.55 * hit_rate_grade + 0.45 * matchup_grade
-    return (GRADE_HIT_RATE_WEIGHT * hit_rate_grade
-            + GRADE_EV_WEIGHT * ev_grade
-            + GRADE_MATCHUP_WEIGHT * matchup_grade)
+    return GRADE_HIT_RATE_WEIGHT * hit_rate_grade + GRADE_EV_WEIGHT * ev_grade + GRADE_MATCHUP_WEIGHT * matchup_grade
 
 
 # ---------------------------------------------------------------------------
 # KDE tier line computation
 # ---------------------------------------------------------------------------
+
 
 def american_to_implied(price: int) -> float:
     if price > 0:
@@ -707,12 +818,15 @@ def ev(prob: float, price: int) -> float:
     return prob / implied - 1.0
 
 
-def compute_kde_tier_lines(game_log: pd.DataFrame, composite: float,
-                           market_key: str) -> dict:
+def compute_kde_tier_lines(game_log: pd.DataFrame, composite: float, market_key: str, calibrator=None) -> dict:
     """
     Fit a KDE over the grade-weighted game log. Return safe/value/highrisk/lotto
     lines and their probabilities. Lines are rounded to the nearest 0.5.
     Returns empty dict if insufficient data.
+
+    calibrator: optional callable raw_prob -> calibrated prob (the sport='mlb'
+    entry in common.grade_calibration). Tier selection and the stored
+    probabilities both use the calibrated value, matching NBA semantics.
     """
     if game_log.empty or len(game_log) < KDE_MIN_GAMES:
         return {}
@@ -738,6 +852,7 @@ def compute_kde_tier_lines(game_log: pd.DataFrame, composite: float,
 
         def prob_over(line):
             from scipy.stats import norm
+
             p = 1 - norm.cdf(line, loc=mu, scale=sigma)
             return min(p, KDE_THIN_SAMPLE_PROB_CAP)
     else:
@@ -757,15 +872,17 @@ def compute_kde_tier_lines(game_log: pd.DataFrame, composite: float,
     max_line = max(values) + 3.0
 
     for prob_thresh, label in [
-        (TIER_SAFE_PROB,     "safe"),
-        (TIER_VALUE_PROB,    "value"),
+        (TIER_SAFE_PROB, "safe"),
+        (TIER_VALUE_PROB, "value"),
         (TIER_HIGHRISK_PROB, "highrisk"),
-        (TIER_LOTTO_PROB,    "lotto"),
+        (TIER_LOTTO_PROB, "lotto"),
     ]:
         candidate = None
         line = 0.5
         while line <= max_line:
             p = prob_over(line)
+            if calibrator is not None:
+                p = float(calibrator(p))
             if p >= prob_thresh:
                 candidate = (line, p)
             line += 0.5
@@ -778,31 +895,30 @@ def compute_kde_tier_lines(game_log: pd.DataFrame, composite: float,
 # Output writers
 # ---------------------------------------------------------------------------
 
+
 def ensure_schema(engine):
     """Confirm common.daily_grades and common.player_tier_lines exist.
     These are owned by the NBA grading system; we just write to them.
     Also widens game_id to VARCHAR(50) if it was created narrower (NBA used 15)."""
     with engine.begin() as conn:
         for tbl in ("common.daily_grades", "common.player_tier_lines"):
-            exists = conn.execute(text(
-                "SELECT 1 FROM INFORMATION_SCHEMA.TABLES "
-                "WHERE TABLE_SCHEMA + '.' + TABLE_NAME = :t"
-            ), {"t": tbl}).fetchone()
+            exists = conn.execute(
+                text("SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA + '.' + TABLE_NAME = :t"), {"t": tbl}
+            ).fetchone()
             if not exists:
-                raise RuntimeError(
-                    f"{tbl} does not exist. Run the NBA grading setup first."
-                )
+                raise RuntimeError(f"{tbl} does not exist. Run the NBA grading setup first.")
         # Widen game_id if needed — MLB event IDs are 32 chars; NBA created this as VARCHAR(15)
         for tbl in ("common.daily_grades", "common.player_tier_lines"):
             schema, table = tbl.split(".")
-            row = conn.execute(text(
-                "SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS "
-                "WHERE TABLE_SCHEMA = :s AND TABLE_NAME = :t AND COLUMN_NAME = 'game_id'"
-            ), {"s": schema, "t": table}).fetchone()
+            row = conn.execute(
+                text(
+                    "SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = :s AND TABLE_NAME = :t AND COLUMN_NAME = 'game_id'"
+                ),
+                {"s": schema, "t": table},
+            ).fetchone()
             if row and row[0] < 50:
-                conn.execute(text(
-                    f"ALTER TABLE {tbl} ALTER COLUMN game_id VARCHAR(50)"
-                ))
+                conn.execute(text(f"ALTER TABLE {tbl} ALTER COLUMN game_id VARCHAR(50)"))
                 log.info("Widened %s.game_id to VARCHAR(50).", tbl)
     log.info("Schema check passed.")
 
@@ -811,7 +927,8 @@ def upsert_daily_grades(engine, rows: list[dict]):
     if not rows:
         return
     with engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             IF OBJECT_ID('tempdb..#stage_grades') IS NOT NULL DROP TABLE #stage_grades;
             CREATE TABLE #stage_grades (
                 grade_date      DATE,
@@ -828,19 +945,29 @@ def upsert_daily_grades(engine, rows: list[dict]):
                 composite_grade FLOAT,
                 model_version   VARCHAR(50)
             );
-        """))
+        """)
+        )
         batch = [
-            (r["grade_date"], r["event_id"], r.get("game_id"), r["player_id"],
-             r["player_name"], r["market_key"], r.get("bookmaker_key", BOOKMAKER),
-             r["line_value"], r["outcome_name"],
-             r.get("over_price"), r.get("outcome"),
-             r["composite_grade"], MODEL_VERSION)
+            (
+                r["grade_date"],
+                r["event_id"],
+                r.get("game_id"),
+                r["player_id"],
+                r["player_name"],
+                r["market_key"],
+                r.get("bookmaker_key", BOOKMAKER),
+                r["line_value"],
+                r["outcome_name"],
+                r.get("over_price"),
+                r.get("outcome"),
+                r["composite_grade"],
+                MODEL_VERSION,
+            )
             for r in rows
         ]
-        conn.exec_driver_sql(
-            "INSERT INTO #stage_grades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", batch
-        )
-        conn.execute(text("""
+        conn.exec_driver_sql("INSERT INTO #stage_grades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
+        conn.execute(
+            text("""
             MERGE common.daily_grades AS t
             USING #stage_grades AS s
             ON t.player_id = s.player_id
@@ -861,7 +988,8 @@ def upsert_daily_grades(engine, rows: list[dict]):
                 s.market_key, s.bookmaker_key, s.line_value, s.outcome_name, s.over_price,
                 s.outcome, s.composite_grade, s.model_version
             );
-        """))
+        """)
+        )
     log.info("Upserted %d daily_grades rows.", len(rows))
 
 
@@ -869,7 +997,8 @@ def upsert_tier_lines(engine, rows: list[dict]):
     if not rows:
         return
     with engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             IF OBJECT_ID('tempdb..#stage_tiers') IS NOT NULL DROP TABLE #stage_tiers;
             CREATE TABLE #stage_tiers (
                 grade_date        DATE,
@@ -886,23 +1015,37 @@ def upsert_tier_lines(engine, rows: list[dict]):
                 lotto_line        DECIMAL(6,1), lotto_prob FLOAT, lotto_price INT,
                 model_version     VARCHAR(50)
             );
-        """))
+        """)
+        )
         batch = [
-            (r["grade_date"], r.get("game_id"), r["player_id"], r["player_name"],
-             r["market_key"], r["composite_grade"], r.get("kde_window"),
-             0,  # blowout_dampened always False for MLB grading
-             r.get("safe_line"), r.get("safe_prob"), r.get("safe_price"),
-             r.get("value_line"), r.get("value_prob"), r.get("value_price"),
-             r.get("highrisk_line"), r.get("highrisk_prob"), r.get("highrisk_price"),
-             r.get("lotto_line"), r.get("lotto_prob"), r.get("lotto_price"),
-             MODEL_VERSION)
+            (
+                r["grade_date"],
+                r.get("game_id"),
+                r["player_id"],
+                r["player_name"],
+                r["market_key"],
+                r["composite_grade"],
+                r.get("kde_window"),
+                0,  # blowout_dampened always False for MLB grading
+                r.get("safe_line"),
+                r.get("safe_prob"),
+                r.get("safe_price"),
+                r.get("value_line"),
+                r.get("value_prob"),
+                r.get("value_price"),
+                r.get("highrisk_line"),
+                r.get("highrisk_prob"),
+                r.get("highrisk_price"),
+                r.get("lotto_line"),
+                r.get("lotto_prob"),
+                r.get("lotto_price"),
+                MODEL_VERSION,
+            )
             for r in rows
         ]
-        conn.exec_driver_sql(
-            "INSERT INTO #stage_tiers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            batch
-        )
-        conn.execute(text("""
+        conn.exec_driver_sql("INSERT INTO #stage_tiers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
+        conn.execute(
+            text("""
             MERGE common.player_tier_lines AS t
             USING #stage_tiers AS s
             ON t.player_id = s.player_id
@@ -933,13 +1076,15 @@ def upsert_tier_lines(engine, rows: list[dict]):
                 s.lotto_line, s.lotto_prob, s.lotto_price,
                 s.model_version
             );
-        """))
+        """)
+        )
     log.info("Upserted %d player_tier_lines rows.", len(rows))
 
 
 # ---------------------------------------------------------------------------
 # Main grading loop
 # ---------------------------------------------------------------------------
+
 
 def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
     log.info("=== MLB grading for %s ===", grade_date_str)
@@ -950,45 +1095,51 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
         # broken (dead API key, dead workflow), not that there is nothing to
         # grade. Exiting 0 here hid a two-month outage (no mlb-v1.0 rows
         # after 2026-05-01 while the workflow stayed green). Fail loudly.
-        scheduled = pd.read_sql(text(
-            "SELECT COUNT(*) AS n FROM mlb.games WHERE CAST(game_date AS DATE) = :d"
-        ), engine, params={"d": grade_date_str}).iloc[0]["n"]
+        scheduled = pd.read_sql(
+            text("SELECT COUNT(*) AS n FROM mlb.games WHERE CAST(game_date AS DATE) = :d"),
+            engine,
+            params={"d": grade_date_str},
+        ).iloc[0]["n"]
         if int(scheduled) > 0:
             # mlb.games.game_date is the ET schedule date while props filter
             # on CAST(commence_time AS DATE) (UTC) - a West-coast-heavy slate
             # can legitimately land its props on grade_date+1. Only declare
             # the feed dead when there are no *fresh* MLB props at all.
-            fresh = pd.read_sql(text("""
+            fresh = pd.read_sql(
+                text("""
                 SELECT COUNT(*) AS n
                 FROM odds.upcoming_player_props pp
                 WHERE pp.sport_key = 'baseball_mlb'
                   AND pp.created_at >= DATEADD(hour, -36, GETUTCDATE())
-            """), engine).iloc[0]["n"]
+            """),
+                engine,
+            ).iloc[0]["n"]
             if int(fresh) == 0:
                 log.error(
                     "No upcoming MLB props for %s, %d games scheduled, and no "
                     "MLB props ingested in the last 36h. The odds pipeline is "
                     "stale (check ODDS_API_KEY / odds-etl.yml). Failing so this "
                     "cannot pass as a green run.",
-                    grade_date_str, int(scheduled),
+                    grade_date_str,
+                    int(scheduled),
                 )
                 raise SystemExit(2)
             log.warning(
                 "No props matched %s but %d fresh MLB props exist (UTC/ET "
                 "date shift?). Skipping without failing; check the date "
                 "conventions if this repeats.",
-                grade_date_str, int(fresh),
+                grade_date_str,
+                int(fresh),
             )
-        log.info("No upcoming MLB props and no scheduled games for %s (offseason/off-day). Exiting.",
-                 grade_date_str)
+        log.info("No upcoming MLB props and no scheduled games for %s (offseason/off-day). Exiting.", grade_date_str)
         return
 
     # Resolve player IDs — Over side only (we'll flip for Under)
     over_props = props[props["outcome_name"] == "Over"].copy()
     player_ids = [int(p) for p in over_props["player_id"].dropna().unique()]
-    game_pks   = [int(g) for g in over_props["game_pk"].dropna().unique()]
+    game_pks = [int(g) for g in over_props["game_pk"].dropna().unique()]
 
-    trend_map  = {}
+    trend_map = {}
     if player_ids:
         ts_df = fetch_trend_stats(engine, player_ids, grade_date_str)
         trend_map = {int(r["batter_id"]): r for _, r in ts_df.iterrows()}
@@ -998,22 +1149,25 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
     game_pitcher_map = {}  # game_pk -> {away_pitcher_id, home_pitcher_id, ...}
     if game_pks:
         gp_list = ", ".join(str(g) for g in game_pks)
-        game_info_df = pd.read_sql(text(f"""
+        game_info_df = pd.read_sql(
+            text(f"""
             SELECT game_pk, away_team_id, home_team_id,
                    away_pitcher_id, away_pitcher_hand,
                    home_pitcher_id, home_pitcher_hand
             FROM mlb.games
             WHERE game_pk IN ({gp_list})
-        """), engine)
+        """),
+            engine,
+        )
         for _, row in game_info_df.iterrows():
             gp = int(row["game_pk"])
             game_pitcher_map[gp] = {
-                "away_pitcher_id":   row["away_pitcher_id"],
+                "away_pitcher_id": row["away_pitcher_id"],
                 "away_pitcher_hand": row["away_pitcher_hand"],
-                "home_pitcher_id":   row["home_pitcher_id"],
+                "home_pitcher_id": row["home_pitcher_id"],
                 "home_pitcher_hand": row["home_pitcher_hand"],
-                "away_team_id":      row["away_team_id"],
-                "home_team_id":      row["home_team_id"],
+                "away_team_id": row["away_team_id"],
+                "home_team_id": row["home_team_id"],
             }
             if row["away_pitcher_id"]:
                 pitcher_ids_set.add(int(row["away_pitcher_id"]))
@@ -1032,7 +1186,7 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
         if row_cfg is None or row_cfg["family"] == "pitcher":
             continue
         pid = row["player_id"]
-        gp  = row["game_pk"]
+        gp = row["game_pk"]
         if pd.isna(pid) or pd.isna(gp):
             continue
         ginfo = game_pitcher_map.get(int(gp), {})
@@ -1047,20 +1201,34 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
     for _, row in bvp_df.iterrows():
         bvp_map[(int(row["batter_id"]), int(row["pitcher_id"]))] = row
 
+    # Sport-scoped calibrator (weekly_calibration.py is the only writer).
+    # Identity/absent -> raw KDE probabilities, the pre-v2 behavior.
+    calibrator = None
+    try:
+        _cal = load_calibrator(engine, "mlb")
+        if _cal["method"] != "identity":
+
+            def calibrator(p):  # noqa: E731 — mirrors NBA's callable shape
+                return float(apply_calibrator(_cal, float(p)))
+
+        log.info("Calibrator loaded for mlb: method=%s", _cal["method"])
+    except Exception as exc:
+        log.info("Calibrator load skipped (%s); using raw probabilities.", exc)
+
     grade_rows = []
-    tier_rows  = []
-    processed  = 0
+    tier_rows = []
+    processed = 0
 
     for (event_id, market_key), group in over_props.groupby(["event_id", "market_key"]):
         if processed >= batch_size:
             break
 
         for _, prop_row in group.iterrows():
-            player_id  = prop_row.get("player_id")
+            player_id = prop_row.get("player_id")
             player_name = prop_row["player_name"]
-            line_value  = prop_row["line_value"]
-            over_price  = prop_row["outcome_price"]
-            game_pk     = prop_row.get("game_pk")
+            line_value = prop_row["line_value"]
+            over_price = prop_row["outcome_price"]
+            game_pk = prop_row.get("game_pk")
 
             if pd.isna(player_id):
                 log.debug("Skipping %s %s — no player_id.", player_name, market_key)
@@ -1075,13 +1243,12 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
             # Use batting_stats.side for today's game if available;
             # fall back to checking which SP they're more likely to face
             # based on career BvP recency.
-            opp_pitcher_id   = None
+            opp_pitcher_id = None
             opp_pitcher_hand = None
 
             cfg = MARKET_CONFIG.get(market_key)
             if cfg is None:
-                log.debug("Skipping %s — market %s not in MARKET_CONFIG.",
-                          player_name, market_key)
+                log.debug("Skipping %s — market %s not in MARKET_CONFIG.", player_name, market_key)
                 continue
             family = cfg["family"]
 
@@ -1092,20 +1259,24 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
                 # Away batter faces home SP; home batter faces away SP
                 # We can't tell from props alone which team the batter is on.
                 # Use player_season_batting.team_id vs game teams to resolve.
-                batter_team_df = pd.read_sql(text("""
+                batter_team_df = pd.read_sql(
+                    text("""
                     SELECT team_id FROM mlb.player_season_batting
                     WHERE player_id = :pid ORDER BY season_year DESC
-                """), engine, params={"pid": player_id})
+                """),
+                    engine,
+                    params={"pid": player_id},
+                )
                 if not batter_team_df.empty:
                     batter_team = int(batter_team_df["team_id"].iloc[0])
                     away_team = ginfo.get("away_team_id")
                     home_team = ginfo.get("home_team_id")
                     if batter_team == away_team:
                         # Batter is away team, faces home SP
-                        opp_pitcher_id   = home_sp
+                        opp_pitcher_id = home_sp
                         opp_pitcher_hand = ginfo.get("home_pitcher_hand")
                     elif batter_team == home_team:
-                        opp_pitcher_id   = away_sp
+                        opp_pitcher_id = away_sp
                         opp_pitcher_hand = ginfo.get("away_pitcher_hand")
 
             # Fetch grade inputs
@@ -1123,96 +1294,255 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
                 if _game_pk_valid:
                     # pitcher is away or home — determine from pitcher map
                     ap_id = ginfo.get("away_pitcher_id")
-                    is_home = (ap_id != player_id)
+                    is_home = ap_id != player_id
                     opp_rate = fetch_opposing_lineup_rate(
-                        engine, int(game_pk), is_home, grade_date_str,
+                        engine,
+                        int(game_pk),
+                        is_home,
+                        grade_date_str,
                         rate_col=cfg["opp_rate_col"],
                     )
                 ps = pitcher_stats_map.get(player_id)
                 composite = compute_pitcher_market_grade(cfg, ps, game_log, opp_rate)
             elif family == "batter_count":
-                form_grade    = compute_game_avg_grade(game_log, cfg)
-                ev_grade      = compute_ev_grade(ts)
-                matchup_grade = compute_batter_matchup_grade(
-                    pitcher_stats, bvp, ts, market_key, opp_pitcher_hand
-                )
+                form_grade = compute_game_avg_grade(game_log, cfg)
+                ev_grade = compute_ev_grade(ts)
+                matchup_grade = compute_batter_matchup_grade(pitcher_stats, bvp, ts, market_key, opp_pitcher_hand)
                 composite = compute_composite(
-                    form_grade, ev_grade, matchup_grade,
-                    no_ev=market_key in ("batter_walks", "batter_strikeouts",
-                                         "batter_stolen_bases"),
+                    form_grade,
+                    ev_grade,
+                    matchup_grade,
+                    no_ev=market_key in ("batter_walks", "batter_strikeouts", "batter_stolen_bases"),
                 )
             else:  # batter_rate — hits / total bases / home runs
-                hit_grade     = compute_hit_rate_grade(ts, market_key)
-                ev_grade      = compute_ev_grade(ts)
-                matchup_grade = compute_batter_matchup_grade(
-                    pitcher_stats, bvp, ts, market_key, opp_pitcher_hand
-                )
+                hit_grade = compute_hit_rate_grade(ts, market_key)
+                ev_grade = compute_ev_grade(ts)
+                matchup_grade = compute_batter_matchup_grade(pitcher_stats, bvp, ts, market_key, opp_pitcher_hand)
                 composite = compute_composite(hit_grade, ev_grade, matchup_grade)
 
             # KDE tier lines
-            tiers = compute_kde_tier_lines(game_log, composite, market_key)
+            tiers = compute_kde_tier_lines(game_log, composite, market_key, calibrator=calibrator)
 
-            kde_window = (KDE_WINDOW_HOT if composite >= 80
-                         else KDE_WINDOW_MID if composite >= 50
-                         else KDE_WINDOW_COLD)
+            kde_window = KDE_WINDOW_HOT if composite >= 80 else KDE_WINDOW_MID if composite >= 50 else KDE_WINDOW_COLD
 
             # Write daily_grades row for the standard line (Over)
-            grade_rows.append({
-                "grade_date":     grade_date_str,
-                "event_id":       str(event_id),
-                "game_id":        str(int(game_pk)) if _game_pk_valid else None,
-                "player_id":      player_id,
-                "player_name":    player_name,
-                "market_key":     market_key,
-                "bookmaker_key":  BOOKMAKER,
-                "line_value":     float(line_value),
-                "outcome_name":   "Over",
-                "over_price":     int(over_price) if not pd.isna(over_price) else None,
-                "outcome":        None,
-                "composite_grade": round(composite, 2),
-            })
+            grade_rows.append(
+                {
+                    "grade_date": grade_date_str,
+                    "event_id": str(event_id),
+                    "game_id": str(int(game_pk)) if _game_pk_valid else None,
+                    "player_id": player_id,
+                    "player_name": player_name,
+                    "market_key": market_key,
+                    "bookmaker_key": BOOKMAKER,
+                    "line_value": float(line_value),
+                    "outcome_name": "Over",
+                    "over_price": int(over_price) if not pd.isna(over_price) else None,
+                    "outcome": None,
+                    "composite_grade": round(composite, 2),
+                }
+            )
 
             # Tier lines row
             tier_row = {
-                "grade_date":     grade_date_str,
-                "game_id":        str(int(game_pk)) if _game_pk_valid else None,
-                "player_id":      player_id,
-                "player_name":    player_name,
-                "market_key":     market_key,
+                "grade_date": grade_date_str,
+                "game_id": str(int(game_pk)) if _game_pk_valid else None,
+                "player_id": player_id,
+                "player_name": player_name,
+                "market_key": market_key,
                 "composite_grade": round(composite, 2),
-                "kde_window":     kde_window,
+                "kde_window": kde_window,
             }
             for tier_label in ("safe", "value", "highrisk", "lotto"):
                 t = tiers.get(tier_label)
                 if t:
                     line, prob = t
                     price = implied_to_american(prob)
-                    tier_row[f"{tier_label}_line"]  = line
-                    tier_row[f"{tier_label}_prob"]  = round(prob, 4)
+                    tier_row[f"{tier_label}_line"] = line
+                    tier_row[f"{tier_label}_prob"] = round(prob, 4)
                     tier_row[f"{tier_label}_price"] = price
             tier_rows.append(tier_row)
 
             processed += 1
 
-    grade_rows = validate_and_filter(grade_rows, "common.daily_grades",    engine, "mlb-grading.yml")
-    tier_rows  = validate_and_filter(tier_rows,  "common.player_tier_lines", engine, "mlb-grading.yml")
+    grade_rows = validate_and_filter(grade_rows, "common.daily_grades", engine, "mlb-grading.yml")
+    tier_rows = validate_and_filter(tier_rows, "common.player_tier_lines", engine, "mlb-grading.yml")
     upsert_daily_grades(engine, grade_rows)
     upsert_tier_lines(engine, tier_rows)
     log.info("Grading complete: %d players graded.", processed)
 
 
+# ---------------------------------------------------------------------------
+# Outcome settlement
+# ---------------------------------------------------------------------------
+
+# market_key -> (source table alias, trusted SQL stat expression). Config-only,
+# never user input — same trust model as MARKET_CONFIG["expr"]. Batter stats
+# come from the deduped mlb.batting_stats row (max plate_appearances per
+# (game_pk, player_id): batter_game_id embeds team_id, so a (game, player)
+# can carry two rows — same dedup the props board uses).
+OUTCOME_STAT_EXPRS = {
+    "batter_hits": "b.hits",
+    "batter_total_bases": "b.total_bases",
+    "batter_home_runs": "b.home_runs",
+    "batter_rbis": "b.rbi",
+    "batter_runs_scored": "b.runs",
+    "batter_hits_runs_rbis": "(b.hits + b.runs + b.rbi)",
+    "batter_singles": "(b.hits - b.doubles - b.triples - b.home_runs)",
+    "batter_doubles": "b.doubles",
+    "batter_triples": "b.triples",
+    "batter_walks": "b.walks",
+    "batter_strikeouts": "b.strikeouts",
+    "batter_stolen_bases": "b.stolen_bases",
+}
+OUTCOME_PITCHER_EXPRS = {
+    "pitcher_strikeouts": "p.strikeouts",
+    "pitcher_hits_allowed": "p.hits_allowed",
+    "pitcher_walks": "p.walks",
+    "pitcher_earned_runs": "p.earned_runs",
+}
+
+_MLB_MARKET_LIST = ", ".join(f"'{k}'" for k in list(OUTCOME_STAT_EXPRS) + list(OUTCOME_PITCHER_EXPRS))
+
+_OUTCOME_CASE = """CASE
+                WHEN actual.stat_val = dg.line_value THEN 'Push'
+                WHEN dg.outcome_name = 'Over'  AND actual.stat_val > dg.line_value THEN 'Won'
+                WHEN dg.outcome_name = 'Over'  AND actual.stat_val < dg.line_value THEN 'Lost'
+                WHEN dg.outcome_name = 'Under' AND actual.stat_val < dg.line_value THEN 'Won'
+                WHEN dg.outcome_name = 'Under' AND actual.stat_val > dg.line_value THEN 'Lost'
+                ELSE NULL
+            END"""
+
+_BATTER_ACTUAL = """(
+                SELECT game_pk, player_id, stat_val FROM (
+                    SELECT b.game_pk, b.player_id, {expr} AS stat_val,
+                           ROW_NUMBER() OVER (PARTITION BY b.game_pk, b.player_id
+                                              ORDER BY b.plate_appearances DESC) AS rn
+                    FROM mlb.batting_stats b
+                ) d WHERE d.rn = 1
+            )"""
+
+_PITCHER_ACTUAL = """(
+                SELECT p.game_pk, p.player_id, {expr} AS stat_val
+                FROM mlb.pitching_stats p
+            )"""
+
+
+def run_outcomes(engine, specific_date: str | None = None) -> int:
+    """Settle NULL-outcome MLB grade rows against final boxscores.
+
+    Won/Lost/Push from the realized stat; DNP when the game is final and the
+    player never appeared. Rows whose game_id is NULL settle via a
+    grade_date match when the player has exactly ONE boxscore row that date
+    (a doubleheader is ambiguous — left NULL and logged).
+    """
+    date_clause = "AND dg.grade_date = :gd" if specific_date else ""
+    params: dict = {"gd": specific_date} if specific_date else {}
+    total = 0
+
+    for market_key, expr in {**OUTCOME_STAT_EXPRS, **OUTCOME_PITCHER_EXPRS}.items():
+        actual_tpl = _PITCHER_ACTUAL if market_key in OUTCOME_PITCHER_EXPRS else _BATTER_ACTUAL
+        actual_sql = actual_tpl.format(expr=expr)
+
+        # Pass A: rows that carry a game_pk in game_id.
+        sql_a = text(f"""
+            UPDATE dg
+            SET dg.outcome = {_OUTCOME_CASE}
+            FROM common.daily_grades dg
+            JOIN mlb.games g
+              ON g.game_pk = TRY_CAST(dg.game_id AS BIGINT) AND g.game_status = 'F'
+            JOIN {actual_sql} actual
+              ON actual.game_pk = g.game_pk AND actual.player_id = dg.player_id
+            WHERE dg.outcome IS NULL
+              AND dg.player_id IS NOT NULL
+              AND dg.market_key = '{market_key}'
+              {date_clause}
+        """)
+        # Pass B: NULL game_id — settle by date when unambiguous (one final
+        # game row for the player that day).
+        src = "mlb.pitching_stats" if market_key in OUTCOME_PITCHER_EXPRS else "mlb.batting_stats"
+        alias = "p" if market_key in OUTCOME_PITCHER_EXPRS else "b"
+        sql_b = text(f"""
+            UPDATE dg
+            SET dg.outcome = {_OUTCOME_CASE}
+            FROM common.daily_grades dg
+            JOIN (
+                SELECT {alias}.player_id, CAST({alias}.game_date AS DATE) AS d,
+                       MAX({expr}) AS stat_val, COUNT(DISTINCT {alias}.game_pk) AS n_games
+                FROM {src} {alias}
+                JOIN mlb.games g ON g.game_pk = {alias}.game_pk AND g.game_status = 'F'
+                GROUP BY {alias}.player_id, CAST({alias}.game_date AS DATE)
+            ) actual
+              ON actual.player_id = dg.player_id
+             AND actual.d = dg.grade_date
+             AND actual.n_games = 1
+            WHERE dg.outcome IS NULL
+              AND dg.game_id IS NULL
+              AND dg.player_id IS NOT NULL
+              AND dg.market_key = '{market_key}'
+              {date_clause}
+        """)
+        with engine.begin() as conn:
+            n = conn.execute(sql_a, params).rowcount
+            n += conn.execute(sql_b, params).rowcount
+        if n:
+            log.info("  %s: %d rows settled.", market_key, n)
+            total += n
+
+    # DNP: the row's game is final but the player has no boxscore row of the
+    # market's kind. game_id-present rows only — a NULL game_id can't prove
+    # absence for a specific game.
+    for kind, src in (("batter", "mlb.batting_stats"), ("pitcher", "mlb.pitching_stats")):
+        keys = OUTCOME_PITCHER_EXPRS if kind == "pitcher" else OUTCOME_STAT_EXPRS
+        mkt_list = ", ".join(f"'{k}'" for k in keys)
+        dnp_sql = text(f"""
+            UPDATE dg
+            SET dg.outcome = 'DNP'
+            FROM common.daily_grades dg
+            JOIN mlb.games g
+              ON g.game_pk = TRY_CAST(dg.game_id AS BIGINT) AND g.game_status = 'F'
+            WHERE dg.outcome IS NULL
+              AND dg.player_id IS NOT NULL
+              AND dg.market_key IN ({mkt_list})
+              AND NOT EXISTS (
+                  SELECT 1 FROM {src} s
+                  WHERE s.player_id = dg.player_id AND s.game_pk = g.game_pk
+              )
+              {date_clause}
+        """)
+        with engine.begin() as conn:
+            n_dnp = conn.execute(dnp_sql, params).rowcount
+        if n_dnp:
+            log.info("  DNP (%s): %d rows.", kind, n_dnp)
+            total += n_dnp
+
+    pending = pd.read_sql(
+        text(f"""SELECT COUNT(*) AS n FROM common.daily_grades dg
+                 WHERE dg.outcome IS NULL AND dg.market_key IN ({_MLB_MARKET_LIST})
+                 {date_clause}"""),
+        engine,
+        params=params,
+    ).iloc[0]["n"]
+    log.info("Outcomes: %d rows settled; %d still pending (future or ambiguous).", total, int(pending))
+    return total
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--date",  default=None, help="Grade date YYYY-MM-DD (default: today CT)")
+    parser.add_argument("--mode", choices=["upcoming", "outcomes"], default="upcoming")
+    parser.add_argument("--date", default=None, help="Grade date YYYY-MM-DD (default: today CT)")
     parser.add_argument("--batch", type=int, default=BATCH_DEFAULT)
     parser.add_argument("--force", action="store_true", help="Re-grade even if already graded today")
     args = parser.parse_args()
 
-    grade_date_str = args.date or today_ct()
     engine = get_engine()
     ensure_schema(engine)
     ensure_integrity_tables(engine)
-    grade_date(engine, grade_date_str, args.batch, args.force)
+    if args.mode == "outcomes":
+        run_outcomes(engine, specific_date=args.date)
+    else:
+        grade_date_str = args.date or today_ct()
+        grade_date(engine, grade_date_str, args.batch, args.force)
     log.info("=== MLB grading complete ===")
 
 
