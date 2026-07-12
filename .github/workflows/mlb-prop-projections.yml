@@ -6,6 +6,12 @@ on:
     # and statcast (10:30) loads, so the model projects off fully-refreshed
     # history for the upcoming slate.
     - cron: "0 11 * * *"
+    # Safety-net tick. GitHub silently DROPS scheduled runs under load (the
+    # 11:00 tick was dropped 2026-07-12, blanking the slate-restricted
+    # /mlb/props board all morning). The job MERGEs on (batter, as_of, market)
+    # so a same-day double-run is a harmless no-op; this heals a dropped
+    # primary tick within ~2.5h instead of losing the whole day.
+    - cron: "30 13 * * *"
   workflow_dispatch:
     inputs:
       start_date:
