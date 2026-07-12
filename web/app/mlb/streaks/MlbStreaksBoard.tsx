@@ -9,6 +9,22 @@ import type {
   StreakDistRow,
   StreakDistResponse,
 } from "@/app/api/mlb-streaks/route";
+import { useMlbFilters } from "@/components/mlb/MlbFilterProvider";
+import type { CanonicalMarket } from "@/lib/mlbFilters";
+
+// Maps the shared-bar canonical market onto this board's local StreakMarket.
+// The shared bar only exposes a single "HRR" pill; the board still needs to
+// remember which sub-variant (>=2 or >=3) was last chosen, so `current` is
+// passed through and preserved when the family is HRR.
+function streakMarketFrom(
+  m: CanonicalMarket,
+  current: StreakMarket,
+): StreakMarket {
+  if (m === "HR") return "HR";
+  if (m === "HITS") return "HIT";
+  if (m === "HRR") return current === "HRR3" ? "HRR3" : "HRR2";
+  return current;
+}
 
 // Streaks / Trends (/mlb/streaks). Player-specific conditional next-game
 // frequencies for the current slate: given each batter's current run-state,
@@ -222,10 +238,16 @@ export default function MlbStreaksBoard() {
   const [loaded, setLoaded] = useState(false);
   const [err, setErr] = useState(false);
   const [market, setMarket] = useState<StreakMarket>("HR");
+  const { date: ctxDate, market: ctxMarket, game } = useMlbFilters();
+
+  useEffect(
+    () => setMarket((cur) => streakMarketFrom(ctxMarket, cur)),
+    [ctxMarket],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/mlb-streaks`, { cache: "no-store" })
+    fetch(`/api/mlb-streaks?date=${ctxDate}`, { cache: "no-store" })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -245,7 +267,7 @@ export default function MlbStreaksBoard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [ctxDate]);
 
   const forMarket = useMemo(
     () => (data?.rows ?? []).filter((r) => r.market === market),
@@ -266,6 +288,18 @@ export default function MlbStreaksBoard() {
       .sort((a, b) => key(b) - key(a) || b.len - a.len);
   }, [forMarket]);
 
+  // Client-side GAME filter from the shared bar — restrict to the two teams
+  // in the selected matchup. Applied AFTER the confidence-weighted sort above
+  // so relative rank among the kept rows is unaffected.
+  const shownRows = useMemo(
+    () =>
+      onStreak.filter(
+        (r) =>
+          !game || r.teamAbbr === game.awayAbbr || r.teamAbbr === game.homeAbbr,
+      ),
+    [onStreak, game],
+  );
+
   return (
     <div className="flex flex-col min-h-screen">
       <div className="px-3 py-3 border-b border-border">
@@ -280,21 +314,26 @@ export default function MlbStreaksBoard() {
         </div>
       </div>
 
-      <div className="px-3 py-2 flex items-center gap-2 border-b border-border-subtle">
-        {MARKETS.map((m) => (
-          <button
-            key={m.key}
-            onClick={() => setMarket(m.key)}
-            className={`text-xs px-2 py-1 rounded transition-colors ${
-              market === m.key
-                ? "bg-brand-muted text-brand"
-                : "text-fg-subtle hover:text-fg hover:bg-surface-hover"
-            }`}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
+      {(market === "HRR2" || market === "HRR3") && (
+        <div className="px-3 py-2 flex items-center gap-2 border-b border-border-subtle">
+          <span className="text-[10px] uppercase tracking-wide text-fg-subtle">
+            H+R+RBI
+          </span>
+          {(["HRR2", "HRR3"] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setMarket(k)}
+              className={`text-xs px-2 py-1 rounded transition-colors ${
+                market === k
+                  ? "bg-brand-muted text-brand"
+                  : "text-fg-subtle hover:text-fg hover:bg-surface-hover"
+              }`}
+            >
+              {k === "HRR2" ? "≥2" : "≥3"}
+            </button>
+          ))}
+        </div>
+      )}
 
       {!loaded ? (
         <div className="px-4 py-6 text-sm text-fg-subtle">Loading…</div>
@@ -302,7 +341,7 @@ export default function MlbStreaksBoard() {
         <div className="px-4 py-6 text-sm text-neg">
           Could not load streaks. Try again shortly.
         </div>
-      ) : onStreak.length === 0 ? (
+      ) : shownRows.length === 0 ? (
         <div className="px-4 py-10 text-sm text-fg-subtle">
           No batters on an active {market} streak in today&apos;s slate.
         </div>
@@ -318,7 +357,7 @@ export default function MlbStreaksBoard() {
               </tr>
             </thead>
             <tbody>
-              {onStreak.map((r) => (
+              {shownRows.map((r) => (
                 <ListRow key={`${r.batterId}-${r.market}`} r={r} />
               ))}
             </tbody>
