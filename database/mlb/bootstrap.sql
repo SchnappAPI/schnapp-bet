@@ -1,4 +1,4 @@
--- Generated 2026-07-04. Apply in order: common/odds schemas first, then sport schemas.
+-- Generated 2026-07-12. Apply in order: common/odds schemas first, then sport schemas.
 
 CREATE TABLE [mlb].[batter_context] (
     [game_date] DATE NOT NULL,
@@ -27,6 +27,21 @@ CREATE TABLE [mlb].[batter_projections] (
     [model_version] VARCHAR(20) NOT NULL,
     [updated_at] DATETIME2 DEFAULT (sysutcdatetime()) NOT NULL,
     CONSTRAINT [PK_batter_projections] PRIMARY KEY ([game_date], [game_pk], [batter_id], [market_key])
+);
+
+CREATE TABLE [mlb].[batter_prop_projections] (
+    [batter_id] INT NOT NULL,
+    [as_of_date] DATE NOT NULL,
+    [market] VARCHAR(8) NOT NULL,
+    [prob] DECIMAL(6,4) NOT NULL,
+    [base_rate] DECIMAL(6,4) NOT NULL,
+    [lift] DECIMAL(6,3) NOT NULL,
+    [tier] VARCHAR(12) NOT NULL,
+    [prior_games] INT NOT NULL,
+    [recent_barrels_pg] DECIMAL(5,3),
+    [model_version] VARCHAR(16) NOT NULL,
+    [created_at] DATETIME2 DEFAULT (sysutcdatetime()) NOT NULL,
+    CONSTRAINT [PK_batter_prop_projections] PRIMARY KEY ([batter_id], [as_of_date], [market])
 );
 
 CREATE TABLE [mlb].[batting_stats] (
@@ -445,6 +460,43 @@ CREATE TABLE [mlb].[player_season_batting] (
     [created_at] DATETIME2 DEFAULT (getutcdate()) NOT NULL,
     CONSTRAINT [PK_player_season_batting] PRIMARY KEY ([player_season_id])
 );
+
+CREATE TABLE [mlb].[player_streak_dist] (
+    [batter_id] INT NOT NULL,
+    [market] VARCHAR(8) NOT NULL,
+    [scope] VARCHAR(8) NOT NULL,
+    [state_type] VARCHAR(8) NOT NULL,
+    [state_len] INT NOT NULL,
+    [n_reached] INT NOT NULL,
+    [n_event_next] INT NOT NULL,
+    [freq] DECIMAL(5,3) NOT NULL,
+    [as_of_date] DATE NOT NULL,
+    [created_at] DATETIME2 DEFAULT (getutcdate()) NOT NULL,
+    CONSTRAINT [PK_player_streak_dist] PRIMARY KEY ([batter_id], [market], [scope], [state_type], [state_len])
+);
+
+CREATE TABLE [mlb].[player_streak_state] (
+    [batter_id] INT NOT NULL,
+    [as_of_date] DATE NOT NULL,
+    [market] VARCHAR(8) NOT NULL,
+    [season] INT NOT NULL,
+    [cur_state] VARCHAR(8) NOT NULL,
+    [cur_len] INT NOT NULL,
+    [streak_ceiling] INT,
+    [streak_ceiling_car] INT,
+    [typical_gap] INT,
+    [phase] VARCHAR(8),
+    [at_ceiling] BIT DEFAULT ((0)) NOT NULL,
+    [season_n] INT,
+    [season_hits] INT,
+    [season_freq] DECIMAL(5,3),
+    [career_n] INT,
+    [career_hits] INT,
+    [career_freq] DECIMAL(5,3),
+    [created_at] DATETIME2 DEFAULT (getutcdate()) NOT NULL,
+    CONSTRAINT [PK_player_streak_state] PRIMARY KEY ([batter_id], [as_of_date], [market])
+);
+CREATE INDEX [IX_player_streak_state_date] ON [mlb].[player_streak_state] ([as_of_date], [market], [batter_id]);
 
 CREATE TABLE [mlb].[player_trend_stats] (
     [batter_id] INT NOT NULL,
