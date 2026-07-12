@@ -7,6 +7,7 @@ import type {
   LiveHardHitGame,
   LiveHardHitPitcher,
   LiveHardHitResponse,
+  LiveWatchPlayer,
 } from "@/app/api/mlb-live-hardhit/route";
 import { useMlbFilters } from "@/components/mlb/MlbFilterProvider";
 import { resultColor, resultLabel, veloColor } from "./statcastFormat";
@@ -85,7 +86,14 @@ const NUM = "text-right px-2 py-1.5 tabular-nums whitespace-nowrap";
 
 // ---- Batted-ball table (flat, one row per at-bat, sortable) ----------------
 
-type BallSortKey = "abNumber" | "batterName" | "inning" | "ev" | "la" | "dist";
+type BallSortKey =
+  | "ts"
+  | "abNumber"
+  | "batterName"
+  | "inning"
+  | "ev"
+  | "la"
+  | "dist";
 
 function SortTh({
   label,
@@ -138,7 +146,8 @@ function BallRow({
         b.barrel ? "bg-neg-muted/40" : ""
       }`}
     >
-      <td className={`${NUM} text-fg-subtle`}>{b.abNumber ?? "-"}</td>
+      <td className={`${NUM} text-fg-subtle text-[11px]`}>{fmtClock(b.ts)}</td>
+      <td className={`${NUM} text-fg-disabled`}>{b.abNumber ?? "-"}</td>
       <td className="px-2 py-1.5">
         <PlayerLink id={b.batterId} name={b.batterName} teamAbbr={b.teamAbbr} />
       </td>
@@ -209,9 +218,15 @@ function BallTable({
         <thead>
           <tr className="text-fg-subtle border-b border-border">
             <SortTh
+              label="Time"
+              col="ts"
+              title="Wall-clock time the ball was hit (from the live feed) — sort for true most-recent-first across ALL games"
+              {...shared}
+            />
+            <SortTh
               label="AB#"
               col="abNumber"
-              title="Game at-bat number (1..N in PA order) — sort to order chronologically"
+              title="Game at-bat number (1..N per game) — a per-game counter, NOT a cross-game clock; use Time to order across games"
               {...shared}
             />
             <SortTh label="Batter" col="batterName" align="left" {...shared} />
@@ -326,6 +341,167 @@ function PitcherTable({
   );
 }
 
+// ---- Players to Watch (live loud contact × pre-game HR projection) ----------
+
+const REASON_TAG: Record<
+  LiveWatchPlayer["reason"],
+  { label: string; cls: string; title: string }
+> = {
+  barreled: {
+    label: "Barreled",
+    cls: "bg-neg-muted text-neg",
+    title: "Already barreled one — hard contact in the HR launch window",
+  },
+  just_missed: {
+    label: "Adjust LA",
+    cls: "bg-warn-muted text-warn",
+    title:
+      "Hit it hard and far but the launch angle stayed outside the HR window — the power is there, the angle isn't",
+  },
+  hard_contact: {
+    label: "Hard contact",
+    cls: "bg-surface text-fg-muted",
+    title: "Squaring the ball up — a hard-hit ball (EV 95+)",
+  },
+};
+
+function tierClass(tier: string | null): string {
+  if (!tier) return "text-fg-disabled";
+  const t = tier.toLowerCase();
+  if (t.includes("elite")) return "bg-pos-muted text-pos";
+  if (t.includes("high") || t.includes("above"))
+    return "bg-brand-muted text-brand";
+  if (t.includes("fade") || t.includes("low") || t.includes("below"))
+    return "text-fg-disabled";
+  return "text-fg-muted";
+}
+
+// The actionable note for an "Adjust LA" flag: how far it went, the angle, and
+// which way to correct — "needs loft" (too low) or "get on top" (too high).
+function missNote(w: LiveWatchPlayer): string | null {
+  if (w.reason !== "just_missed" || w.bestMissLa == null) return null;
+  const angle = `${Math.round(w.bestMissLa)}°`;
+  const far = w.bestMissDist != null ? `${Math.round(w.bestMissDist)} ft` : null;
+  const advice =
+    w.missDir === "low"
+      ? "needs loft"
+      : w.missDir === "high"
+        ? "get on top"
+        : "";
+  return [far, angle, advice].filter(Boolean).join(" · ");
+}
+
+function WatchRow({
+  w,
+  game,
+}: {
+  w: LiveWatchPlayer;
+  game: LiveHardHitGame | undefined;
+}) {
+  const tag = REASON_TAG[w.reason];
+  const note = missNote(w);
+  return (
+    <tr
+      className={`border-b border-border-subtle hover:bg-surface transition-colors ${
+        w.reason === "barreled" ? "bg-neg-muted/30" : ""
+      }`}
+    >
+      <td className="px-3 py-1.5">
+        <PlayerLink id={w.batterId} name={w.batterName} teamAbbr={w.teamAbbr} />
+      </td>
+      <td className="px-2 py-1.5 text-left text-[11px]">
+        <GameLink game={game} />
+      </td>
+      <td className="px-2 py-1.5">
+        <span
+          className={`rounded px-1 py-px text-[9px] font-medium uppercase ${tag.cls}`}
+          title={tag.title}
+        >
+          {tag.label}
+        </span>
+        {note && (
+          <span className="ml-1.5 text-[10px] text-fg-disabled">{note}</span>
+        )}
+      </td>
+      <td className={`${NUM} font-semibold ${veloColor(w.maxEv)}`}>
+        {dec(w.maxEv)}
+      </td>
+      <td
+        className={`${NUM} text-fg-subtle`}
+        title="Barrels / hard-hit balls this game"
+      >
+        {w.barrels}/{w.hardHit}
+      </td>
+      <td className="px-2 py-1.5 text-right whitespace-nowrap">
+        {w.hrProb != null ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="tabular-nums font-semibold text-fg">
+              {Math.round(w.hrProb * 100)}%
+            </span>
+            {w.hrLift != null && (
+              <span className="text-[10px] text-fg-disabled tabular-nums">
+                {w.hrLift.toFixed(1)}x
+              </span>
+            )}
+            {w.hrTier && (
+              <span
+                className={`rounded px-1 py-px text-[9px] font-medium uppercase ${tierClass(w.hrTier)}`}
+              >
+                {w.hrTier}
+              </span>
+            )}
+          </span>
+        ) : (
+          <span className="text-fg-disabled text-[11px]">—</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function WatchPanel({
+  rows,
+  gameByPk,
+}: {
+  rows: LiveWatchPlayer[];
+  gameByPk: Map<number, LiveHardHitGame>;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs text-fg-muted">
+        <thead>
+          <tr className="text-fg-subtle border-b border-border">
+            <th className="text-left px-3 py-1.5 font-medium">Batter</th>
+            <th className="text-left px-2 py-1.5 font-medium">Game</th>
+            <th className="text-left px-2 py-1.5 font-medium">Flag</th>
+            <th className={NUM} title="Loudest exit velocity this game (mph)">
+              Max EV
+            </th>
+            <th className={NUM} title="Barrels / hard-hit balls this game">
+              Brl/HH
+            </th>
+            <th
+              className="text-right px-2 py-1.5 font-medium"
+              title="Pre-game model HR probability, lift vs league average, and tier — blended with the live contact"
+            >
+              HR Proj
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((w) => (
+            <WatchRow
+              key={`${w.gamePk}-${w.batterId}`}
+              w={w}
+              game={gameByPk.get(w.gamePk)}
+            />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function SectionHeader({ title, note }: { title: string; note: string }) {
   return (
     <div className="px-3 pt-4 pb-1.5">
@@ -387,6 +563,9 @@ export default function MlbHardHitLive() {
   const shownPitchers = activeGame
     ? (data?.pitchers ?? []).filter((p) => p.gamePk === activeGame)
     : (data?.pitchers ?? []);
+  const shownWatch = activeGame
+    ? (data?.watch ?? []).filter((w) => w.gamePk === activeGame)
+    : (data?.watch ?? []);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -403,10 +582,12 @@ export default function MlbHardHitLive() {
           )}
         </div>
         <div className="text-[11px] text-fg-disabled mt-0.5">
-          Every batted ball, one row per at-bat, updating every 30s — filter by
-          game and click any column to sort (AB# for chronological order).
-          Sorted by exit velocity for HR-hunting; barrels (hard contact in the
-          HR launch window) are highlighted.
+          Players to Watch blends who is squaring the ball up right now with the
+          pre-game model HR projection. Below it, every batted ball, one row per
+          at-bat, updating every 30s — filter by game and click any column to
+          sort. Sort <span className="text-fg-subtle">Time</span> for true
+          most-recent-first across games (AB# is per-game). Default is exit
+          velocity for HR-hunting; barrels are highlighted.
         </div>
       </div>
 
@@ -420,9 +601,19 @@ export default function MlbHardHitLive() {
         </div>
       ) : (
         <div className="pb-6">
+          {shownWatch.length > 0 && (
+            <>
+              <SectionHeader
+                title={`Players to Watch — ${shownWatch.length}`}
+                note="Hitting it hard now × pre-game HR projection. Barreled = squared up in the HR window; Adjust LA = hit it hard and far but the launch angle missed. Ranked by the model's HR probability."
+              />
+              <WatchPanel rows={shownWatch} gameByPk={gameByPk} />
+            </>
+          )}
+
           <SectionHeader
             title={`Hitting It Hard — ${shownBalls.length} batted ball${shownBalls.length === 1 ? "" : "s"}`}
-            note="One row per at-bat. Barrel rows highlighted. Sort AB# for chronological order."
+            note="One row per at-bat. Barrel rows highlighted. Sort Time for most-recent-first across games."
           />
           <BallTable rows={shownBalls} gameByPk={gameByPk} />
 
