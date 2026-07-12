@@ -67,11 +67,13 @@ export function isFastSwing(batSpeed: number | null): boolean {
   return batSpeed != null && batSpeed >= FAST_SWING_BAT_SPEED;
 }
 
-// "Just missed" — hit hard (EV 95+) AND carried (dist >= JUST_MISSED_MIN_DIST)
-// but the launch angle sat OUTSIDE the barrel/HR window, so elite contact did
-// not become a homer. This is the "adjust the launch angle" signal: the power
-// is there, the angle is not. Mirrors barrel's EV/LA definitions above; the
-// distance floor keeps out scorched grounders that never had HR shape.
+// "Just missed" — hit hard (EV 95+) OR carried far (dist >= JUST_MISSED_MIN_DIST)
+// but with the launch angle OUTSIDE the barrel/HR window, so the contact did not
+// become a homer. This is the "adjust the launch angle" signal, and it grabs
+// both misses: hard contact at the wrong angle (a scorched grounder/liner) AND
+// a deep ball that got under the window (a warning-track fly that didn't need to
+// be 95 to travel). Either way it's one angle tweak from a homer. Mirrors
+// barrel's EV/LA definitions above; a launch angle is required to judge the miss.
 export const JUST_MISSED_MIN_DIST = 330; // ft — "hit it far"
 
 export function isJustMissed(
@@ -79,14 +81,11 @@ export function isJustMissed(
   la: number | null,
   dist: number | null,
 ): boolean {
-  return (
-    ev != null &&
-    la != null &&
-    dist != null &&
-    ev >= HARD_HIT_EV &&
-    dist >= JUST_MISSED_MIN_DIST &&
-    (la < BARREL_LA_MIN || la > BARREL_LA_MAX)
-  );
+  if (la == null) return false;
+  if (la >= BARREL_LA_MIN && la <= BARREL_LA_MAX) return false; // inside HR window
+  const hard = ev != null && ev >= HARD_HIT_EV;
+  const far = dist != null && dist >= JUST_MISSED_MIN_DIST;
+  return hard || far;
 }
 
 // Which way a just-missed ball's launch angle missed the HR window — the

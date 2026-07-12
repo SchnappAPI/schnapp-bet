@@ -356,7 +356,7 @@ const REASON_TAG: Record<
     label: "Adjust LA",
     cls: "bg-warn-muted text-warn",
     title:
-      "Hit it hard and far but the launch angle stayed outside the HR window — the power is there, the angle isn't",
+      "Hit it hard OR hit it far but the launch angle stayed outside the HR window — one angle tweak from a homer",
   },
   hard_contact: {
     label: "Hard contact",
@@ -605,7 +605,7 @@ export default function MlbHardHitLive() {
             <>
               <SectionHeader
                 title={`Players to Watch — ${shownWatch.length}`}
-                note="Hitting it hard now × pre-game HR projection. Barreled = squared up in the HR window; Adjust LA = hit it hard and far but the launch angle missed. Ranked by the model's HR probability."
+                note="Hitting it hard now × pre-game HR projection. Barreled = squared up in the HR window; Adjust LA = hit it hard or far but the launch angle missed. Ranked by the model's HR probability."
               />
               <WatchPanel rows={shownWatch} gameByPk={gameByPk} />
             </>
