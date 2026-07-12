@@ -5,7 +5,9 @@ import {
   Activity,
   ChevronsLeft,
   ChevronsRight,
+  Flame,
   Home,
+  LineChart,
   Lock,
   Target,
   Trophy,
@@ -123,6 +125,18 @@ export function Sidebar({
               href="/mlb/props"
               icon={<Target size={14} className="text-sport-mlb" />}
               label="Props"
+              collapsed={collapsed}
+            />
+            <SidebarLink
+              href="/mlb/streaks"
+              icon={<Flame size={14} className="text-sport-mlb" />}
+              label="Streaks"
+              collapsed={collapsed}
+            />
+            <SidebarLink
+              href="/mlb/transparency"
+              icon={<LineChart size={14} className="text-sport-mlb" />}
+              label="Transparency"
               collapsed={collapsed}
             />
           </div>
