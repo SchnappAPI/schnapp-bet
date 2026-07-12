@@ -12,21 +12,21 @@ on:
   schedule:
     # Sunday 06:00 UTC = Saturday late-night ET. Most NBA games finish
     # by then; outcome data is fully settled.
-    - cron: '0 6 * * 0'
+    - cron: "0 6 * * 0"
   workflow_dispatch:
     inputs:
       window_days:
-        description: 'Rolling window for calibration (default 30)'
+        description: "Rolling window for calibration (default 30)"
         required: false
-        default: '30'
+        default: "30"
       sport:
-        description: 'Sport key (default nba)'
+        description: "Sport: nba / mlb / nfl / all (default all)"
         required: false
-        default: 'nba'
+        default: "all"
       dry_run:
-        description: 'Compute but do not write (true/false)'
+        description: "Compute but do not write (true/false)"
         required: false
-        default: 'false'
+        default: "false"
 
 env:
   SQL_TRUST_CERT: "yes"
@@ -49,7 +49,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-
       - name: Load secrets from 1Password
         uses: 1password/load-secrets-action@v2
         with:
@@ -66,8 +65,8 @@ jobs:
       - name: Run weekly calibration
         env:
           WINDOW_DAYS: ${{ github.event.inputs.window_days || '30' }}
-          SPORT:       ${{ github.event.inputs.sport       || 'nba' }}
-          DRY_RUN:     ${{ github.event.inputs.dry_run     || 'false' }}
+          SPORT: ${{ github.event.inputs.sport       || 'all' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run     || 'false' }}
         run: |
           set -euo pipefail
           ARGS="--window-days $WINDOW_DAYS --sport $SPORT"

@@ -1,18 +1,18 @@
 """
 weekly_calibration.py
 
-Recalibrates the prop grading model on a rolling window of resolved
-tier-line outcomes. Writes a snapshot to common.grade_calibration_history
-for the transparency page trend chart, then replaces common.grade_calibration
-so daily grading uses the fresh calibrator.
+Recalibrates the prop grading models on a rolling window of resolved
+tier-line outcomes — one calibrator per sport (nba/mlb/nfl) via
+grading/calibration_core.py: candidate selection (identity / Platt /
+shrunk-isotonic) on a chronological holdout, published only when the
+winner beats the currently-active calibrator (gate), with Brier /
+log-loss / ECE snapshotted to common.grade_calibration_history.
 
-Per ADR-20260425-3: stop regrading historical data on every code change.
-Each daily run uses the latest calibrator from common.grade_calibration.
-This script (run weekly via Sunday 06:00 UTC cron) is the only writer of
-that table going forward.
+Per ADR-20260425-3: this script (Sunday 06:00 UTC cron) is the only
+writer of common.grade_calibration. Daily grading reads, never refits.
 
-Threshold for the safety cap: n >= 30. See sim_v2.py and
-threshold_test.py for the analysis behind this choice.
+The NBA logistic grade-weight fitting (market-group shadow backtest into
+common.grade_weights) is NBA-only: its feature set is NBA-native.
 
 Window: rolling 30 days by default. Configurable via --window-days.
 """
@@ -29,6 +29,8 @@ from scipy.optimize import minimize
 from scipy.special import expit
 from sqlalchemy import create_engine, text
 
+from grading.calibration_core import SPORTS, calibrate_sport, ensure_calibration_schema
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -36,44 +38,42 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# Well-sampled bucket qualification: n >= 30 (do not lower).
-WELL_SAMPLED_THRESHOLD = 30
+# Calibrator constants (bucket width, n>=30 cap rule, shrinkage, gate) live in
+# grading/calibration_core.py — this module only orchestrates.
 DEFAULT_WINDOW_DAYS = 30
-BUCKET_WIDTH = 0.05
-MIN_BUCKET_SIZE = 20  # bucket must have this many samples to participate at all
 
 # Logistic model constants
 LOGISTIC_WINDOW_DAYS = 90
 LOGISTIC_MIN_ROWS = 50  # skip a market group if fewer resolved outcomes
-LOGISTIC_C = 1.0        # inverse L2 regularization strength
-OPP_SHRINKAGE_K = 25    # prior-sample constant for hit_rate_opp shrinkage
-ROLE_VOL_SCALE = 15.0   # divide role_volatility by this to normalize to ~0-1
+LOGISTIC_C = 1.0  # inverse L2 regularization strength
+OPP_SHRINKAGE_K = 25  # prior-sample constant for hit_rate_opp shrinkage
+ROLE_VOL_SCALE = 15.0  # divide role_volatility by this to normalize to ~0-1
 
 # Shadow backtest split (chronological)
 BACKTEST_TRAIN_DAYS = 30
 BACKTEST_HOLDOUT_DAYS = 7
 
 MARKET_GROUP_MAP = {
-    "player_points":                              "Volume",
-    "player_points_alternate":                    "Volume",
-    "player_points_rebounds_assists":             "Volume",
-    "player_points_rebounds_assists_alternate":   "Volume",
-    "player_points_rebounds":                     "Volume",
-    "player_points_rebounds_alternate":           "Volume",
-    "player_points_assists":                      "Volume",
-    "player_points_assists_alternate":            "Volume",
-    "player_rebounds_assists":                    "Volume",
-    "player_rebounds_assists_alternate":          "Volume",
-    "player_threes":                              "Rate",
-    "player_threes_alternate":                    "Rate",
-    "player_steals":                              "Rate",
-    "player_steals_alternate":                    "Rate",
-    "player_blocks":                              "Rate",
-    "player_blocks_alternate":                    "Rate",
-    "player_rebounds":                            "Counting",
-    "player_rebounds_alternate":                  "Counting",
-    "player_assists":                             "Counting",
-    "player_assists_alternate":                   "Counting",
+    "player_points": "Volume",
+    "player_points_alternate": "Volume",
+    "player_points_rebounds_assists": "Volume",
+    "player_points_rebounds_assists_alternate": "Volume",
+    "player_points_rebounds": "Volume",
+    "player_points_rebounds_alternate": "Volume",
+    "player_points_assists": "Volume",
+    "player_points_assists_alternate": "Volume",
+    "player_rebounds_assists": "Volume",
+    "player_rebounds_assists_alternate": "Volume",
+    "player_threes": "Rate",
+    "player_threes_alternate": "Rate",
+    "player_steals": "Rate",
+    "player_steals_alternate": "Rate",
+    "player_blocks": "Rate",
+    "player_blocks_alternate": "Rate",
+    "player_rebounds": "Counting",
+    "player_rebounds_alternate": "Counting",
+    "player_assists": "Counting",
+    "player_assists_alternate": "Counting",
 }
 
 LOGISTIC_FEATURE_NAMES = [
@@ -101,229 +101,11 @@ def get_engine():
     return create_engine(conn_str, fast_executemany=False)
 
 
-def fetch_resolved_corpus(engine, window_days):
-    """Pull every resolved tier-line outcome inside the rolling window.
-
-    Reads the immutable corpus: each row is one (tier_line, outcome) pair
-    where the outcome is from common.daily_grades. Joins on the natural key.
-    """
-    sql = text(f"""
-        SELECT tp.raw_prob,
-               tp.line,
-               CASE WHEN dg.outcome = 'Won' THEN 1.0 ELSE 0.0 END AS hit
-          FROM (
-              SELECT grade_date, game_id, player_id, market_key,
-                     safe_line AS line, safe_prob AS raw_prob
-                FROM common.player_tier_lines
-               WHERE safe_line IS NOT NULL AND safe_prob IS NOT NULL
-              UNION ALL
-              SELECT grade_date, game_id, player_id, market_key,
-                     value_line, value_prob
-                FROM common.player_tier_lines
-               WHERE value_line IS NOT NULL AND value_prob IS NOT NULL
-              UNION ALL
-              SELECT grade_date, game_id, player_id, market_key,
-                     highrisk_line, highrisk_prob
-                FROM common.player_tier_lines
-               WHERE highrisk_line IS NOT NULL AND highrisk_prob IS NOT NULL
-              UNION ALL
-              SELECT grade_date, game_id, player_id, market_key,
-                     lotto_line, lotto_prob
-                FROM common.player_tier_lines
-               WHERE lotto_line IS NOT NULL AND lotto_prob IS NOT NULL
-          ) tp
-         INNER JOIN common.daily_grades dg
-                ON dg.grade_date = tp.grade_date
-               AND dg.game_id    = tp.game_id
-               AND dg.player_id  = tp.player_id
-               AND dg.market_key = tp.market_key
-               AND dg.line_value = tp.line
-               AND dg.outcome_name = 'Over'
-         WHERE dg.outcome IN ('Won', 'Lost')
-           AND tp.grade_date >= DATEADD(day, -:window, CAST(GETUTCDATE() AS DATE))
-    """)
-    df = pd.read_sql(sql, engine, params={"window": int(window_days)})
-    return df
-
-
-def pav_isotonic(y, w):
-    """Pool-adjacent-violators for non-decreasing isotonic regression.
-
-    Inlined so weekly_calibration.py has no cross-module dependency on
-    grading code (it can run standalone in a thin workflow).
-    """
-    blocks = [[float(y[i]) * float(w[i]), float(w[i]), 1] for i in range(len(y))]
-    i = 0
-    while i < len(blocks) - 1:
-        left_mean = blocks[i][0] / blocks[i][1]
-        right_mean = blocks[i + 1][0] / blocks[i + 1][1]
-        if left_mean > right_mean:
-            merged = [
-                blocks[i][0] + blocks[i + 1][0],
-                blocks[i][1] + blocks[i + 1][1],
-                blocks[i][2] + blocks[i + 1][2],
-            ]
-            blocks[i:i + 2] = [merged]
-            if i > 0:
-                i -= 1
-        else:
-            i += 1
-    out = []
-    for b in blocks:
-        m = b[0] / b[1]
-        out.extend([m] * b[2])
-    return np.array(out)
-
-
-def fit_buckets(df):
-    """Bucket the corpus into bucket_width slices and compute empirical +
-    isotonic hit rates. Returns a tuple (DataFrame, max_well_sampled_rate).
-
-    DataFrame columns: bucket_min, bucket_max, n, empirical_hit_rate,
-    isotonic_hit_rate.
-
-    max_well_sampled_rate is max(empirical_hit_rate) where n >= WELL_SAMPLED_THRESHOLD.
-    Falls back to None when no buckets clear the threshold.
-    """
-    if df is None or len(df) == 0:
-        return pd.DataFrame(), None
-
-    df = df.copy()
-    df["bucket"] = (df["raw_prob"] // BUCKET_WIDTH) * BUCKET_WIDTH
-    stats = (
-        df.groupby("bucket")
-          .agg(n=("hit", "size"), hit_rate=("hit", "mean"))
-          .reset_index()
-          .sort_values("bucket")
-    )
-    stats = stats[stats["n"] >= MIN_BUCKET_SIZE].reset_index(drop=True)
-    if len(stats) < 3:
-        return pd.DataFrame(), None
-
-    stats["iso_hit_rate"] = pav_isotonic(stats["hit_rate"].values, stats["n"].values)
-
-    well = stats[stats["n"] >= WELL_SAMPLED_THRESHOLD]
-    if len(well) > 0:
-        cap = float(well["hit_rate"].max())
-    else:
-        cap = float(stats["iso_hit_rate"].max())
-
-    out = pd.DataFrame({
-        "bucket_min": stats["bucket"].astype(float).values,
-        "bucket_max": (stats["bucket"] + BUCKET_WIDTH).astype(float).values,
-        "n": stats["n"].astype(int).values,
-        "empirical_hit_rate": stats["hit_rate"].astype(float).values,
-        "isotonic_hit_rate": stats["iso_hit_rate"].astype(float).values,
-    })
-    return out, cap
-
-
-def write_snapshot(engine, buckets, cap, window_days, sport="nba", model_version=None):
-    """Append one snapshot row per bucket to common.grade_calibration_history.
-
-    Idempotent on (snapshot_date, sport, bucket_min): re-runs on the same
-    day overwrite via DELETE + INSERT.
-    """
-    if buckets.empty:
-        log.warning("No bucket data; skipping snapshot.")
-        return 0
-    snapshot_date = datetime.now(timezone.utc).date()
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                "DELETE FROM common.grade_calibration_history "
-                "WHERE snapshot_date = :snap AND sport = :sport"
-            ),
-            {"snap": snapshot_date, "sport": sport},
-        )
-        for _, row in buckets.iterrows():
-            conn.execute(
-                text("""
-                    INSERT INTO common.grade_calibration_history
-                        (snapshot_date, sport, bucket_min, bucket_max,
-                         sample_size, empirical_hit_rate, isotonic_hit_rate,
-                         max_well_sampled_rate, window_days, model_version)
-                    VALUES (:snap, :sport, :bmin, :bmax, :n, :ehr, :ihr,
-                            :cap, :wd, :mv)
-                """),
-                {
-                    "snap": snapshot_date,
-                    "sport": sport,
-                    "bmin": float(row["bucket_min"]),
-                    "bmax": float(row["bucket_max"]),
-                    "n": int(row["n"]),
-                    "ehr": float(row["empirical_hit_rate"]),
-                    "ihr": float(row["isotonic_hit_rate"]),
-                    "cap": float(cap) if cap is not None else None,
-                    "wd": int(window_days),
-                    "mv": model_version,
-                },
-            )
-    log.info(f"Wrote {len(buckets)} bucket rows to grade_calibration_history "
-             f"for snapshot_date={snapshot_date}, sport={sport}.")
-    return len(buckets)
-
-
-def replace_active_calibration(engine, buckets, cap):
-    """Replace common.grade_calibration with the latest fit. The daily grading
-    run reads from this table, so this is what makes a new calibrator active.
-
-    Idempotent (DELETE + INSERT). Schema columns are added on demand if missing.
-    """
-    if buckets.empty:
-        log.warning("No buckets to publish; leaving common.grade_calibration unchanged.")
-        return 0
-    with engine.begin() as conn:
-        conn.execute(text("""
-            IF NOT EXISTS (SELECT 1 FROM sys.objects
-                           WHERE object_id = OBJECT_ID('common.grade_calibration') AND type = 'U')
-            BEGIN
-                CREATE TABLE common.grade_calibration (
-                    bucket_min          FLOAT NOT NULL,
-                    bucket_max          FLOAT NOT NULL,
-                    sample_size         INT   NOT NULL,
-                    empirical_hit_rate  FLOAT NOT NULL,
-                    isotonic_hit_rate   FLOAT NOT NULL,
-                    last_updated        DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
-                    CONSTRAINT pk_grade_calibration PRIMARY KEY (bucket_min)
-                )
-            END
-        """))
-        conn.execute(text("""
-            IF NOT EXISTS (
-                SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA='common' AND TABLE_NAME='grade_calibration'
-                  AND COLUMN_NAME='max_well_sampled_rate'
-            )
-            ALTER TABLE common.grade_calibration ADD max_well_sampled_rate FLOAT NULL
-        """))
-        conn.execute(text("DELETE FROM common.grade_calibration"))
-        for _, row in buckets.iterrows():
-            conn.execute(
-                text("""
-                    INSERT INTO common.grade_calibration
-                        (bucket_min, bucket_max, sample_size, empirical_hit_rate,
-                         isotonic_hit_rate, max_well_sampled_rate)
-                    VALUES (:bmin, :bmax, :n, :ehr, :ihr, :cap)
-                """),
-                {
-                    "bmin": float(row["bucket_min"]),
-                    "bmax": float(row["bucket_max"]),
-                    "n": int(row["n"]),
-                    "ehr": float(row["empirical_hit_rate"]),
-                    "ihr": float(row["isotonic_hit_rate"]),
-                    "cap": float(cap) if cap is not None else None,
-                },
-            )
-    log.info(f"Replaced common.grade_calibration with {len(buckets)} bucket rows. "
-             f"Cap = {cap:.4f}." if cap else "No cap.")
-    return len(buckets)
-
-
 def ensure_grade_weights_table(engine):
     """Create common.grade_weights if it does not exist."""
     with engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             IF NOT EXISTS (SELECT 1 FROM sys.objects
                            WHERE object_id = OBJECT_ID('common.grade_weights') AND type = 'U')
             BEGIN
@@ -343,13 +125,15 @@ def ensure_grade_weights_table(engine):
                 CREATE INDEX ix_grade_weights_group_active
                     ON common.grade_weights (market_group, is_active, effective_from DESC);
             END
-        """))
+        """)
+        )
 
 
 def ensure_calibration_log_table(engine):
     """Create common.calibration_history if it does not exist."""
     with engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             IF NOT EXISTS (SELECT 1 FROM sys.objects
                            WHERE object_id = OBJECT_ID('common.calibration_history') AND type = 'U')
             BEGIN
@@ -366,13 +150,15 @@ def ensure_calibration_log_table(engine):
                     created_at       DATETIME2    NOT NULL DEFAULT GETUTCDATE()
                 );
             END
-        """))
+        """)
+        )
 
 
 def ensure_model_performance_table(engine):
     """Create common.model_performance if it does not exist."""
     with engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             IF NOT EXISTS (SELECT 1 FROM sys.objects
                            WHERE object_id = OBJECT_ID('common.model_performance') AND type = 'U')
             BEGIN
@@ -390,7 +176,8 @@ def ensure_model_performance_table(engine):
                     CONSTRAINT uq_model_performance UNIQUE (snapshot_date, market_group)
                 );
             END
-        """))
+        """)
+        )
 
 
 def fetch_resolved_for_performance(engine, window_days):
@@ -418,8 +205,9 @@ def fetch_resolved_for_performance(engine, window_days):
     return pd.read_sql(sql, engine, params={"window_neg": -int(window_days)})
 
 
-def write_calibration_log(engine, market_group, n_train, n_holdout,
-                          candidate_score, production_score, weights_updated, model_version):
+def write_calibration_log(
+    engine, market_group, n_train, n_holdout, candidate_score, production_score, weights_updated, model_version
+):
     """Upsert one calibration log row for (snapshot_date, market_group)."""
     snapshot_date = datetime.now(timezone.utc).date()
     with engine.begin() as conn:
@@ -448,8 +236,10 @@ def write_calibration_log(engine, market_group, n_train, n_holdout,
                 "mv": model_version,
             },
         )
-    log.info(f"Logged calibration: group={market_group}, candidate={candidate_score}, "
-             f"production={production_score}, updated={weights_updated}.")
+    log.info(
+        f"Logged calibration: group={market_group}, candidate={candidate_score}, "
+        f"production={production_score}, updated={weights_updated}."
+    )
 
 
 def fetch_grade_corpus(engine, window_days):
@@ -512,15 +302,21 @@ def assemble_features(df_group):
     h_opp = df["hit_rate_opp"].fillna(pop_mean)
     df["hit_rate_opp_shrunk"] = (n_opp * h_opp + OPP_SHRINKAGE_K * pop_mean) / (n_opp + OPP_SHRINKAGE_K)
 
-    df["log_effective_n"]    = np.log1p(df["effective_n"].clip(lower=0))
-    df["momentum_norm"]      = df["momentum_grade"].fillna(50.0) / 100.0
-    df["pattern_norm"]       = df["pattern_grade"].fillna(50.0) / 100.0
+    df["log_effective_n"] = np.log1p(df["effective_n"].clip(lower=0))
+    df["momentum_norm"] = df["momentum_grade"].fillna(50.0) / 100.0
+    df["pattern_norm"] = df["pattern_grade"].fillna(50.0) / 100.0
     df["role_volatility_norm"] = df["role_volatility"].fillna(0.0) / ROLE_VOL_SCALE
-    df["opp_ratio_minutes"]  = df["opp_ratio_minutes"].fillna(1.0).clip(0.1, 5.0)
+    df["opp_ratio_minutes"] = df["opp_ratio_minutes"].fillna(1.0).clip(0.1, 5.0)
 
-    required = ["relevance_hit_rate", "log_effective_n", "momentum_norm",
-                "pattern_norm", "hit_rate_opp_shrunk", "role_volatility_norm",
-                "opp_ratio_minutes"]
+    required = [
+        "relevance_hit_rate",
+        "log_effective_n",
+        "momentum_norm",
+        "pattern_norm",
+        "hit_rate_opp_shrunk",
+        "role_volatility_norm",
+        "opp_ratio_minutes",
+    ]
     before = len(df)
     df = df.dropna(subset=required)
     dropped = before - len(df)
@@ -574,11 +370,11 @@ def score_holdout(df_holdout, coef, intercept, pop_mean):
     n_opp = df["sample_size_opp"].fillna(0)
     h_opp = df["hit_rate_opp"].fillna(pop_mean)
     df["hit_rate_opp_shrunk"] = (n_opp * h_opp + OPP_SHRINKAGE_K * pop_mean) / (n_opp + OPP_SHRINKAGE_K)
-    df["log_effective_n"]      = np.log1p(df["effective_n"].clip(lower=0))
-    df["momentum_norm"]        = df["momentum_grade"].fillna(50.0) / 100.0
-    df["pattern_norm"]         = df["pattern_grade"].fillna(50.0) / 100.0
+    df["log_effective_n"] = np.log1p(df["effective_n"].clip(lower=0))
+    df["momentum_norm"] = df["momentum_grade"].fillna(50.0) / 100.0
+    df["pattern_norm"] = df["pattern_grade"].fillna(50.0) / 100.0
     df["role_volatility_norm"] = df["role_volatility"].fillna(0.0) / ROLE_VOL_SCALE
-    df["opp_ratio_minutes"]    = df["opp_ratio_minutes"].fillna(1.0).clip(0.1, 5.0)
+    df["opp_ratio_minutes"] = df["opp_ratio_minutes"].fillna(1.0).clip(0.1, 5.0)
 
     required = LOGISTIC_FEATURE_NAMES + ["over_price"]
     df = df.dropna(subset=required)
@@ -655,29 +451,27 @@ def write_model_performance(engine, df, model_version):
         ev_valid = g["ev_pct"].dropna()
         avg_ev_pct = float(ev_valid.mean()) if not ev_valid.empty else None
 
-        pos_ev = g[g["model_prob"].notna() & g["implied_prob"].notna()
-                   & (g["model_prob"] > g["implied_prob"])]
+        pos_ev = g[g["model_prob"].notna() & g["implied_prob"].notna() & (g["model_prob"] > g["implied_prob"])]
         pws = float(pos_ev["ev_pct"].sum()) if not pos_ev.empty else 0.0
 
         valid_corr = g[["composite_grade", "outcome_binary"]].dropna()
         if len(valid_corr) >= 2:
-            corr = float(np.corrcoef(
-                valid_corr["composite_grade"].values,
-                valid_corr["outcome_binary"].values
-            )[0, 1])
+            corr = float(np.corrcoef(valid_corr["composite_grade"].values, valid_corr["outcome_binary"].values)[0, 1])
         else:
             corr = None
 
-        rows.append({
-            "snap": snapshot_date,
-            "mv":   model_version,
-            "g":    group,
-            "n":    n,
-            "hr":   hit_rate,
-            "aev":  avg_ev_pct,
-            "pws":  pws,
-            "cgc":  corr,
-        })
+        rows.append(
+            {
+                "snap": snapshot_date,
+                "mv": model_version,
+                "g": group,
+                "n": n,
+                "hr": hit_rate,
+                "aev": avg_ev_pct,
+                "pws": pws,
+                "cgc": corr,
+            }
+        )
 
     if not rows:
         log.warning("model_performance: no groups produced rows; nothing written.")
@@ -703,8 +497,9 @@ def write_model_performance(engine, df, model_version):
     return len(rows)
 
 
-def write_grade_weights(engine, market_group, coef, intercept, feature_names, model_version,
-                        holdout_score=None, production_score=None):
+def write_grade_weights(
+    engine, market_group, coef, intercept, feature_names, model_version, holdout_score=None, production_score=None
+):
     """Deactivate prior weights for this market group and insert fresh rows.
 
     Each feature gets its own row; the intercept is repeated on all rows so
@@ -723,10 +518,15 @@ def write_grade_weights(engine, market_group, coef, intercept, feature_names, mo
                          holdout_score, production_score, is_active, model_version)
                     VALUES (:g, :fn, :c, :b, :hs, :ps, 1, :mv)
                 """),
-                {"g": market_group, "fn": fname, "c": float(c), "b": intercept,
-                 "hs": float(holdout_score) if holdout_score is not None else None,
-                 "ps": float(production_score) if production_score is not None else None,
-                 "mv": model_version},
+                {
+                    "g": market_group,
+                    "fn": fname,
+                    "c": float(c),
+                    "b": intercept,
+                    "hs": float(holdout_score) if holdout_score is not None else None,
+                    "ps": float(production_score) if production_score is not None else None,
+                    "mv": model_version,
+                },
             )
     log.info(f"Wrote {len(feature_names)} weight rows for group={market_group}.")
 
@@ -764,8 +564,7 @@ def fit_logistic_models(engine, model_version):
         X, y, feature_names = assemble_features(df_train)
         if X is None:
             log.warning(f"Group {group}: fewer than {LOGISTIC_MIN_ROWS} train rows — skipping.")
-            write_calibration_log(engine, group, len(df_train), len(df_holdout),
-                                  None, None, False, model_version)
+            write_calibration_log(engine, group, len(df_train), len(df_holdout), None, None, False, model_version)
             continue
 
         coef, intercept = _fit_logistic(X, y)
@@ -782,71 +581,78 @@ def fit_logistic_models(engine, model_version):
         )
 
         if weights_updated:
-            write_grade_weights(engine, group, coef, intercept, feature_names,
-                                model_version, holdout_score=candidate_score,
-                                production_score=production_score)
+            write_grade_weights(
+                engine,
+                group,
+                coef,
+                intercept,
+                feature_names,
+                model_version,
+                holdout_score=candidate_score,
+                production_score=production_score,
+            )
 
-        write_calibration_log(engine, group, len(df_train), n_scored,
-                              candidate_score, production_score, weights_updated, model_version)
+        write_calibration_log(
+            engine, group, len(df_train), n_scored, candidate_score, production_score, weights_updated, model_version
+        )
 
 
 def main():
     parser = argparse.ArgumentParser(description="Weekly recalibration of the grading model")
     parser.add_argument("--window-days", type=int, default=DEFAULT_WINDOW_DAYS)
-    parser.add_argument("--sport", type=str, default="nba")
-    parser.add_argument("--model-version", type=str, default=None,
-                        help="Model version stamp to record on the snapshot. "
-                             "Defaults to looking up the most recent on common.daily_grades.")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Compute the calibrator but do not write to DB.")
+    parser.add_argument("--sport", type=str, default="all", help="nba | mlb | nfl | all (default all)")
+    parser.add_argument(
+        "--model-version",
+        type=str,
+        default=None,
+        help="Model version stamp to record on the snapshot. "
+        "Defaults to looking up the most recent on common.daily_grades.",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Compute the calibrator but do not write to DB.")
     args = parser.parse_args()
 
     engine = get_engine()
-    log.info(f"Window: {args.window_days} days. Sport: {args.sport}.")
+    sports = list(SPORTS) if args.sport == "all" else [args.sport]
+    log.info(f"Window: {args.window_days} days. Sports: {sports}.")
 
-    # Determine model_version stamp from latest stamped row, if not provided.
-    model_version = args.model_version
-    if model_version is None:
+    if not args.dry_run:
+        ensure_calibration_schema(engine)
+
+    def latest_model_version(sport):
+        if args.model_version is not None:
+            return args.model_version
         with engine.connect() as conn:
-            row = conn.execute(text("""
-                SELECT TOP 1 model_version
-                  FROM common.daily_grades
-                 WHERE model_version IS NOT NULL
-              ORDER BY grade_date DESC, grade_id DESC
-            """)).fetchone()
-            model_version = row[0] if row else None
-    log.info(f"Model version stamp: {model_version}")
+            row = conn.execute(
+                text("""
+                    SELECT TOP 1 model_version
+                      FROM common.daily_grades
+                     WHERE model_version IS NOT NULL AND sport = :s
+                  ORDER BY grade_date DESC, grade_id DESC
+                """),
+                {"s": sport},
+            ).fetchone()
+            return row[0] if row else None
 
-    df = fetch_resolved_corpus(engine, args.window_days)
-    log.info(f"Resolved corpus: {len(df)} rows in last {args.window_days} days.")
+    for sport in sports:
+        model_version = latest_model_version(sport)
+        log.info(f"[{sport}] model version stamp: {model_version}")
+        result = calibrate_sport(engine, sport, args.window_days, model_version, dry_run=args.dry_run)
+        log.info(f"[{sport}] calibration result: {result}")
 
-    if len(df) < 100:
-        log.warning(f"Only {len(df)} rows; need >= 100 for a meaningful calibrator.")
-        log.warning("Not writing anything. Will retry next week.")
-        return 0
+    if "nba" in sports:
+        if args.dry_run:
+            log.info("Dry run; skipping NBA logistic fitting + model performance.")
+        else:
+            log.info("Fitting NBA logistic grade models...")
+            try:
+                fit_logistic_models(engine, latest_model_version("nba"))
+            except Exception as exc:
+                log.error(f"Logistic model fitting failed: {exc}", exc_info=True)
+                raise
 
-    buckets, cap = fit_buckets(df)
-    log.info(f"Fit produced {len(buckets)} qualifying buckets. Cap = {cap}")
-
-    if args.dry_run:
-        log.info("Dry run; not writing anything. Bucket preview:")
-        print(buckets.to_string(index=False))
-        return 0
-
-    write_snapshot(engine, buckets, cap, args.window_days,
-                   sport=args.sport, model_version=model_version)
-    replace_active_calibration(engine, buckets, cap)
-
-    log.info("Fitting logistic grade models...")
-    try:
-        fit_logistic_models(engine, model_version)
-    except Exception as exc:
-        log.error(f"Logistic model fitting failed: {exc}", exc_info=True)
-        raise
-
-    log.info("Writing model performance snapshot...")
-    df_perf = fetch_resolved_for_performance(engine, args.window_days)
-    write_model_performance(engine, df_perf, model_version)
+            log.info("Writing NBA model performance snapshot...")
+            df_perf = fetch_resolved_for_performance(engine, args.window_days)
+            write_model_performance(engine, df_perf, latest_model_version("nba"))
 
     log.info("Weekly calibration done.")
     return 0
