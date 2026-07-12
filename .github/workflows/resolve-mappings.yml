@@ -8,17 +8,17 @@ name: Mapping Resolver
 
 on:
   schedule:
-    - cron: '30 10 * * *'
+    - cron: "30 10 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry run — no DB writes and no issue creation'
+        description: "Dry run — no DB writes and no issue creation"
         required: true
-        default: 'false'
+        default: "false"
         type: choice
         options:
-          - 'false'
-          - 'true'
+          - "false"
+          - "true"
 
 env:
   SQL_TRUST_CERT: "yes"
@@ -39,7 +39,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
 
       - name: Load secrets from 1Password
         uses: 1password/load-secrets-action@v2
@@ -119,7 +118,7 @@ jobs:
                       if entity_type == 'player' and sport == 'nba':
                           rows = conn.execute(text('SELECT player_id, player_name AS name FROM nba.players')).fetchall()
                       elif entity_type == 'player' and sport == 'mlb':
-                          rows = conn.execute(text('SELECT player_id, full_name AS name FROM mlb.players')).fetchall()
+                          rows = conn.execute(text('SELECT player_id, player_name AS name FROM mlb.players')).fetchall()
                       elif entity_type == 'player' and sport == 'nfl':
                           rows = conn.execute(text('SELECT player_id, player_name AS name FROM nfl.players WHERE player_name IS NOT NULL')).fetchall()
               except Exception as e:
