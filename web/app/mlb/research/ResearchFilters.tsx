@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import type { SlateGame } from "@/app/api/mlb/research/slate/route";
 
 // Slicer row for /mlb/research, URL-search-param driven like
-// web/components/nba/PlayerLogFilters.tsx: game selector, date-range
-// chips, pitcher-hand toggle, AB-number chips.
+// web/components/nba/PlayerLogFilters.tsx: date-range chips, pitcher-hand
+// toggle, AB-number chips. Game + date are owned by the shared filter bar
+// (web/app/mlb/layout.tsx / useMlbFilters) — this component only carries
+// the research-specific slicers.
 
 export const RANGE_OPTIONS: {
   key: string;
@@ -20,15 +21,7 @@ export const RANGE_OPTIONS: {
 
 const FILTER_KEYS = ["range", "hand", "abNum"] as const;
 
-export default function ResearchFilters({
-  basePath,
-  games,
-  selectedGamePk,
-}: {
-  basePath: string;
-  games: SlateGame[];
-  selectedGamePk: number | null;
-}) {
+export default function ResearchFilters({ basePath }: { basePath: string }) {
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -53,24 +46,7 @@ export default function ResearchFilters({
 
   return (
     <div className="border-b border-border bg-surface px-4 py-3 text-xs">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-fg-disabled uppercase tracking-wider text-[10px]">
-          Game
-        </span>
-        {games.map((g) => (
-          <Chip
-            key={g.gamePk}
-            active={g.gamePk === selectedGamePk}
-            onClick={() => writeParams({ gamePk: String(g.gamePk) })}
-            label={g.gameDisplay}
-          />
-        ))}
-        {games.length === 0 && (
-          <span className="text-fg-subtle">No games on this date.</span>
-        )}
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="text-fg-disabled uppercase tracking-wider text-[10px]">
           Range
         </span>

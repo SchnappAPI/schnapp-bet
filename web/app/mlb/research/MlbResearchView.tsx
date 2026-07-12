@@ -6,6 +6,7 @@ import HeatCell from "@/components/HeatCell";
 import ResearchFilters, { RANGE_OPTIONS } from "./ResearchFilters";
 import { fmtHrParks, resultColor, resultLabel } from "@/app/mlb/statcastFormat";
 import { StatcastChips, StatcastLegend } from "@/app/mlb/StatcastChips";
+import { useMlbFilters } from "@/components/mlb/MlbFilterProvider";
 import type { SlateGame } from "@/app/api/mlb/research/slate/route";
 import type { GridBatter, GridTeam } from "@/app/api/mlb/research/grid/route";
 import type { ResearchAtBatRow } from "@/app/api/mlb/research/atbats/route";
@@ -24,12 +25,6 @@ interface GridResponse {
   abNum: number | null;
   away: GridTeam;
   home: GridTeam;
-}
-
-function todayCentral(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Chicago",
-  }).format(new Date());
 }
 
 function shiftDate(iso: string, days: number): string {
@@ -421,8 +416,7 @@ function BatterDetail({
 
 export default function MlbResearchView() {
   const sp = useSearchParams();
-  const date = sp.get("date") ?? todayCentral();
-  const gamePkParam = sp.get("gamePk");
+  const { date, game } = useMlbFilters();
   const range = sp.get("range") ?? "season";
   const hand = sp.get("hand");
   const abNum = sp.get("abNum");
@@ -448,9 +442,9 @@ export default function MlbResearchView() {
   }, [date]);
 
   const gamePk = useMemo(() => {
-    if (gamePkParam) return parseInt(gamePkParam, 10);
+    if (game?.gamePk) return game.gamePk;
     return slate && slate.length > 0 ? slate[0].gamePk : null;
-  }, [gamePkParam, slate]);
+  }, [game, slate]);
 
   const selectedGame = useMemo(
     () => slate?.find((g) => g.gamePk === gamePk) ?? null,
@@ -511,11 +505,7 @@ export default function MlbResearchView() {
 
   return (
     <div>
-      <ResearchFilters
-        basePath="/mlb/research"
-        games={slate ?? []}
-        selectedGamePk={gamePk}
-      />
+      <ResearchFilters basePath="/mlb/research" />
       <div className="px-4 py-4">
         <div className="mb-3">
           <div className="text-sm text-fg-muted">
