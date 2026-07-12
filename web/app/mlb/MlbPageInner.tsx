@@ -6,6 +6,7 @@ import Link from "next/link";
 import { openCommandPalette } from "@/lib/ui/CommandPalette";
 import { isFinalStatus, isLiveStatus } from "./gameStatus";
 import MlbLeadersRails from "./MlbLeadersRails";
+import { useMlbFilters } from "@/components/mlb/MlbFilterProvider";
 
 type MlbTab = "games" | "players";
 type RoleFilter = "all" | "batters" | "pitchers";
@@ -57,12 +58,6 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function shiftDate(dateStr: string, days: number): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y, m - 1, d + days);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-}
-
 function formatGameTime(isoStr: string | null): string {
   if (!isoStr) return "";
   try {
@@ -88,7 +83,13 @@ function statusLabel(game: MlbGame): string {
 
 // ---- Game card ---------------------------------------------------------------
 
-function GameCard({ game }: { game: MlbGame }) {
+function GameCard({
+  game,
+  highlighted,
+}: {
+  game: MlbGame;
+  highlighted?: boolean;
+}) {
   const isFinal = isFinalStatus(game.gameStatus);
   const isLive = isLiveStatus(game.gameStatus);
   const awayWin =
@@ -104,8 +105,11 @@ function GameCard({ game }: { game: MlbGame }) {
 
   return (
     <Link
+      id={`game-${game.gameId}`}
       href={`/mlb/game/${game.gameId}`}
-      className="flex items-start justify-between gap-4 border-b border-border px-4 py-3 hover:bg-surface transition-colors"
+      className={`flex items-start justify-between gap-4 border-b border-border px-4 py-3 hover:bg-surface transition-colors${
+        highlighted ? " ring-2 ring-brand ring-inset" : ""
+      }`}
     >
       <div className="flex flex-col gap-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -164,7 +168,15 @@ function GameCard({ game }: { game: MlbGame }) {
   );
 }
 
-function GameGroup({ label, games }: { label: string; games: MlbGame[] }) {
+function GameGroup({
+  label,
+  games,
+  selectedGameId,
+}: {
+  label: string;
+  games: MlbGame[];
+  selectedGameId?: number | null;
+}) {
   if (games.length === 0) return null;
   return (
     <div>
@@ -172,7 +184,11 @@ function GameGroup({ label, games }: { label: string; games: MlbGame[] }) {
         {label}
       </div>
       {games.map((g) => (
-        <GameCard key={g.gameId} game={g} />
+        <GameCard
+          key={g.gameId}
+          game={g}
+          highlighted={selectedGameId != null && g.gameId === selectedGameId}
+        />
       ))}
     </div>
   );
@@ -274,11 +290,8 @@ function MlbPlayersPanel({
 export default function MlbPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { date, game } = useMlbFilters();
 
-  const urlDate = searchParams.get("date");
-  const [selectedDate, setSelectedDate] = useState<string>(
-    urlDate ?? todayLocal(),
-  );
   const [games, setGames] = useState<MlbGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -307,7 +320,7 @@ export default function MlbPageInner() {
       setGames([]);
     }
     try {
-      const res = await fetch(`/api/mlb-games?date=${selectedDate}`);
+      const res = await fetch(`/api/mlb-games?date=${date}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const sorted: MlbGame[] = (data.games ?? []).sort(
@@ -328,24 +341,25 @@ export default function MlbPageInner() {
   useEffect(() => {
     loadGames();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate]);
+  }, [date]);
 
   // Live repoll: while viewing today with games still to finish, refresh
   // silently every 30s so scores/status track the overlay.
   const hasUnfinished = games.some((g) => !isFinalStatus(g.gameStatus));
   useEffect(() => {
-    if (selectedDate !== todayLocal() || !hasUnfinished) return;
+    if (date !== todayLocal() || !hasUnfinished) return;
     const id = setInterval(() => loadGames(true), 30_000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, hasUnfinished]);
+  }, [date, hasUnfinished]);
 
-  function applyDate(newDate: string) {
-    setSelectedDate(newDate);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("date", newDate);
-    router.replace(`/mlb?${params.toString()}`);
-  }
+  // When the shared bar's game selector changes, scroll the matching card
+  // into view and highlight it (see GameGroup/GameCard `highlighted` prop).
+  useEffect(() => {
+    if (!game) return;
+    const el = document.getElementById(`game-${game.gamePk}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [game]);
 
   const liveGames = games.filter((g) => isLiveStatus(g.gameStatus));
   const scheduledGames = games.filter(
@@ -355,32 +369,6 @@ export default function MlbPageInner() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      {/* Header — date nav */}
-      <div className="px-4 py-3 border-b border-border flex items-center justify-end gap-3">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => applyDate(shiftDate(selectedDate, -1))}
-            className="px-2 py-1 text-fg-subtle hover:text-fg-muted text-base leading-none"
-            aria-label="Previous day"
-          >
-            &#8249;
-          </button>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => applyDate(e.target.value)}
-            className="text-sm bg-surface border border-border rounded px-2 py-1 text-fg-muted focus:outline-none focus:border-border-strong cursor-pointer"
-          />
-          <button
-            onClick={() => applyDate(shiftDate(selectedDate, 1))}
-            className="px-2 py-1 text-fg-subtle hover:text-fg-muted text-base leading-none"
-            aria-label="Next day"
-          >
-            &#8250;
-          </button>
-        </div>
-      </div>
-
       {/* Tab strip */}
       <div className="flex items-end gap-4 border-b border-border px-4">
         {(["games", "players"] as MlbTab[]).map((tab) => (
@@ -422,12 +410,24 @@ export default function MlbPageInner() {
           )}
           {!loading && !error && games.length > 0 && (
             <>
-              <GameGroup label="Live" games={liveGames} />
-              <GameGroup label="Scheduled" games={scheduledGames} />
-              <GameGroup label="Final" games={finalGames} />
+              <GameGroup
+                label="Live"
+                games={liveGames}
+                selectedGameId={game?.gamePk}
+              />
+              <GameGroup
+                label="Scheduled"
+                games={scheduledGames}
+                selectedGameId={game?.gamePk}
+              />
+              <GameGroup
+                label="Final"
+                games={finalGames}
+                selectedGameId={game?.gamePk}
+              />
             </>
           )}
-          <MlbLeadersRails date={selectedDate} />
+          <MlbLeadersRails date={date} />
         </div>
       )}
     </div>
