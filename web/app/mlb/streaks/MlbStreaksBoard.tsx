@@ -237,12 +237,16 @@ export default function MlbStreaksBoard() {
   const [data, setData] = useState<StreaksResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [err, setErr] = useState(false);
-  const [market, setMarket] = useState<StreakMarket>("HR");
+  // HRR2/HRR3 sub-choice, independent of the shared market pill so it
+  // survives switching the shared pill away from HRR and back (previously
+  // this lived inside a local `market` useState driven by an effect off
+  // ctxMarket, which both flashed on hydration and reset HRR3 -> HRR2).
+  const [hrrSub, setHrrSub] = useState<"HRR2" | "HRR3">("HRR2");
   const { date: ctxDate, market: ctxMarket, game } = useMlbFilters();
 
-  useEffect(
-    () => setMarket((cur) => streakMarketFrom(ctxMarket, cur)),
-    [ctxMarket],
+  const market = useMemo(
+    () => streakMarketFrom(ctxMarket, hrrSub),
+    [ctxMarket, hrrSub],
   );
 
   useEffect(() => {
@@ -322,7 +326,7 @@ export default function MlbStreaksBoard() {
           {(["HRR2", "HRR3"] as const).map((k) => (
             <button
               key={k}
-              onClick={() => setMarket(k)}
+              onClick={() => setHrrSub(k)}
               className={`text-xs px-2 py-1 rounded transition-colors ${
                 market === k
                   ? "bg-brand-muted text-brand"

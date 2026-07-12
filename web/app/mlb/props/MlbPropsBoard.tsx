@@ -67,6 +67,14 @@ function pct(p: number): string {
   return `${(p * 100).toFixed(1)}%`;
 }
 
+// Short display date, e.g. "2026-07-11" -> "Jul 11". Local helper (no shared
+// fmtDate import in this file) — used only for the slice-mismatch note below.
+function fmtDate(d: string): string {
+  const dt = new Date(`${d}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return d;
+  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 function LiftBar({ lift }: { lift: number }) {
   // 1x sits at the middle; cap the bar at 3x for scale.
   const w = Math.max(4, Math.min(100, (lift / 3) * 100));
@@ -151,6 +159,14 @@ export default function MlbPropsBoard() {
   // league mean and hides the model's edge): of the top-ranked hitters who
   // played, how many cleared.
   const settled = data?.settled ?? false;
+
+  // The API silently falls back to the latest available slice when ctxDate
+  // has no projections yet. The shared bar's date pill still shows ctxDate,
+  // so surface the resolved date here whenever it differs — otherwise the
+  // board looks like it's showing today's picks when it's actually showing
+  // yesterday's (or older).
+  const staleSlice =
+    loaded && data?.asOfDate != null && data.asOfDate !== ctxDate;
   const summary = useMemo(() => {
     if (!settled) return null;
     const n = Math.min(20, gameFilteredRows.length);
@@ -218,6 +234,13 @@ export default function MlbPropsBoard() {
           {convictionOnly ? "✓ Conviction only" : "Show all"}
         </button>
       </div>
+
+      {staleSlice && (
+        <div className="px-3 pt-2 text-[11px] text-warn">
+          Showing latest available slice: {fmtDate(data!.asOfDate!)} — no
+          projections for {fmtDate(ctxDate)} yet.
+        </div>
+      )}
 
       {!loaded ? (
         <div className="px-4 py-6 text-sm text-fg-subtle">Loading...</div>

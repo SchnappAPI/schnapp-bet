@@ -133,7 +133,9 @@ const SORT_ACCESSORS: Record<SortKey, (r: GradeRow) => string | number> = {
 
 // ---- Page ----------------------------------------------------------------------
 
-type MarketFilter = "all" | "batter" | "pitcher" | string;
+type MarketFilter =
+  "all" | "batter_home_runs" | "batter_hits" | "batter_hits_runs_rbis";
+type CategoryFilter = "all" | "batter" | "pitcher";
 
 const MIN_GRADE_OPTIONS = [0, 50, 65, 80] as const;
 
@@ -157,6 +159,11 @@ export default function MlbGradesPageInner() {
   const market = canonicalToGradesMarket(ctxMarket);
   const gamePk = game?.gamePk != null ? String(game.gamePk) : "";
   const [minGrade, setMinGrade] = useState<number>(0);
+  // Batter/pitcher CATEGORY axis — independent of the shared market pill,
+  // which only expresses specific batter markets (or "all"). The shared bar
+  // has no pitcher-prop concept, so this stays a small local control and
+  // composes with the canonical-market filter below.
+  const [category, setCategory] = useState<CategoryFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("grade");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -171,11 +178,9 @@ export default function MlbGradesPageInner() {
 
   const rows = useMemo(() => {
     let out = allRows;
-    if (market === "batter" || market === "pitcher") {
-      out = out.filter((r) => r.marketKey.startsWith(`${market}_`));
-    } else if (market !== "all") {
-      out = out.filter((r) => r.marketKey === market);
-    }
+    if (market !== "all") out = out.filter((r) => r.marketKey === market);
+    if (category !== "all")
+      out = out.filter((r) => r.marketKey.startsWith(`${category}_`));
     if (gamePk) out = out.filter((r) => String(r.gamePk ?? "") === gamePk);
     if (minGrade > 0)
       out = out.filter((r) => (r.compositeGrade ?? -1) >= minGrade);
@@ -189,7 +194,7 @@ export default function MlbGradesPageInner() {
       if (av > bv) return 1 * mul;
       return 0;
     });
-  }, [allRows, market, gamePk, minGrade, sortKey, sortDir]);
+  }, [allRows, market, category, gamePk, minGrade, sortKey, sortDir]);
 
   const avgGrade = useMemo(() => {
     const graded = rows
@@ -305,6 +310,16 @@ export default function MlbGradesPageInner() {
           MLB · At-a-Glance
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-3">
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value as CategoryFilter)}
+            className={selectCls}
+            aria-label="Batter/pitcher category"
+          >
+            <option value="all">All players</option>
+            <option value="batter">Batters</option>
+            <option value="pitcher">Pitchers</option>
+          </select>
           <select
             value={minGrade}
             onChange={(e) => setMinGrade(Number(e.target.value))}
