@@ -1,11 +1,13 @@
-'use client';
+"use client";
 
-import { useMemo, useState } from 'react';
-import useSWR from 'swr';
-import type { ColumnDef } from '@tanstack/react-table';
-import { fetcher } from '@/lib/fetcher';
-import { DataTable } from '@/lib/ui/DataTable';
-import { cn } from '@/lib/ui/cn';
+import { useMemo, useState } from "react";
+import useSWR from "swr";
+import type { ColumnDef } from "@tanstack/react-table";
+import { fetcher } from "@/lib/fetcher";
+import { DataTable } from "@/lib/ui/DataTable";
+import { cn } from "@/lib/ui/cn";
+import { useMlbFilters } from "@/components/mlb/MlbFilterProvider";
+import type { CanonicalMarket } from "@/lib/mlbFilters";
 
 // MLB At-a-Glance — every FanDuel Over prop graded by the MLB model for one
 // slate date, cross-game. Deliberately simple: no signals or matrix
@@ -28,7 +30,12 @@ interface GradeRow {
   compositeGrade: number | null;
   gamePk: number | null;
   matchup: string | null;
-  tiers: { safe: TierPoint; value: TierPoint; highrisk: TierPoint; lotto: TierPoint } | null;
+  tiers: {
+    safe: TierPoint;
+    value: TierPoint;
+    highrisk: TierPoint;
+    lotto: TierPoint;
+  } | null;
 }
 
 interface GradesResponse {
@@ -40,62 +47,58 @@ interface GradesResponse {
 // ---- Formatting helpers -------------------------------------------------------
 
 const MARKET_LABELS: Record<string, string> = {
-  batter_hits: 'Hits',
-  batter_total_bases: 'Total Bases',
-  batter_home_runs: 'Home Runs',
-  batter_rbis: 'RBIs',
-  batter_runs_scored: 'Runs',
-  batter_hits_runs_rbis: 'H+R+RBI',
-  batter_singles: 'Singles',
-  batter_doubles: 'Doubles',
-  batter_triples: 'Triples',
-  batter_walks: 'Walks',
-  batter_strikeouts: 'Strikeouts (B)',
-  batter_stolen_bases: 'Stolen Bases',
-  pitcher_strikeouts: 'Strikeouts (P)',
-  pitcher_hits_allowed: 'Hits Allowed',
-  pitcher_walks: 'Walks Allowed',
-  pitcher_earned_runs: 'Earned Runs',
+  batter_hits: "Hits",
+  batter_total_bases: "Total Bases",
+  batter_home_runs: "Home Runs",
+  batter_rbis: "RBIs",
+  batter_runs_scored: "Runs",
+  batter_hits_runs_rbis: "H+R+RBI",
+  batter_singles: "Singles",
+  batter_doubles: "Doubles",
+  batter_triples: "Triples",
+  batter_walks: "Walks",
+  batter_strikeouts: "Strikeouts (B)",
+  batter_stolen_bases: "Stolen Bases",
+  pitcher_strikeouts: "Strikeouts (P)",
+  pitcher_hits_allowed: "Hits Allowed",
+  pitcher_walks: "Walks Allowed",
+  pitcher_earned_runs: "Earned Runs",
 };
 
 function marketLabel(key: string): string {
-  return MARKET_LABELS[key] ?? key.replace(/^(batter|pitcher)_/, '').replace(/_/g, ' ');
+  return (
+    MARKET_LABELS[key] ??
+    key.replace(/^(batter|pitcher)_/, "").replace(/_/g, " ")
+  );
 }
 
 function fmtPrice(p: number | null): string {
-  if (p == null) return '—';
+  if (p == null) return "—";
   return p > 0 ? `+${p}` : String(p);
-}
-
-function todayLocal(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function shiftDate(dateStr: string, days: number): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const dt = new Date(y, m - 1, d + days);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
 
 // Grade band: >=80 strong, 50-79 neutral, <50 weak.
 function gradeClass(g: number | null): string {
-  if (g == null) return 'text-fg-disabled';
-  if (g >= 80) return 'text-pos font-semibold';
-  if (g >= 50) return 'text-fg';
-  return 'text-neg';
+  if (g == null) return "text-fg-disabled";
+  if (g >= 80) return "text-pos font-semibold";
+  if (g >= 50) return "text-fg";
+  return "text-neg";
 }
 
 // ---- Tier ladder cell -----------------------------------------------------------
 
-const TIER_META: { key: 'safe' | 'value' | 'highrisk' | 'lotto'; label: string; cls: string }[] = [
-  { key: 'safe', label: 'S', cls: 'text-pos' },
-  { key: 'value', label: 'V', cls: 'text-info' },
-  { key: 'highrisk', label: 'H', cls: 'text-warn' },
-  { key: 'lotto', label: 'L', cls: 'text-neg' },
+const TIER_META: {
+  key: "safe" | "value" | "highrisk" | "lotto";
+  label: string;
+  cls: string;
+}[] = [
+  { key: "safe", label: "S", cls: "text-pos" },
+  { key: "value", label: "V", cls: "text-info" },
+  { key: "highrisk", label: "H", cls: "text-warn" },
+  { key: "lotto", label: "L", cls: "text-neg" },
 ];
 
-function TierLadder({ tiers }: { tiers: GradeRow['tiers'] }) {
+function TierLadder({ tiers }: { tiers: GradeRow["tiers"] }) {
   if (!tiers) return <span className="text-fg-disabled">—</span>;
   return (
     <span className="flex items-center gap-2 font-mono text-[11px] tabular-nums">
@@ -104,7 +107,7 @@ function TierLadder({ tiers }: { tiers: GradeRow['tiers'] }) {
         if (t.line == null) return null;
         return (
           <span key={key} className="whitespace-nowrap" title={`${key} tier`}>
-            <span className={cn('font-semibold', cls)}>{label}</span>
+            <span className={cn("font-semibold", cls)}>{label}</span>
             <span className="text-fg-muted"> {t.line}</span>
             <span className="text-fg-subtle">·{fmtPrice(t.price)}</span>
           </span>
@@ -116,12 +119,12 @@ function TierLadder({ tiers }: { tiers: GradeRow['tiers'] }) {
 
 // ---- Sorting -------------------------------------------------------------------
 
-type SortKey = 'player' | 'matchup' | 'market' | 'line' | 'odds' | 'grade';
-type SortDir = 'asc' | 'desc';
+type SortKey = "player" | "matchup" | "market" | "line" | "odds" | "grade";
+type SortDir = "asc" | "desc";
 
 const SORT_ACCESSORS: Record<SortKey, (r: GradeRow) => string | number> = {
   player: (r) => r.playerName.toLowerCase(),
-  matchup: (r) => r.matchup ?? '',
+  matchup: (r) => r.matchup ?? "",
   market: (r) => marketLabel(r.marketKey),
   line: (r) => r.lineValue,
   odds: (r) => r.overPrice ?? Number.NEGATIVE_INFINITY,
@@ -130,17 +133,32 @@ const SORT_ACCESSORS: Record<SortKey, (r: GradeRow) => string | number> = {
 
 // ---- Page ----------------------------------------------------------------------
 
-type MarketFilter = 'all' | 'batter' | 'pitcher' | string;
+type MarketFilter = "all" | "batter" | "pitcher" | string;
 
 const MIN_GRADE_OPTIONS = [0, 50, 65, 80] as const;
 
+// Map the shared filter bar's canonical market vocab onto this board's
+// FanDuel market keys. No canonical equivalent falls back to "all".
+function canonicalToGradesMarket(m: CanonicalMarket): MarketFilter {
+  switch (m) {
+    case "HR":
+      return "batter_home_runs";
+    case "HITS":
+      return "batter_hits";
+    case "HRR":
+      return "batter_hits_runs_rbis";
+    default:
+      return "all";
+  }
+}
+
 export default function MlbGradesPageInner() {
-  const [date, setDate] = useState<string>(todayLocal());
-  const [market, setMarket] = useState<MarketFilter>('all');
-  const [gamePk, setGamePk] = useState<string>('');
+  const { date, market: ctxMarket, game } = useMlbFilters();
+  const market = canonicalToGradesMarket(ctxMarket);
+  const gamePk = game?.gamePk != null ? String(game.gamePk) : "";
   const [minGrade, setMinGrade] = useState<number>(0);
-  const [sortKey, setSortKey] = useState<SortKey>('grade');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [sortKey, setSortKey] = useState<SortKey>("grade");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const { data, error, isLoading } = useSWR<GradesResponse>(
     `/api/mlb/grades?date=${date}`,
@@ -151,24 +169,19 @@ export default function MlbGradesPageInner() {
   const allRows = useMemo(() => data?.rows ?? [], [data]);
   const games = data?.games ?? [];
 
-  // Markets actually present on the slate, batters first.
-  const marketsPresent = useMemo(() => {
-    const keys = Array.from(new Set(allRows.map((r) => r.marketKey)));
-    return keys.sort((a, b) => a.localeCompare(b));
-  }, [allRows]);
-
   const rows = useMemo(() => {
     let out = allRows;
-    if (market === 'batter' || market === 'pitcher') {
+    if (market === "batter" || market === "pitcher") {
       out = out.filter((r) => r.marketKey.startsWith(`${market}_`));
-    } else if (market !== 'all') {
+    } else if (market !== "all") {
       out = out.filter((r) => r.marketKey === market);
     }
-    if (gamePk) out = out.filter((r) => String(r.gamePk ?? '') === gamePk);
-    if (minGrade > 0) out = out.filter((r) => (r.compositeGrade ?? -1) >= minGrade);
+    if (gamePk) out = out.filter((r) => String(r.gamePk ?? "") === gamePk);
+    if (minGrade > 0)
+      out = out.filter((r) => (r.compositeGrade ?? -1) >= minGrade);
 
     const acc = SORT_ACCESSORS[sortKey];
-    const mul = sortDir === 'asc' ? 1 : -1;
+    const mul = sortDir === "asc" ? 1 : -1;
     return [...out].sort((a, b) => {
       const av = acc(a);
       const bv = acc(b);
@@ -179,17 +192,23 @@ export default function MlbGradesPageInner() {
   }, [allRows, market, gamePk, minGrade, sortKey, sortDir]);
 
   const avgGrade = useMemo(() => {
-    const graded = rows.map((r) => r.compositeGrade).filter((g): g is number => g != null);
+    const graded = rows
+      .map((r) => r.compositeGrade)
+      .filter((g): g is number => g != null);
     if (graded.length === 0) return null;
     return graded.reduce((s, g) => s + g, 0) / graded.length;
   }, [rows]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
     } else {
       setSortKey(key);
-      setSortDir(key === 'player' || key === 'matchup' || key === 'market' ? 'asc' : 'desc');
+      setSortDir(
+        key === "player" || key === "matchup" || key === "market"
+          ? "asc"
+          : "desc",
+      );
     }
   }
 
@@ -200,61 +219,73 @@ export default function MlbGradesPageInner() {
       className="flex items-center gap-1 uppercase hover:text-fg"
     >
       {label}
-      {sortKey === key && <span className="text-sport-mlb">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+      {sortKey === key && (
+        <span className="text-sport-mlb">{sortDir === "asc" ? "▲" : "▼"}</span>
+      )}
     </button>
   );
 
   const columns = useMemo<ColumnDef<GradeRow, unknown>[]>(
     () => [
       {
-        id: 'player',
-        header: sortHeader('Player', 'player'),
+        id: "player",
+        header: sortHeader("Player", "player"),
         size: 170,
         cell: ({ row }) => (
-          <span className="truncate font-medium text-fg">{row.original.playerName}</span>
-        ),
-      },
-      {
-        id: 'matchup',
-        header: sortHeader('Matchup', 'matchup'),
-        size: 96,
-        cell: ({ row }) => (
-          <span className="text-sport-mlb">{row.original.matchup ?? '—'}</span>
-        ),
-      },
-      {
-        id: 'market',
-        header: sortHeader('Market', 'market'),
-        size: 116,
-        cell: ({ row }) => <span className="text-fg-muted">{marketLabel(row.original.marketKey)}</span>,
-      },
-      {
-        id: 'line',
-        header: sortHeader('Line', 'line'),
-        size: 64,
-        cell: ({ row }) => <span>O {row.original.lineValue}</span>,
-      },
-      {
-        id: 'odds',
-        header: sortHeader('Odds', 'odds'),
-        size: 60,
-        cell: ({ row }) => (
-          <span className="text-fg-muted">{fmtPrice(row.original.overPrice)}</span>
-        ),
-      },
-      {
-        id: 'grade',
-        header: sortHeader('Grade', 'grade'),
-        size: 64,
-        cell: ({ row }) => (
-          <span className={gradeClass(row.original.compositeGrade)}>
-            {row.original.compositeGrade == null ? '—' : row.original.compositeGrade.toFixed(0)}
+          <span className="truncate font-medium text-fg">
+            {row.original.playerName}
           </span>
         ),
       },
       {
-        id: 'tiers',
-        header: 'Tier Ladder',
+        id: "matchup",
+        header: sortHeader("Matchup", "matchup"),
+        size: 96,
+        cell: ({ row }) => (
+          <span className="text-sport-mlb">{row.original.matchup ?? "—"}</span>
+        ),
+      },
+      {
+        id: "market",
+        header: sortHeader("Market", "market"),
+        size: 116,
+        cell: ({ row }) => (
+          <span className="text-fg-muted">
+            {marketLabel(row.original.marketKey)}
+          </span>
+        ),
+      },
+      {
+        id: "line",
+        header: sortHeader("Line", "line"),
+        size: 64,
+        cell: ({ row }) => <span>O {row.original.lineValue}</span>,
+      },
+      {
+        id: "odds",
+        header: sortHeader("Odds", "odds"),
+        size: 60,
+        cell: ({ row }) => (
+          <span className="text-fg-muted">
+            {fmtPrice(row.original.overPrice)}
+          </span>
+        ),
+      },
+      {
+        id: "grade",
+        header: sortHeader("Grade", "grade"),
+        size: 64,
+        cell: ({ row }) => (
+          <span className={gradeClass(row.original.compositeGrade)}>
+            {row.original.compositeGrade == null
+              ? "—"
+              : row.original.compositeGrade.toFixed(0)}
+          </span>
+        ),
+      },
+      {
+        id: "tiers",
+        header: "Tier Ladder",
         size: 320,
         cell: ({ row }) => <TierLadder tiers={row.original.tiers} />,
       },
@@ -264,7 +295,7 @@ export default function MlbGradesPageInner() {
   );
 
   const selectCls =
-    'text-sm bg-surface border border-border rounded px-2 py-1 text-fg-muted focus:outline-none focus:border-border-strong cursor-pointer';
+    "text-sm bg-surface border border-border rounded px-2 py-1 text-fg-muted focus:outline-none focus:border-border-strong cursor-pointer";
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -274,62 +305,6 @@ export default function MlbGradesPageInner() {
           MLB · At-a-Glance
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setDate(shiftDate(date, -1))}
-              className="px-2 py-1 text-fg-subtle hover:text-fg"
-              aria-label="Previous day"
-            >
-              ◀
-            </button>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => e.target.value && setDate(e.target.value)}
-              className={selectCls}
-              aria-label="Slate date"
-            />
-            <button
-              type="button"
-              onClick={() => setDate(shiftDate(date, 1))}
-              className="px-2 py-1 text-fg-subtle hover:text-fg"
-              aria-label="Next day"
-            >
-              ▶
-            </button>
-          </div>
-
-          <select
-            value={market}
-            onChange={(e) => setMarket(e.target.value)}
-            className={selectCls}
-            aria-label="Market filter"
-          >
-            <option value="all">All markets</option>
-            <option value="batter">All batter</option>
-            <option value="pitcher">All pitcher</option>
-            {marketsPresent.map((m) => (
-              <option key={m} value={m}>
-                {marketLabel(m)}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={gamePk}
-            onChange={(e) => setGamePk(e.target.value)}
-            className={selectCls}
-            aria-label="Game filter"
-          >
-            <option value="">All games</option>
-            {games.map((g) => (
-              <option key={g.gamePk} value={String(g.gamePk)}>
-                {g.matchup}
-              </option>
-            ))}
-          </select>
-
           <select
             value={minGrade}
             onChange={(e) => setMinGrade(Number(e.target.value))}
@@ -338,7 +313,7 @@ export default function MlbGradesPageInner() {
           >
             {MIN_GRADE_OPTIONS.map((g) => (
               <option key={g} value={g}>
-                {g === 0 ? 'Any grade' : `Grade ${g}+`}
+                {g === 0 ? "Any grade" : `Grade ${g}+`}
               </option>
             ))}
           </select>
@@ -351,9 +326,9 @@ export default function MlbGradesPageInner() {
           Props <span className="text-fg tabular-nums">{rows.length}</span>
         </span>
         <span>
-          Avg grade{' '}
-          <span className={cn('tabular-nums', gradeClass(avgGrade))}>
-            {avgGrade == null ? '—' : avgGrade.toFixed(1)}
+          Avg grade{" "}
+          <span className={cn("tabular-nums", gradeClass(avgGrade))}>
+            {avgGrade == null ? "—" : avgGrade.toFixed(1)}
           </span>
         </span>
         <span>
@@ -370,7 +345,9 @@ export default function MlbGradesPageInner() {
             columns={columns}
             data={rows}
             className="max-h-[calc(100vh-180px)]"
-            emptyMessage={isLoading ? 'Loading...' : `No MLB graded props for ${date}.`}
+            emptyMessage={
+              isLoading ? "Loading..." : `No MLB graded props for ${date}.`
+            }
           />
         )}
       </div>
