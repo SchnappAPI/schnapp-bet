@@ -14,7 +14,7 @@ paths:
 - `record_workflow_run()` is the last call in upcoming/intraday/outcomes modes. Skip in backfill mode.
 - Do not re-grade existing rows unless `force=True` is explicitly passed.
 - `KDE_THIN_SAMPLE_PROB_CAP = 0.85`. Do not remove.
-- Calibrator: n >= 30 for well-sampled bucket qualification. Do not lower. All calibrator math lives in `grading/calibration_core.py`; one calibrator per sport in `common.grade_calibration` keyed (sport, bucket_min); publish is holdout-gated (candidate must beat production log loss) — never bypass the gate or write the table from anywhere but weekly_calibration.py.
+- Calibrator: n >= 30 for well-sampled bucket qualification. Do not lower. All calibrator math lives in `grading/calibration_core.py`; calibrators live in `common.grade_calibration` keyed (sport, market_key, bucket_min) — market_key '' is the sport-pooled curve, non-empty rows are per-market overrides that exist only while they beat pooled on that market's holdout (promote/demote both gated). Publish is holdout-gated — never bypass the gate or write the table from anywhere but weekly_calibration.py. Readers resolve market-specific first, pooled fallback (`load_calibrator(engine, sport, market_key)`).
 - Outcome settlement writes `Won` / `Lost` / `Push` (stat == line) / `DNP` (final game, no box row). Calibration and accuracy metrics count Won/Lost only.
 - Logistic fitting: minimum 50 resolved outcomes per market group. Skip with warning if below threshold.
 - `MODEL_VERSION` must be set. NBA: `grading-v2.0`. MLB: `mlb-v1.1` (v1.0 = original 4 markets; v1.1 widened to 16). NFL: `nfl-v1.0`. Bump on any logic change that invalidates historical predictions.

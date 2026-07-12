@@ -638,17 +638,26 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
         log.warning("No props matched %s but fresh NFL props exist (date shift?). Skipping.", grade_date_str)
         return
 
-    calibrator = None
-    try:
-        _cal = load_calibrator(engine, "nfl")
-        if _cal["method"] != "identity":
+    # Per-market calibrators with pooled fallback (weekly_calibration.py is
+    # the only writer). Identity/absent -> raw KDE probabilities.
+    _calibrator_cache: dict = {}
 
-            def calibrator(p):
-                return float(apply_calibrator(_cal, float(p)))
+    def calibrator_for(market_key):
+        if market_key not in _calibrator_cache:
+            try:
+                _cal = load_calibrator(engine, "nfl", market_key)
+                fn = None
+                if _cal["method"] != "identity":
 
-        log.info("Calibrator loaded for nfl: method=%s", _cal["method"])
-    except Exception as exc:
-        log.info("Calibrator load skipped (%s); using raw probabilities.", exc)
+                    def fn(p, _c=_cal):
+                        return float(apply_calibrator(_c, float(p)))
+
+                log.info("Calibrator for nfl/%s: method=%s", market_key, _cal["method"])
+                _calibrator_cache[market_key] = fn
+            except Exception as exc:
+                log.info("Calibrator load skipped for %s (%s); raw probabilities.", market_key, exc)
+                _calibrator_cache[market_key] = None
+        return _calibrator_cache[market_key]
 
     over_props = props[props["outcome_name"] == "Over"].copy()
 
@@ -716,7 +725,7 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
             volume = compute_volume_grade(fetch_snap_share(engine, gsis, season, week))
             composite = compute_composite(form, matchup, volume)
 
-            tiers = compute_kde_tier_lines(game_log, composite, market_key, calibrator=calibrator)
+            tiers = compute_kde_tier_lines(game_log, composite, market_key, calibrator=calibrator_for(market_key))
             kde_window = KDE_WINDOW_HOT if composite >= 80 else KDE_WINDOW_MID if composite >= 50 else KDE_WINDOW_COLD
 
             game_id = team_game.get(team, (None, None))[0]

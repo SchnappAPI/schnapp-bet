@@ -1204,19 +1204,26 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
     for _, row in bvp_df.iterrows():
         bvp_map[(int(row["batter_id"]), int(row["pitcher_id"]))] = row
 
-    # Sport-scoped calibrator (weekly_calibration.py is the only writer).
-    # Identity/absent -> raw KDE probabilities, the pre-v2 behavior.
-    calibrator = None
-    try:
-        _cal = load_calibrator(engine, "mlb")
-        if _cal["method"] != "identity":
+    # Per-market calibrators with pooled fallback (weekly_calibration.py is
+    # the only writer). Identity/absent -> raw KDE probs, pre-v2 behavior.
+    _calibrator_cache: dict = {}
 
-            def calibrator(p):  # noqa: E731 — mirrors NBA's callable shape
-                return float(apply_calibrator(_cal, float(p)))
+    def calibrator_for(market_key):
+        if market_key not in _calibrator_cache:
+            try:
+                _cal = load_calibrator(engine, "mlb", market_key)
+                fn = None
+                if _cal["method"] != "identity":
 
-        log.info("Calibrator loaded for mlb: method=%s", _cal["method"])
-    except Exception as exc:
-        log.info("Calibrator load skipped (%s); using raw probabilities.", exc)
+                    def fn(p, _c=_cal):
+                        return float(apply_calibrator(_c, float(p)))
+
+                log.info("Calibrator for mlb/%s: method=%s", market_key, _cal["method"])
+                _calibrator_cache[market_key] = fn
+            except Exception as exc:
+                log.info("Calibrator load skipped for %s (%s); raw probabilities.", market_key, exc)
+                _calibrator_cache[market_key] = None
+        return _calibrator_cache[market_key]
 
     grade_rows = []
     tier_rows = []
@@ -1324,7 +1331,7 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
                 composite = compute_composite(hit_grade, ev_grade, matchup_grade)
 
             # KDE tier lines
-            tiers = compute_kde_tier_lines(game_log, composite, market_key, calibrator=calibrator)
+            tiers = compute_kde_tier_lines(game_log, composite, market_key, calibrator=calibrator_for(market_key))
 
             kde_window = KDE_WINDOW_HOT if composite >= 80 else KDE_WINDOW_MID if composite >= 50 else KDE_WINDOW_COLD
 

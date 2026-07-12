@@ -49,6 +49,13 @@ HOLDOUT_DAYS = 7
 MIN_CORPUS_ROWS = 300  # below this, skip the sport entirely
 LIVE_CORPUS_MIN = 2000  # below this, union backtest seed rows
 GATE_MARGIN = 1e-4  # candidate must beat production log loss by this
+# Per-market calibrators: a market gets its own curve only when its corpus
+# clears this AND the market-specific fit beats the pooled curve on the
+# market's own holdout (measured 2026-07-12: pooled fixes batter_hits/HRR
+# well, leaves batter_home_runs ~2x overconfident in the 0.3-0.6 band, and
+# a blanket per-market fit REGRESSED batter_total_bases — hence gate, not
+# blanket).
+PER_MARKET_MIN = 2000
 EPS = 1e-6
 
 SPORTS = ("nba", "mlb", "nfl")
@@ -117,27 +124,38 @@ def ensure_calibration_schema(engine):
             END
         """)
         )
-        # Swap the PK to (sport, bucket_min). The old constraint's name is
-        # discovered dynamically — it varies by creation path and collation
-        # (pk_grade_calibration vs PK_grade_calibration vs system-generated);
-        # keying on a literal name would silently no-op and the first
-        # multi-sport publish would then collide on the single-column PK.
+        # market_key: '' = the sport-pooled calibrator; a non-empty value is a
+        # per-market override (published only when it beats pooled on that
+        # market's holdout — see calibrate_sport).
+        conn.execute(
+            text("""
+            IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                           WHERE TABLE_SCHEMA='common' AND TABLE_NAME='grade_calibration'
+                             AND COLUMN_NAME='market_key')
+                ALTER TABLE common.grade_calibration
+                    ADD market_key VARCHAR(100) NOT NULL DEFAULT ''
+        """)
+        )
+        # Swap the PK to (sport, market_key, bucket_min). The old constraint's
+        # name is discovered dynamically — it varies by creation path and
+        # collation; keying on a literal name would silently no-op and the
+        # next publish would collide on the narrower PK.
         conn.execute(
             text("""
             DECLARE @pk sysname = (
                 SELECT kc.name FROM sys.key_constraints kc
                 WHERE kc.parent_object_id = OBJECT_ID('common.grade_calibration')
                   AND kc.type = 'PK');
-            IF @pk IS NOT NULL AND @pk <> 'pk_grade_calibration_v2'
+            IF @pk IS NOT NULL AND @pk <> 'pk_grade_calibration_v3'
             BEGIN
                 EXEC('ALTER TABLE common.grade_calibration DROP CONSTRAINT [' + @pk + '];
                       ALTER TABLE common.grade_calibration
-                          ADD CONSTRAINT pk_grade_calibration_v2 PRIMARY KEY (sport, bucket_min);');
+                          ADD CONSTRAINT pk_grade_calibration_v3 PRIMARY KEY (sport, market_key, bucket_min);');
             END
         """)
         )
 
-        # history: per-run quality metrics
+        # history: per-run quality metrics (market_key '' = sport-pooled row)
         for col, sqltype in (
             ("method", "VARCHAR(10)"),
             ("brier", "FLOAT"),
@@ -145,6 +163,7 @@ def ensure_calibration_schema(engine):
             ("ece", "FLOAT"),
             ("n_corpus", "INT"),
             ("gate_passed", "BIT"),
+            ("market_key", "VARCHAR(100)"),
         ):
             conn.execute(
                 text(f"""
@@ -194,7 +213,7 @@ def fetch_corpus(engine, sport, window_days):
     the seed entirely once it clears the threshold.
     """
     sql = text("""
-        SELECT tp.raw_prob, tp.grade_date,
+        SELECT tp.raw_prob, tp.grade_date, tp.market_key,
                CASE WHEN dg.outcome = 'Won' THEN 1.0 ELSE 0.0 END AS hit
           FROM (
               SELECT grade_date, game_id, player_id, market_key, sport,
@@ -235,7 +254,7 @@ def fetch_corpus(engine, sport, window_days):
         return live
 
     seed = pd.read_sql(
-        text("""SELECT raw_prob, grade_date,
+        text("""SELECT raw_prob, grade_date, market_key,
                        CAST(hit AS FLOAT) AS hit
                   FROM common.calibration_corpus WHERE sport = :sport"""),
         engine,
@@ -398,21 +417,31 @@ def fit_isotonic(p, y):
 # ---------------------------------------------------------------------------
 
 
-def load_calibrator(engine, sport):
-    """Read the active calibrator for a sport. Absent rows -> identity."""
+def load_calibrator(engine, sport, market_key="", fallback=True):
+    """Read the active calibrator for (sport, market_key).
+
+    market_key '' is the sport-pooled calibrator. With fallback=True (the
+    reader path) a missing market-specific row falls back to the pooled row;
+    with fallback=False (the gating path) it returns None so the caller can
+    tell "no market override exists". Absent everything -> identity.
+    """
     try:
         rows = pd.read_sql(
             text("""SELECT bucket_min, bucket_max, method, param_a, param_b,
                            isotonic_hit_rate, max_well_sampled_rate
                       FROM common.grade_calibration
-                     WHERE sport = :s ORDER BY bucket_min"""),
+                     WHERE sport = :s AND market_key = :mk ORDER BY bucket_min"""),
             engine,
-            params={"s": sport},
+            params={"s": sport, "mk": market_key},
         )
     except Exception as exc:
-        log.info(f"load_calibrator({sport}): {exc}; identity.")
-        return {"method": "identity"}
+        log.info(f"load_calibrator({sport},{market_key!r}): {exc}; identity.")
+        return {"method": "identity"} if fallback else None
     if rows.empty:
+        if not fallback:
+            return None
+        if market_key:
+            return load_calibrator(engine, sport, "", fallback=True)
         return {"method": "identity"}
     method = rows.iloc[0]["method"] or "isotonic"
     if method == "identity":
@@ -429,33 +458,37 @@ def load_calibrator(engine, sport):
     }
 
 
-def publish_calibrator(engine, sport, cal):
-    """Replace the sport's rows in common.grade_calibration (DELETE + INSERT)."""
+def publish_calibrator(engine, sport, cal, market_key=""):
+    """Replace (sport, market_key)'s rows in common.grade_calibration."""
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM common.grade_calibration WHERE sport = :s"), {"s": sport})
+        conn.execute(
+            text("DELETE FROM common.grade_calibration WHERE sport = :s AND market_key = :mk"),
+            {"s": sport, "mk": market_key},
+        )
         if cal["method"] in ("identity", "platt"):
             conn.execute(
                 text("""
                 INSERT INTO common.grade_calibration
-                    (sport, bucket_min, bucket_max, sample_size,
+                    (sport, market_key, bucket_min, bucket_max, sample_size,
                      empirical_hit_rate, isotonic_hit_rate,
                      max_well_sampled_rate, method, param_a, param_b)
-                VALUES (:s, -1, -1, 0, 0, 0, NULL, :m, :a, :b)
+                VALUES (:s, :mk, -1, -1, 0, 0, 0, NULL, :m, :a, :b)
             """),
-                {"s": sport, "m": cal["method"], "a": cal.get("a"), "b": cal.get("b")},
+                {"s": sport, "mk": market_key, "m": cal["method"], "a": cal.get("a"), "b": cal.get("b")},
             )
         else:
             for _, r in cal["buckets"].iterrows():
                 conn.execute(
                     text("""
                     INSERT INTO common.grade_calibration
-                        (sport, bucket_min, bucket_max, sample_size,
+                        (sport, market_key, bucket_min, bucket_max, sample_size,
                          empirical_hit_rate, isotonic_hit_rate,
                          max_well_sampled_rate, method, param_a, param_b)
-                    VALUES (:s, :bmin, :bmax, :n, :ehr, :ihr, :cap, 'isotonic', NULL, NULL)
+                    VALUES (:s, :mk, :bmin, :bmax, :n, :ehr, :ihr, :cap, 'isotonic', NULL, NULL)
                 """),
                     {
                         "s": sport,
+                        "mk": market_key,
                         "bmin": float(r["bucket_min"]),
                         "bmax": float(r["bucket_max"]),
                         "n": int(r["n"]),
@@ -464,18 +497,36 @@ def publish_calibrator(engine, sport, cal):
                         "cap": cal.get("cap"),
                     },
                 )
-    log.info(f"[{sport}] published {cal['method']} calibrator.")
+    log.info(f"[{sport}] published {cal['method']} calibrator for market={market_key or 'POOLED'}.")
 
 
-def write_history_snapshot(engine, sport, cal, metrics, n_corpus, window_days, gate_passed, model_version):
-    """One snapshot row (plus bucket rows for isotonic) in grade_calibration_history."""
+def retire_market_calibrator(engine, sport, market_key):
+    """Remove a market override that no longer beats the pooled curve."""
+    with engine.begin() as conn:
+        n = conn.execute(
+            text("DELETE FROM common.grade_calibration WHERE sport = :s AND market_key = :mk"),
+            {"s": sport, "mk": market_key},
+        ).rowcount
+    if n:
+        log.info(f"[{sport}] retired market calibrator for {market_key} (pooled now wins).")
+
+
+def write_history_snapshot(
+    engine, sport, cal, metrics, n_corpus, window_days, gate_passed, model_version, market_key=""
+):
+    """One snapshot row (plus bucket rows for isotonic) in grade_calibration_history.
+
+    market_key '' is the sport-pooled snapshot; per-market snapshots let the
+    owner answer "is the model improving?" per market week over week.
+    """
     snap = datetime.now(timezone.utc).date()
     rows = cal.get("buckets") if cal["method"] == "isotonic" else None
     with engine.begin() as conn:
         conn.execute(
             text("""DELETE FROM common.grade_calibration_history
-                             WHERE snapshot_date = :d AND sport = :s"""),
-            {"d": snap, "s": sport},
+                             WHERE snapshot_date = :d AND sport = :s
+                               AND COALESCE(market_key, '') = :mk"""),
+            {"d": snap, "s": sport, "mk": market_key},
         )
         if rows is not None:
             iterable = rows.iterrows()
@@ -487,16 +538,17 @@ def write_history_snapshot(engine, sport, cal, metrics, n_corpus, window_days, g
             conn.execute(
                 text("""
                 INSERT INTO common.grade_calibration_history
-                    (snapshot_date, sport, bucket_min, bucket_max, sample_size,
+                    (snapshot_date, sport, market_key, bucket_min, bucket_max, sample_size,
                      empirical_hit_rate, isotonic_hit_rate, max_well_sampled_rate,
                      window_days, model_version, method, brier, log_loss, ece,
                      n_corpus, gate_passed)
-                VALUES (:d, :s, :bmin, :bmax, :n, :ehr, :ihr, :cap, :wd, :mv,
+                VALUES (:d, :s, :mk, :bmin, :bmax, :n, :ehr, :ihr, :cap, :wd, :mv,
                         :m, :br, :ll, :ece, :nc, :gp)
             """),
                 {
                     "d": snap,
                     "s": sport,
+                    "mk": market_key,
                     "bmin": float(r["bucket_min"]),
                     "bmax": float(r["bucket_max"]),
                     "n": int(r["n"]),
@@ -541,7 +593,10 @@ def calibrate_sport(engine, sport, window_days, model_version, dry_run=False):
         # 5-fold shuffled split on the whole corpus (cold-start path).
         rng = np.random.RandomState(20260711)
         idx = rng.permutation(n_corpus)
-        cut = max(int(n_corpus * 0.8), n_corpus - 2000)
+        # 20% holdout capped at 20k — large enough that low-volume markets
+        # (e.g. batter_home_runs at ~6% of the MLB corpus) clear the 200-row
+        # per-market judgement floor.
+        cut = max(int(n_corpus * 0.8), n_corpus - 20000)
         train, hold = df.iloc[idx[:cut]], df.iloc[idx[cut:]]
         log.info(f"[{sport}] thin live holdout; using shuffled 80/20 split ({len(train)}/{len(hold)}).")
 
@@ -580,13 +635,19 @@ def calibrate_sport(engine, sport, window_days, model_version, dry_run=False):
         f"gate_passed={gate_passed}"
     )
 
+    pooled_effective = winner if gate_passed else production
     if dry_run:
         log.info(f"[{sport}] dry run; nothing written.")
     else:
-        published = winner if gate_passed else production
         if gate_passed:
             publish_calibrator(engine, sport, winner)
-        write_history_snapshot(engine, sport, published, metrics, n_corpus, window_days, gate_passed, model_version)
+        write_history_snapshot(
+            engine, sport, pooled_effective, metrics, n_corpus, window_days, gate_passed, model_version
+        )
+
+    market_results = _calibrate_markets(
+        engine, sport, train, hold, pooled_effective, n_corpus, window_days, model_version, dry_run
+    )
 
     return {
         "sport": sport,
@@ -597,4 +658,92 @@ def calibrate_sport(engine, sport, window_days, model_version, dry_run=False):
         "scores": scores,
         "production_score": prod_score,
         "metrics": metrics,
+        "markets": market_results,
     }
+
+
+def _calibrate_markets(engine, sport, train, hold, pooled_effective, n_corpus, window_days, model_version, dry_run):
+    """Per-market overrides, gated against the pooled curve.
+
+    A market earns its own calibrator only when (a) its corpus clears
+    PER_MARKET_MIN, (b) its holdout has enough rows to judge, and (c) a
+    market-specific fit beats BOTH the pooled curve and any existing market
+    override on that market's own holdout. A previously-published override
+    that now loses to pooled is retired. Measured motivation (2026-07-12):
+    the pooled MLB curve left batter_home_runs ~2x overconfident in the
+    0.3-0.6 band while a blanket per-market fit regressed batter_total_bases.
+    """
+    results = {}
+    market_counts = pd.concat([train, hold])["market_key"].value_counts()
+    for market_key, n_mk in market_counts.items():
+        if not market_key or int(n_mk) < PER_MARKET_MIN:
+            continue
+        tr = train[train["market_key"] == market_key]
+        ho = hold[hold["market_key"] == market_key]
+        if len(ho) < 200 or len(tr) < MIN_BUCKET_SIZE * 3:
+            continue
+
+        p_tr, y_tr = tr["raw_prob"].values, tr["hit"].values
+        p_ho, y_ho = ho["raw_prob"].values, ho["hit"].values
+
+        candidates = {}
+        for name, fitter in (("platt", fit_platt), ("isotonic", fit_isotonic)):
+            try:
+                cal = fitter(p_tr, y_tr)
+            except Exception as exc:
+                log.warning(f"[{sport}] {market_key} {name} fit failed: {exc}")
+                cal = None
+            if cal is not None:
+                candidates[name] = cal
+        if not candidates:
+            continue
+
+        pooled_score = log_loss_score(apply_calibrator(pooled_effective, p_ho), y_ho)
+        existing = load_calibrator(engine, sport, market_key, fallback=False)
+        existing_score = log_loss_score(apply_calibrator(existing, p_ho), y_ho) if existing is not None else None
+
+        scores = {name: log_loss_score(apply_calibrator(cal, p_ho), y_ho) for name, cal in candidates.items()}
+        winner_name = min(scores, key=scores.get)
+        bar = pooled_score if existing_score is None else min(pooled_score, existing_score)
+        promote = scores[winner_name] <= bar - GATE_MARGIN
+        demote = existing_score is not None and not promote and pooled_score <= existing_score - GATE_MARGIN
+
+        if promote:
+            effective = candidates[winner_name]
+        elif existing is not None and not demote:
+            effective = existing
+        else:
+            effective = pooled_effective
+        p_cal = apply_calibrator(effective, p_ho)
+        metrics = {
+            "brier": brier_score(p_cal, y_ho),
+            "log_loss": log_loss_score(p_cal, y_ho),
+            "ece": ece_score(p_cal, y_ho),
+        }
+
+        log.info(
+            f"[{sport}] market {market_key}: "
+            + ", ".join(f"{k}={v:.5f}" for k, v in sorted(scores.items()))
+            + f"; pooled={pooled_score:.5f}"
+            + (f"; existing={existing_score:.5f}" if existing_score is not None else "")
+            + f"; promote={promote}; demote={demote}"
+        )
+
+        if not dry_run:
+            if promote:
+                publish_calibrator(engine, sport, candidates[winner_name], market_key=market_key)
+            elif demote:
+                retire_market_calibrator(engine, sport, market_key)
+            write_history_snapshot(
+                engine, sport, effective, metrics, int(n_mk), window_days, promote, model_version, market_key=market_key
+            )
+
+        results[market_key] = {
+            "promote": promote,
+            "demote": demote,
+            "winner": winner_name,
+            "scores": scores,
+            "pooled_score": pooled_score,
+            "metrics": metrics,
+        }
+    return results
