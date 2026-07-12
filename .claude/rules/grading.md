@@ -14,7 +14,9 @@ paths:
 - `record_workflow_run()` is the last call in upcoming/intraday/outcomes modes. Skip in backfill mode.
 - Do not re-grade existing rows unless `force=True` is explicitly passed.
 - `KDE_THIN_SAMPLE_PROB_CAP = 0.85`. Do not remove.
-- Calibrator: n >= 30 for well-sampled bucket qualification. Do not lower.
+- Calibrator: n >= 30 for well-sampled bucket qualification. Do not lower. All calibrator math lives in `grading/calibration_core.py`; one calibrator per sport in `common.grade_calibration` keyed (sport, bucket_min); publish is holdout-gated (candidate must beat production log loss) — never bypass the gate or write the table from anywhere but weekly_calibration.py.
+- Outcome settlement writes `Won` / `Lost` / `Push` (stat == line) / `DNP` (final game, no box row). Calibration and accuracy metrics count Won/Lost only.
 - Logistic fitting: minimum 50 resolved outcomes per market group. Skip with warning if below threshold.
-- `MODEL_VERSION` must be set. NBA: `grading-v2.0`. MLB: `mlb-v1.1` (v1.0 = original 4 markets; v1.1 widened to 16). Bump on any logic change that invalidates historical predictions.
+- `MODEL_VERSION` must be set. NBA: `grading-v2.0`. MLB: `mlb-v1.1` (v1.0 = original 4 markets; v1.1 widened to 16). NFL: `nfl-v1.0`. Bump on any logic change that invalidates historical predictions.
+- NFL identity: `daily_grades.player_id` = numeric suffix of the gsis id (`00-0033873` → 33873), reconstructed `00-{pid:07d}`. Never store gsis strings in player_id.
 - MLB market families live in `MARKET_CONFIG` (`batter_rate` / `batter_count` / `pitcher`). New markets are added there, never as ad-hoc branches in the grading loop.
