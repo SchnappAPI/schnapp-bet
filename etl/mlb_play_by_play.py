@@ -2526,12 +2526,11 @@ def _compute_streak_rows(history_df, target_dates):
     for mk in STREAK_MARKETS:
         by_season = flags_by_market_season[mk]
 
-        # Full per-season transition counts + ceilings (career = all seasons).
+        # Full per-season transition counts + ceilings, per season.
         season_full = {}  # year -> (counts, ceiling)
         for yr, pairs in by_season.items():
             flags = [f for _, f in sorted(pairs)]
             season_full[yr] = _season_transitions(flags)
-        career_ceiling = max((c for _, c in season_full.values()), default=0)
 
         for as_of in target_set:
             yr = as_of.year
@@ -2548,13 +2547,17 @@ def _compute_streak_rows(history_df, target_dates):
             # (leakage: transitions after as_of must not inform this row).
             season_counts, season_ceiling = _season_transitions(flags_through)
 
-            # Career-scope: this season's through-date counts + all OTHER
-            # seasons' full counts. (Prior/later complete seasons are legit
-            # historical context for "how often, when at this state".)
+            # Career-scope: this season's through-date counts + every PRIOR
+            # season's full counts. Seasons AFTER the current one are future
+            # data relative to this as-of date and must be excluded (they only
+            # exist in the DB during a multi-season rebuild) — the earlier
+            # "all other seasons" version leaked look-ahead into career_*.
             career_counts = {k: list(v) for k, v in season_counts.items()}
-            for oyr, (ocounts, _) in season_full.items():
-                if oyr == yr:
+            career_ceiling = season_ceiling
+            for oyr, (ocounts, oceil) in season_full.items():
+                if oyr >= yr:
                     continue
+                career_ceiling = max(career_ceiling, oceil)
                 for k, (nr, nn) in ocounts.items():
                     slot = career_counts.setdefault(k, [0, 0])
                     slot[0] += nr
@@ -2661,6 +2664,11 @@ def load_player_streaks_for_games(engine, game_pks):
                                       ORDER BY b.plate_appearances DESC) AS rn
             FROM mlb.batting_stats b
             WHERE b.player_id IN ({blist}) AND b.game_date IS NOT NULL
+              -- Exclude pure non-batting appearances (pinch-run / defensive
+              -- sub, 0 PA): the props board + transparency both filter these,
+              -- so counting one as a no-event game would inflate droughts and
+              -- diverge from "played" on those boards.
+              AND (b.at_bats > 0 OR b.plate_appearances > 0)
         ) d
         WHERE d.rn = 1
     """),
@@ -2688,7 +2696,12 @@ def load_player_streaks_for_games(engine, game_pks):
     if state_out:
         _merge_streak_state(engine, state_out)
     if dist_out:
-        _merge_streak_dist(engine, dist_out, batter_ids)
+        # Delete-scope = only batters we are reinserting, NOT every touched
+        # batter. A touched batter with no transitions this run (single game /
+        # data gap) would otherwise have their prior curve wiped with nothing
+        # to replace it.
+        dist_batters = sorted({int(r["batter_id"]) for r in dist_out})
+        _merge_streak_dist(engine, dist_out, dist_batters)
     log.info(
         "player_streaks: wrote %d state rows + %d dist rows for %d batters.",
         len(state_out),
