@@ -120,7 +120,9 @@ jobs:
                       elif entity_type == 'player' and sport == 'mlb':
                           rows = conn.execute(text('SELECT player_id, player_name AS name FROM mlb.players')).fetchall()
                       elif entity_type == 'player' and sport == 'nfl':
-                          rows = conn.execute(text('SELECT player_id, player_name AS name FROM nfl.players WHERE player_name IS NOT NULL')).fetchall()
+                          # nfl.players is keyed by gsis_id (no numeric player_id column);
+                          # grading stores the numeric suffix of the gsis id as player_id.
+                          rows = conn.execute(text("SELECT TRY_CAST(REPLACE(gsis_id, '-', '') AS BIGINT) AS player_id, display_name AS name FROM nfl.players WHERE display_name IS NOT NULL AND gsis_id IS NOT NULL")).fetchall()
               except Exception as e:
                   print(f'  warn: could not load candidates for ({entity_type},{sport}): {e}')
               candidates = [(r.player_id, r.name, normalize(r.name)) for r in rows if r.name]
