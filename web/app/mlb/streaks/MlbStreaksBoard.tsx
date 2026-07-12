@@ -24,8 +24,6 @@ const MARKETS: { key: StreakMarket; label: string }[] = [
   { key: "RBI", label: "RBI" },
 ];
 
-const MIN_N = 3; // hide freq-based ranking below this denominator (too noisy)
-
 function freqStr(hits: number | null, n: number | null): string {
   if (n == null || n === 0) return "—";
   return `${hits ?? 0}/${n} (${Math.round(((hits ?? 0) / n) * 100)}%)`;
@@ -159,8 +157,21 @@ function PlayerCurve({ batterId }: { batterId: number }) {
   );
 }
 
+// Compact tag for the current streak. HR on a 1-game streak (homered last game)
+// is the classic back-to-back setup, so it reads "B2B"; everything else is
+// "{len}G" (on a len-game streak). The frequency beside it is how often the
+// player EXTENDED from exactly this length.
+function streakTag(market: StreakMarket, len: number): string {
+  if (market === "HR" && len === 1) return "B2B";
+  return `${len}G`;
+}
+
 function ListRow({ r }: { r: StreakStateRow }) {
   const [open, setOpen] = useState(false);
+  const tag = streakTag(r.market, r.len);
+  // Career headline (more samples = stabler); season on hover.
+  const careerPct =
+    r.careerN && r.careerN > 0 ? Math.round((r.careerFreq ?? 0) * 100) : null;
   return (
     <>
       <tr
@@ -181,75 +192,28 @@ function ListRow({ r }: { r: StreakStateRow }) {
             </span>
           )}
         </td>
-        <td className="px-2 py-1.5 text-fg-subtle whitespace-nowrap">
-          {r.state === "streak"
-            ? `${r.len}-game streak`
-            : `${r.len}-game drought`}
-          {r.state === "drought" && r.typicalGap != null && (
-            <span className="text-fg-disabled text-[10px] ml-1">
-              (usual {r.typicalGap})
-            </span>
-          )}
-        </td>
-        <td className="px-2 py-1.5 text-right tabular-nums">
-          {freqStr(r.seasonHits, r.seasonN)}
-        </td>
-        <td className="px-2 py-1.5 text-right tabular-nums text-fg-subtle">
-          {freqStr(r.careerHits, r.careerN)}
+        <td className="px-2 py-1.5 whitespace-nowrap">
+          <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-semibold text-fg-subtle">
+            {tag}
+          </span>
+          <span
+            className={`ml-2 tabular-nums ${careerPct != null && careerPct >= 40 ? "text-pos font-semibold" : "text-fg-muted"}`}
+            title={`Career: extended a ${r.len}-game streak ${r.careerHits ?? 0} of ${r.careerN ?? 0} times. This season: ${freqStr(r.seasonHits, r.seasonN)}.`}
+          >
+            {careerPct == null
+              ? "no history"
+              : `${r.careerHits}/${r.careerN} (${careerPct}%)`}
+          </span>
         </td>
       </tr>
       {open && (
         <tr>
-          <td colSpan={4} className="p-0">
+          <td colSpan={2} className="p-0">
             <PlayerCurve batterId={r.batterId} />
           </td>
         </tr>
       )}
     </>
-  );
-}
-
-function ListCard({
-  title,
-  hint,
-  rows,
-}: {
-  title: string;
-  hint: string;
-  rows: StreakStateRow[];
-}) {
-  return (
-    <div className="border border-border rounded-lg overflow-hidden">
-      <div className="px-3 py-2 border-b border-border">
-        <div className="font-mono text-[11px] uppercase tracking-[0.14em] text-fg">
-          {title}
-        </div>
-        <div className="text-[10px] text-fg-disabled mt-0.5">{hint}</div>
-      </div>
-      {rows.length === 0 ? (
-        <div className="px-3 py-4 text-xs text-fg-subtle">
-          Nothing on today&apos;s slate.
-        </div>
-      ) : (
-        <table className="w-full text-xs text-fg-muted">
-          <thead>
-            <tr className="text-fg-subtle border-b border-border text-[10px]">
-              <th className="text-left px-2 py-1 font-medium">Batter</th>
-              <th className="text-left px-2 py-1 font-medium">State</th>
-              <th className="text-right px-2 py-1 font-medium">
-                Next (season)
-              </th>
-              <th className="text-right px-2 py-1 font-medium">Career</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <ListRow key={`${r.batterId}-${r.market}`} r={r} />
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
   );
 }
 
@@ -288,30 +252,19 @@ export default function MlbStreaksBoard() {
     [data, market],
   );
 
-  const atCeiling = useMemo(
-    () =>
-      forMarket
-        .filter((r) => r.state === "streak" && r.atCeiling)
-        .sort((a, b) => b.len - a.len),
-    [forMarket],
-  );
-  const overdue = useMemo(
-    () =>
-      forMarket
-        .filter((r) => r.state === "drought" && r.phase === "late")
-        .sort((a, b) => (b.careerFreq ?? 0) - (a.careerFreq ?? 0)),
-    [forMarket],
-  );
-  const hotStreak = useMemo(
-    () =>
-      forMarket
-        .filter(
-          (r) =>
-            r.state === "streak" && !r.atCeiling && (r.careerN ?? 0) >= MIN_N,
-        )
-        .sort((a, b) => (b.careerFreq ?? 0) - (a.careerFreq ?? 0)),
-    [forMarket],
-  );
+  // Players currently ON a streak of the event (homered/hit in consecutive
+  // games), for today's slate — anyone who homered yesterday shows here as a
+  // B2B setup. Ranked by how often they've extended from this length (career).
+  // Confidence-weighted rank: a 1/1 (100%) must not outrank a 21/99 (21%) on a
+  // single sample, so damp the rate by sample size (full weight at n>=10). The
+  // displayed number stays the raw k/n so the denominator is always honest.
+  const onStreak = useMemo(() => {
+    const key = (r: StreakStateRow) =>
+      (r.careerFreq ?? 0) * Math.min(1, (r.careerN ?? 0) / 10);
+    return forMarket
+      .filter((r) => r.state === "streak" && r.len >= 1)
+      .sort((a, b) => key(b) - key(a) || b.len - a.len);
+  }, [forMarket]);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -320,10 +273,10 @@ export default function MlbStreaksBoard() {
           MLB Streaks &amp; Trends
         </div>
         <div className="text-[11px] text-fg-disabled mt-0.5 max-w-2xl">
-          For today&apos;s slate: each batter&apos;s current streak/drought and
-          how often — from that exact state — the event happened the next game.
-          Raw counts, player-specific. Click a row for their full curve. Context
-          only, never in the projection.
+          Every batter on today&apos;s slate riding an active streak for this
+          market — anyone who homered yesterday is here as a B2B setup. The
+          number is how often they&apos;ve extended from exactly this streak
+          length (career; hover for season). Click a row for their full curve.
         </div>
       </div>
 
@@ -349,28 +302,27 @@ export default function MlbStreaksBoard() {
         <div className="px-4 py-6 text-sm text-neg">
           Could not load streaks. Try again shortly.
         </div>
-      ) : forMarket.length === 0 ? (
+      ) : onStreak.length === 0 ? (
         <div className="px-4 py-10 text-sm text-fg-subtle">
-          No streak data for today&apos;s slate yet. The nightly build writes it
-          after the day&apos;s box scores land.
+          No batters on an active {market} streak in today&apos;s slate.
         </div>
       ) : (
-        <div className="p-3 grid gap-3 lg:grid-cols-3">
-          <ListCard
-            title="At Ceiling — fade"
-            hint="On a streak at their season high. Extending it is unprecedented for them."
-            rows={atCeiling}
-          />
-          <ListCard
-            title="Overdue — due"
-            hint="Past their typical gap without the event. Breaks the next game at this rate."
-            rows={overdue}
-          />
-          <ListCard
-            title="Hot — strong extenders"
-            hint="On a streak below their ceiling with a high historical extend rate."
-            rows={hotStreak}
-          />
+        <div className="overflow-x-auto p-3">
+          <table className="w-full max-w-xl text-xs text-fg-muted">
+            <thead>
+              <tr className="text-fg-subtle border-b border-border text-[10px]">
+                <th className="text-left px-2 py-1 font-medium">Batter</th>
+                <th className="text-left px-2 py-1 font-medium">
+                  Streak · extend rate
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {onStreak.map((r) => (
+                <ListRow key={`${r.batterId}-${r.market}`} r={r} />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

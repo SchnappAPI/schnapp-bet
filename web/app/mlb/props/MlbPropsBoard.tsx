@@ -7,7 +7,6 @@ import type {
   PropMarket,
   PropRow,
   PropsResponse,
-  Situation,
 } from "@/app/api/mlb-props/route";
 
 // Odds-free batter-prop board (/mlb/props). Ranks every projected hitter for
@@ -66,66 +65,6 @@ function ResultTag({ played, hit }: { played: boolean; hit: boolean | null }) {
 
 function pct(p: number): string {
   return `${(p * 100).toFixed(1)}%`;
-}
-
-// Current run-state conditional frequency for this batter+market. The signal
-// is the raw k/N (denominator visible) — never a bare % that masquerades as a
-// model output. Season is primary; career shown on hover.
-function SituationCell({ s }: { s: Situation | null }) {
-  if (!s || s.state === "none") {
-    return <span className="text-fg-disabled">&ndash;</span>;
-  }
-  const isStreak = s.state === "streak";
-  const label = isStreak ? `${s.len}-game streak` : `${s.len}-game drought`;
-
-  // Chip: at-ceiling streak = don't-chase (amber); overdue/on drought = due
-  // (green); mid streak = neutral hot.
-  let chip: { text: string; cls: string } | null = null;
-  if (isStreak && s.atCeiling) {
-    chip = { text: "at ceiling", cls: "bg-neg-muted text-neg" };
-  } else if (!isStreak && (s.phase === "late" || s.phase === "on")) {
-    chip = {
-      text: s.phase === "late" ? "overdue" : "due",
-      cls: "bg-pos-muted text-pos",
-    };
-  } else if (isStreak) {
-    chip = { text: "hot", cls: "bg-brand-muted text-brand" };
-  }
-
-  const hasSeason = s.seasonN != null && s.seasonN > 0;
-  const freqText = hasSeason
-    ? `${isStreak ? "extend" : "hit"} ${s.seasonHits}/${s.seasonN} (${Math.round((s.seasonFreq ?? 0) * 100)}%)`
-    : "1st time this season";
-
-  const careerText =
-    s.careerN != null && s.careerN > 0
-      ? `Career: ${s.careerHits}/${s.careerN} (${Math.round((s.careerFreq ?? 0) * 100)}%)${
-          s.ceilingCareer != null
-            ? ` · career-high streak ${s.ceilingCareer}`
-            : ""
-        }`
-      : "No career history at this state";
-
-  return (
-    <span
-      className="whitespace-nowrap"
-      title={`${label}. Next game, from this exact state. ${careerText}`}
-    >
-      <span className="text-fg-subtle tabular-nums">{label}</span>
-      {chip && (
-        <span
-          className={`ml-1.5 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${chip.cls}`}
-        >
-          {chip.text}
-        </span>
-      )}
-      <span
-        className={`ml-1.5 text-[10px] tabular-nums ${hasSeason ? "text-fg-muted" : "text-fg-disabled"}`}
-      >
-        {freqText}
-      </span>
-    </span>
-  );
 }
 
 function fmtDate(iso: string): string {
@@ -353,12 +292,6 @@ export default function MlbPropsBoard() {
                 >
                   vs SP
                 </th>
-                <th
-                  className="text-left px-2 py-1.5 font-medium"
-                  title="This batter's CURRENT streak/drought for this market, and how often — from exactly this state — the event happened the next game (season; hover for career). Context only, not in the projection."
-                >
-                  Situation
-                </th>
                 <th className="text-left px-2 py-1.5 font-medium">Tier</th>
                 <th
                   className="text-left px-2 py-1.5 font-medium"
@@ -448,9 +381,6 @@ export default function MlbPropsBoard() {
                     )}
                   </td>
                   <td className="px-2 py-1.5">
-                    <SituationCell s={r.situation} />
-                  </td>
-                  <td className="px-2 py-1.5">
                     <span
                       className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tierChip(
                         r.tier,
@@ -467,12 +397,9 @@ export default function MlbPropsBoard() {
                       {r.bucketRate != null ? (
                         <span
                           className="text-pos font-semibold"
-                          title={`This probability band hit ${Math.round(r.bucketRate * 100)}% over the last 30 days (${r.bucketN} settled samples)`}
+                          title={`Picks in this same probability band cleared ${Math.round(r.bucketRate * 100)}% of the time over the last 30 days, across ${r.bucketN} graded picks. It measures the band, not this player's own games.`}
                         >
                           {Math.round(r.bucketRate * 100)}%
-                          <span className="text-fg-disabled text-[9px] ml-0.5 font-normal">
-                            n{r.bucketN}
-                          </span>
                         </span>
                       ) : (
                         <span className="text-fg-disabled">&ndash;</span>
