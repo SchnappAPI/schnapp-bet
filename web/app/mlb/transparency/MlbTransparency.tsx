@@ -5,16 +5,12 @@ import type {
   TierDay,
   TransparencyResponse,
 } from "@/app/api/mlb-transparency/route";
+import { useMlbFilters } from "@/components/mlb/MlbFilterProvider";
 
 // Transparency (/mlb/transparency). Per-day settled hit rate of the odds-free
 // props board, by tier and market. The board's tiers should hit monotonically
 // (Elite > ... > Fade); this shows whether they did, day over day.
 
-const MARKETS: { key: "HR" | "HRR" | "HITS"; label: string }[] = [
-  { key: "HR", label: "Home Run" },
-  { key: "HRR", label: "H+R+RBI" },
-  { key: "HITS", label: "Hits" },
-];
 const TIERS = ["Elite", "Strong", "AboveAvg", "Average", "Fade"];
 const TIER_LABEL: Record<string, string> = { AboveAvg: "Above" };
 
@@ -40,7 +36,7 @@ export default function MlbTransparency() {
   const [data, setData] = useState<TransparencyResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [err, setErr] = useState(false);
-  const [market, setMarket] = useState<"HR" | "HRR" | "HITS">("HR");
+  const { market } = useMlbFilters();
 
   useEffect(() => {
     let cancelled = false;
@@ -106,22 +102,6 @@ export default function MlbTransparency() {
           they did, day over day. Graded with the model&apos;s own market
           definitions.
         </div>
-      </div>
-
-      <div className="px-3 py-2 flex items-center gap-2 border-b border-border-subtle">
-        {MARKETS.map((m) => (
-          <button
-            key={m.key}
-            onClick={() => setMarket(m.key)}
-            className={`text-xs px-2 py-1 rounded transition-colors ${
-              market === m.key
-                ? "bg-brand-muted text-brand"
-                : "text-fg-subtle hover:text-fg hover:bg-surface-hover"
-            }`}
-          >
-            {m.label}
-          </button>
-        ))}
       </div>
 
       {!loaded ? (
