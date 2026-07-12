@@ -508,7 +508,7 @@ export interface GradeRow {
   gameId: string | null;
   homeTeamAbbr: string | null;
   awayTeamAbbr: string | null;
-  outcome: string | null;   // 'Won' | 'Lost' | null
+  outcome: string | null;   // 'Won' | 'Lost' | 'Push' | 'DNP' | null
   eventId: string | null;   // Odds API event_id for live odds matching
   link: string | null;      // FanDuel deep link — only present for today/upcoming grades
   modelProb: number | null;
