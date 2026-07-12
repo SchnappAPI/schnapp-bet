@@ -723,6 +723,98 @@ IF NOT EXISTS (
 
 
 # ---------------------------------------------------------------------------
+# Streak / drought conditional-frequency engine
+# (docs/superpowers/specs/2026-07-12-streaks-trends-transparency-design.md)
+#
+# For a player + market + scope, the conditional next-game frequency given the
+# player's current run-state: of all the times this player was in this exact
+# state (streak d = d straight games WITH the event, or drought g = g straight
+# WITHOUT), how often did the event happen the next game (k/N, N always shown).
+# Display/context only — never folded into the projection. Run-state is
+# within-season (streaks reset each season); "career" scope pools the
+# within-season transition counts across all loaded seasons.
+# ---------------------------------------------------------------------------
+
+# Binary per-game event definitions, evaluated over the deduped batting_stats
+# row (max plate_appearances per game_pk+player_id, matching the props board
+# and the outcome-settlement dedup). "expr" maps a stats row dict -> bool.
+STREAK_MARKETS = {
+    "HR": lambda r: (r.get("home_runs") or 0) >= 1,
+    "HIT": lambda r: (r.get("hits") or 0) >= 1,
+    "HRR2": lambda r: ((r.get("hits") or 0) + (r.get("runs") or 0) + (r.get("rbi") or 0)) >= 2,
+    "HRR3": lambda r: ((r.get("hits") or 0) + (r.get("runs") or 0) + (r.get("rbi") or 0)) >= 3,
+    "RBI": lambda r: (r.get("rbi") or 0) >= 1,
+}
+
+# A drought length needs at least this many historical occurrences before it is
+# eligible to define the player's "typical gap" (so one fluke gap never sets
+# the cadence).
+TYPICAL_GAP_MIN_SAMPLES = 2
+
+DDL_CREATE_STREAK_STATE = """
+IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = 'mlb' AND TABLE_NAME = 'player_streak_state'
+)
+CREATE TABLE mlb.player_streak_state (
+    batter_id          INT           NOT NULL,
+    as_of_date         DATE          NOT NULL,
+    market             VARCHAR(8)    NOT NULL,
+    season             INT           NOT NULL,
+    cur_state          VARCHAR(8)    NOT NULL,   -- 'streak' | 'drought' | 'none'
+    cur_len            INT           NOT NULL,
+    streak_ceiling     INT           NULL,       -- max event-streak this season
+    streak_ceiling_car INT           NULL,       -- ... career
+    typical_gap        INT           NULL,       -- season cadence (drought mode)
+    phase              VARCHAR(8)    NULL,        -- 'early' | 'on' | 'late' (drought)
+    at_ceiling         BIT           NOT NULL DEFAULT 0,
+    season_n           INT           NULL,        -- times reached this state (season)
+    season_hits        INT           NULL,        -- of those, event next game
+    season_freq        DECIMAL(5,3)  NULL,
+    career_n           INT           NULL,
+    career_hits        INT           NULL,
+    career_freq        DECIMAL(5,3)  NULL,
+    created_at         DATETIME2     NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_player_streak_state PRIMARY KEY CLUSTERED (batter_id, as_of_date, market)
+);
+"""
+
+DDL_CREATE_STREAK_STATE_INDEX = """
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_player_streak_state_date'
+      AND object_id = OBJECT_ID('mlb.player_streak_state')
+)
+    CREATE NONCLUSTERED INDEX IX_player_streak_state_date
+        ON mlb.player_streak_state (as_of_date, market, batter_id);
+"""
+
+# The full current curve for the trends page. Latest state per (batter, market,
+# scope, state_type, state_len) — refreshed nightly, no per-as_of history (the
+# props situation cell reads player_streak_state for a specific date instead).
+DDL_CREATE_STREAK_DIST = """
+IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = 'mlb' AND TABLE_NAME = 'player_streak_dist'
+)
+CREATE TABLE mlb.player_streak_dist (
+    batter_id     INT           NOT NULL,
+    market        VARCHAR(8)    NOT NULL,
+    scope         VARCHAR(8)    NOT NULL,   -- 'season' | 'career'
+    state_type    VARCHAR(8)    NOT NULL,   -- 'streak' | 'drought'
+    state_len     INT           NOT NULL,
+    n_reached     INT           NOT NULL,
+    n_event_next  INT           NOT NULL,
+    freq          DECIMAL(5,3)  NOT NULL,
+    as_of_date    DATE          NOT NULL,
+    created_at    DATETIME2     NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_player_streak_dist
+        PRIMARY KEY CLUSTERED (batter_id, market, scope, state_type, state_len)
+);
+"""
+
+
+# ---------------------------------------------------------------------------
 # Trend-stats: set-based computation (replaces per-row _compute_trend_row loop)
 # ---------------------------------------------------------------------------
 
@@ -1567,6 +1659,9 @@ def ensure_table(engine):
         conn.execute(text(DDL_ALTER_TREND_PLATOON_QUALITY))
         conn.execute(text(DDL_CREATE_PATTERNS))
         conn.execute(text(DDL_CREATE_PATTERNS_INDEXES))
+        conn.execute(text(DDL_CREATE_STREAK_STATE))
+        conn.execute(text(DDL_CREATE_STREAK_STATE_INDEX))
+        conn.execute(text(DDL_CREATE_STREAK_DIST))
     log.info(
         "mlb.play_by_play, mlb.player_at_bats, mlb.career_batter_vs_pitcher, "
         "mlb.player_trend_stats, mlb.player_game_statcast, and "
@@ -2338,6 +2433,387 @@ def rebuild_player_patterns(engine):
         load_player_patterns_for_games(engine, chunk)
 
 
+# ---------------------------------------------------------------------------
+# Streak / drought engine implementation
+# ---------------------------------------------------------------------------
+
+
+def _run_state_after(flags, i):
+    """(state_type, length) of the run ENDING at game index i.
+
+    flags[i] True  -> ('streak', length of trailing True run ending at i)
+    flags[i] False -> ('drought', length of trailing False run ending at i)
+    """
+    val = flags[i]
+    length = 0
+    j = i
+    while j >= 0 and flags[j] == val:
+        length += 1
+        j -= 1
+    return ("streak" if val else "drought"), length
+
+
+def _season_transitions(flags):
+    """Accumulate within-season transition counts over one season's ordered
+    event flags. For each game i (0..n-2): the run-state after game i, and
+    whether the NEXT game (i+1) had the event.
+
+    Returns (counts, ceiling) where counts[(state_type, length)] =
+    [n_reached, n_event_next] and ceiling = the longest streak reached this
+    season (0 if the player never had the event)."""
+    counts = {}
+    ceiling = 0
+    n = len(flags)
+    for i in range(n):
+        st, ln = _run_state_after(flags, i)
+        if st == "streak":
+            ceiling = max(ceiling, ln)
+        if i < n - 1:
+            key = (st, ln)
+            slot = counts.setdefault(key, [0, 0])
+            slot[0] += 1
+            if flags[i + 1]:
+                slot[1] += 1
+    return counts, ceiling
+
+
+def _typical_gap(season_counts):
+    """The drought length that most often preceded an event this season (mode
+    of realized gaps), guarded by a minimum-sample floor. None if no eligible
+    drought."""
+    best_len = None
+    best_hits = 0
+    for (st, ln), (n_reached, n_next) in season_counts.items():
+        if st != "drought" or n_reached < TYPICAL_GAP_MIN_SAMPLES:
+            continue
+        if n_next > best_hits:
+            best_hits = n_next
+            best_len = ln
+    return best_len
+
+
+def _compute_streak_rows(history_df, target_dates):
+    """Compute player_streak_state rows (per as_of date, per market) and the
+    latest-date player_streak_dist rows for ONE batter across all seasons.
+
+    history_df: this batter's deduped per-game stats (game_date, game_pk,
+    hits, runs, rbi, home_runs), any order, ALL seasons.
+    target_dates: as-of dates to emit state rows for (dates the batter played).
+
+    Pure over the game sequence so incremental and rebuild paths cannot drift.
+    Run-state is within-season; career pools within-season transition counts.
+    Returns (state_rows, dist_rows).
+    """
+    g = history_df.sort_values(["game_date", "game_pk"]).reset_index(drop=True)
+    records = g.to_dict("records")
+    dates = [r["game_date"] for r in records]
+    seasons = [d.year for d in dates]
+
+    # Per market, per season: ordered event flags with their game dates.
+    flags_by_market_season = {}
+    for mk, fn in STREAK_MARKETS.items():
+        by_season = {}
+        for rec, yr in zip(records, seasons):
+            by_season.setdefault(yr, []).append((rec["game_date"], bool(fn(rec))))
+        flags_by_market_season[mk] = by_season
+
+    target_set = sorted(set(target_dates))
+    max_target = target_set[-1] if target_set else None
+
+    state_rows = []
+    dist_rows = []
+
+    for mk in STREAK_MARKETS:
+        by_season = flags_by_market_season[mk]
+
+        # Full per-season transition counts + ceilings (career = all seasons).
+        season_full = {}  # year -> (counts, ceiling)
+        for yr, pairs in by_season.items():
+            flags = [f for _, f in sorted(pairs)]
+            season_full[yr] = _season_transitions(flags)
+        career_ceiling = max((c for _, c in season_full.values()), default=0)
+
+        for as_of in target_set:
+            yr = as_of.year
+            pairs = sorted(by_season.get(yr, []))
+            flags_through = [f for d, f in pairs if d <= as_of]
+            if not flags_through:
+                continue
+            n = len(flags_through)
+
+            # Current run-state after the as_of game (inclusive), within season.
+            cur_type, cur_len = _run_state_after(flags_through, n - 1)
+
+            # Season-scope transition counts THROUGH the as_of date only
+            # (leakage: transitions after as_of must not inform this row).
+            season_counts, season_ceiling = _season_transitions(flags_through)
+
+            # Career-scope: this season's through-date counts + all OTHER
+            # seasons' full counts. (Prior/later complete seasons are legit
+            # historical context for "how often, when at this state".)
+            career_counts = {k: list(v) for k, v in season_counts.items()}
+            for oyr, (ocounts, _) in season_full.items():
+                if oyr == yr:
+                    continue
+                for k, (nr, nn) in ocounts.items():
+                    slot = career_counts.setdefault(k, [0, 0])
+                    slot[0] += nr
+                    slot[1] += nn
+
+            cur_key = (cur_type, cur_len)
+            s_n, s_hits = season_counts.get(cur_key, [0, 0])
+            c_n, c_hits = career_counts.get(cur_key, [0, 0])
+
+            typical_gap = _typical_gap(season_counts)
+            phase = None
+            if cur_type == "drought" and typical_gap is not None:
+                if cur_len < typical_gap:
+                    phase = "early"
+                elif cur_len == typical_gap:
+                    phase = "on"
+                else:
+                    phase = "late"
+
+            at_ceiling = int(cur_type == "streak" and cur_len >= max(season_ceiling, 1) and cur_len == season_ceiling)
+
+            state_rows.append(
+                {
+                    "batter_id": None,  # filled by caller
+                    "as_of_date": as_of,
+                    "market": mk,
+                    "season": yr,
+                    "cur_state": cur_type if n > 0 else "none",
+                    "cur_len": cur_len,
+                    "streak_ceiling": season_ceiling,
+                    "streak_ceiling_car": career_ceiling,
+                    "typical_gap": typical_gap,
+                    "phase": phase,
+                    "at_ceiling": at_ceiling,
+                    "season_n": s_n,
+                    "season_hits": s_hits,
+                    "season_freq": round(s_hits / s_n, 3) if s_n else None,
+                    "career_n": c_n,
+                    "career_hits": c_hits,
+                    "career_freq": round(c_hits / c_n, 3) if c_n else None,
+                }
+            )
+
+            # Distribution rows only for the latest as_of date (current curve).
+            if as_of == max_target:
+                for scope, counts in (("season", season_counts), ("career", career_counts)):
+                    for (st, ln), (nr, nn) in counts.items():
+                        if nr <= 0:
+                            continue
+                        dist_rows.append(
+                            {
+                                "batter_id": None,
+                                "market": mk,
+                                "scope": scope,
+                                "state_type": st,
+                                "state_len": ln,
+                                "n_reached": nr,
+                                "n_event_next": nn,
+                                "freq": round(nn / nr, 3),
+                                "as_of_date": as_of,
+                            }
+                        )
+
+    return state_rows, dist_rows
+
+
+def load_player_streaks_for_games(engine, game_pks):
+    """Materialize mlb.player_streak_state (+ current-curve player_streak_dist)
+    for the (batter, game_date) pairs touched by game_pks, from deduped
+    mlb.batting_stats history across ALL seasons (career scope needs them).
+
+    Like player_patterns: NO skip-if-exists (through-date-inclusive rows must
+    recompute across doubleheader flush boundaries); MERGE makes it idempotent.
+    Runs after the boxscore + at-bats are loaded.
+    """
+    if not game_pks:
+        return
+
+    placeholders = ", ".join(str(int(g)) for g in set(game_pks))
+    targets = pd.read_sql(
+        text(f"""
+        SELECT DISTINCT player_id AS batter_id, CAST(game_date AS DATE) AS game_date
+        FROM mlb.batting_stats
+        WHERE game_pk IN ({placeholders}) AND game_date IS NOT NULL
+    """),
+        engine,
+    )
+    if targets.empty:
+        log.info("player_streaks: no batter-date pairs for the given games.")
+        return
+
+    batter_ids = sorted(int(b) for b in targets["batter_id"].unique())
+    blist = ", ".join(str(b) for b in batter_ids)
+    # Deduped per-game batting line (max-PA row per game_pk+player_id), ALL
+    # seasons for these batters (career scope). Same dedup as the props board.
+    history = pd.read_sql(
+        text(f"""
+        SELECT batter_id, game_pk, game_date, hits, runs, rbi, home_runs
+        FROM (
+            SELECT b.player_id AS batter_id, b.game_pk,
+                   CAST(b.game_date AS DATE) AS game_date,
+                   b.hits, b.runs, b.rbi, b.home_runs,
+                   ROW_NUMBER() OVER (PARTITION BY b.game_pk, b.player_id
+                                      ORDER BY b.plate_appearances DESC) AS rn
+            FROM mlb.batting_stats b
+            WHERE b.player_id IN ({blist}) AND b.game_date IS NOT NULL
+        ) d
+        WHERE d.rn = 1
+    """),
+        engine,
+    )
+    if history.empty:
+        log.info("player_streaks: no batting history.")
+        return
+
+    targets_by_batter = targets.groupby("batter_id")["game_date"].apply(list)
+    state_out = []
+    dist_out = []
+    for batter_id, bgames in history.groupby("batter_id"):
+        t_dates = targets_by_batter.get(batter_id)
+        if not t_dates:
+            continue
+        srows, drows = _compute_streak_rows(bgames, t_dates)
+        for r in srows:
+            r["batter_id"] = int(batter_id)
+            state_out.append(r)
+        for r in drows:
+            r["batter_id"] = int(batter_id)
+            dist_out.append(r)
+
+    if state_out:
+        _merge_streak_state(engine, state_out)
+    if dist_out:
+        _merge_streak_dist(engine, dist_out, batter_ids)
+    log.info(
+        "player_streaks: wrote %d state rows + %d dist rows for %d batters.",
+        len(state_out),
+        len(dist_out),
+        len(batter_ids),
+    )
+
+
+def _merge_streak_state(engine, rows):
+    cols = [
+        "batter_id",
+        "as_of_date",
+        "market",
+        "season",
+        "cur_state",
+        "cur_len",
+        "streak_ceiling",
+        "streak_ceiling_car",
+        "typical_gap",
+        "phase",
+        "at_ceiling",
+        "season_n",
+        "season_hits",
+        "season_freq",
+        "career_n",
+        "career_hits",
+        "career_freq",
+    ]
+    key = ("batter_id", "as_of_date", "market")
+    set_clause = ", ".join(f"{c} = src.{c}" for c in cols if c not in key)
+    insert_cols = ", ".join(cols)
+    src_cols = ", ".join(f"src.{c}" for c in cols)
+    param_names = ", ".join(f":{c}" for c in cols)
+    with engine.begin() as conn:
+        conn.execute(text("IF OBJECT_ID('tempdb..#ss_stage') IS NOT NULL DROP TABLE #ss_stage"))
+        conn.execute(
+            text("""
+            CREATE TABLE #ss_stage (
+                batter_id INT NOT NULL, as_of_date DATE NOT NULL, market VARCHAR(8) NOT NULL,
+                season INT NOT NULL, cur_state VARCHAR(8) NOT NULL, cur_len INT NOT NULL,
+                streak_ceiling INT NULL, streak_ceiling_car INT NULL, typical_gap INT NULL,
+                phase VARCHAR(8) NULL, at_ceiling INT NOT NULL,
+                -- FLOAT staging for the DECIMAL targets (fast_executemany binds
+                -- some float batches as varchar; SQL Server rejects varchar->numeric).
+                season_n INT NULL, season_hits INT NULL, season_freq FLOAT NULL,
+                career_n INT NULL, career_hits INT NULL, career_freq FLOAT NULL,
+                PRIMARY KEY (batter_id, as_of_date, market)
+            )
+        """)
+        )
+        conn.execute(
+            text(f"INSERT INTO #ss_stage ({insert_cols}) VALUES ({param_names})"),
+            [{c: r[c] for c in cols} for r in rows],
+        )
+        conn.execute(
+            text(f"""
+            MERGE mlb.player_streak_state AS tgt
+            USING #ss_stage AS src
+              ON tgt.batter_id = src.batter_id AND tgt.as_of_date = src.as_of_date
+                 AND tgt.market = src.market
+            WHEN MATCHED THEN UPDATE SET {set_clause}
+            WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({src_cols});
+        """)
+        )
+
+
+def _merge_streak_dist(engine, rows, batter_ids):
+    """Replace the current curve for the processed batters (DELETE their rows,
+    INSERT fresh) — player_streak_dist is latest-only, not per-as_of."""
+    cols = [
+        "batter_id",
+        "market",
+        "scope",
+        "state_type",
+        "state_len",
+        "n_reached",
+        "n_event_next",
+        "freq",
+        "as_of_date",
+    ]
+    insert_cols = ", ".join(cols)
+    param_names = ", ".join(f":{c}" for c in cols)
+    blist = ", ".join(str(int(b)) for b in batter_ids)
+    with engine.begin() as conn:
+        conn.execute(text("IF OBJECT_ID('tempdb..#sd_stage') IS NOT NULL DROP TABLE #sd_stage"))
+        conn.execute(
+            text("""
+            CREATE TABLE #sd_stage (
+                batter_id INT NOT NULL, market VARCHAR(8) NOT NULL, scope VARCHAR(8) NOT NULL,
+                state_type VARCHAR(8) NOT NULL, state_len INT NOT NULL,
+                n_reached INT NOT NULL, n_event_next INT NOT NULL, freq FLOAT NOT NULL,
+                as_of_date DATE NOT NULL,
+                PRIMARY KEY (batter_id, market, scope, state_type, state_len)
+            )
+        """)
+        )
+        conn.execute(
+            text(f"INSERT INTO #sd_stage ({insert_cols}) VALUES ({param_names})"),
+            [{c: r[c] for c in cols} for r in rows],
+        )
+        # Latest-only: clear the batters' existing curves, then insert fresh.
+        conn.execute(text(f"DELETE FROM mlb.player_streak_dist WHERE batter_id IN ({blist})"))
+        conn.execute(
+            text(f"""
+            INSERT INTO mlb.player_streak_dist ({insert_cols})
+            SELECT {insert_cols} FROM #sd_stage;
+        """)
+        )
+
+
+def rebuild_player_streaks(engine):
+    """Standalone rebuilder for --rebuild-streaks: recompute every
+    (batter, date) pair currently in mlb.batting_stats, chunked by game_pk."""
+    with engine.connect() as conn:
+        games = [row[0] for row in conn.execute(text("SELECT DISTINCT game_pk FROM mlb.batting_stats")).fetchall()]
+    log.info("rebuild-streaks: %d distinct game_pks in mlb.batting_stats.", len(games))
+    if not games:
+        return
+    CHUNK = 200
+    for start in range(0, len(games), CHUNK):
+        chunk = games[start : start + CHUNK]
+        log.info("rebuild-streaks: processing games %d-%d of %d.", start + 1, start + len(chunk), len(games))
+        load_player_streaks_for_games(engine, chunk)
+
+
 # SQL expression that classifies a row from mlb.player_at_bats into at-bat
 # count buckets. Reused by both the per-flush loader and the full rebuild.
 # Event types follow the MLB Stats API contract observed in production data.
@@ -2782,6 +3258,7 @@ def load_play_by_play(engine, seasons, batch_size):
             load_player_at_bats_for_games(engine, flush_games)
             load_player_game_statcast_for_games(engine, flush_games)
             load_player_patterns_for_games(engine, flush_games)
+            load_player_streaks_for_games(engine, flush_games)
             load_career_bvp_for_games(engine, flush_games)
             load_trend_stats_for_games(engine, flush_games)
             flush_rows = []
@@ -2821,6 +3298,11 @@ def main():
         action="store_true",
         help="Skip PBP fetch loop; rebuild mlb.player_patterns from existing player_game_statcast data.",
     )
+    parser.add_argument(
+        "--rebuild-streaks",
+        action="store_true",
+        help="Skip PBP fetch loop; rebuild mlb.player_streak_state/dist from existing batting_stats data.",
+    )
     args = parser.parse_args()
 
     seasons = args.seasons or SEASONS
@@ -2845,6 +3327,7 @@ def main():
         or args.rebuild_trend_stats
         or args.rebuild_game_statcast
         or args.rebuild_patterns
+        or args.rebuild_streaks
     )
 
     if rebuild_mode:
@@ -2854,6 +3337,8 @@ def main():
             rebuild_player_game_statcast(engine)
         if args.rebuild_patterns:
             rebuild_player_patterns(engine)
+        if args.rebuild_streaks:
+            rebuild_player_streaks(engine)
         if args.rebuild_bvp:
             rebuild_career_bvp(engine)
         if args.rebuild_trend_stats:
