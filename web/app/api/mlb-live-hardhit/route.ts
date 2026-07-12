@@ -243,9 +243,10 @@ export async function GET(req: NextRequest) {
       .slice(0, PITCHER_CAP);
 
     // --- Players to Watch: roll the live balls up per batter, then blend with
-    // the pre-game model HR projection. Gate = at least one hard-hit ball
-    // tonight (barrels and just-missed balls are hard by definition), so the
-    // list is "who is squaring it up right now" ranked by who the model likes.
+    // the pre-game model HR projection. Gate = at least one hard-hit ball OR a
+    // just-missed ball tonight (a deep ball at a bad angle can be a near-miss
+    // without clearing 95), so the list is "who is a HR threat right now"
+    // ranked by who the model likes.
     interface WatchAcc {
       batterId: number;
       batterName: string;
@@ -293,7 +294,9 @@ export async function GET(req: NextRequest) {
       watchAcc.set(b.batterId, a);
     }
 
-    const watchQualified = [...watchAcc.values()].filter((a) => a.hardHit > 0);
+    const watchQualified = [...watchAcc.values()].filter(
+      (a) => a.hardHit > 0 || a.justMissed > 0,
+    );
 
     // Pre-game model HR projection for the qualified batters. Additive and
     // best-effort: a DB failure leaves every hr* field null and the watch list
