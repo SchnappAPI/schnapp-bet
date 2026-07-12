@@ -7,6 +7,7 @@ import type {
   PropMarket,
   PropRow,
   PropsResponse,
+  Situation,
 } from "@/app/api/mlb-props/route";
 
 // Odds-free batter-prop board (/mlb/props). Ranks every projected hitter for
@@ -19,7 +20,7 @@ import type {
 
 const MARKETS: { key: PropMarket; label: string; sub: string }[] = [
   { key: "HR", label: "Home Run", sub: "P(≥1 HR)" },
-  { key: "HRR", label: "H+R+RBI", sub: "hits+runs+RBI ≥ 1.5" },
+  { key: "HRR", label: "H+R+RBI", sub: "hits+runs+RBI ≥ 2" },
   { key: "HITS", label: "Hits", sub: "P(≥1 hit)" },
 ];
 
@@ -65,6 +66,66 @@ function ResultTag({ played, hit }: { played: boolean; hit: boolean | null }) {
 
 function pct(p: number): string {
   return `${(p * 100).toFixed(1)}%`;
+}
+
+// Current run-state conditional frequency for this batter+market. The signal
+// is the raw k/N (denominator visible) — never a bare % that masquerades as a
+// model output. Season is primary; career shown on hover.
+function SituationCell({ s }: { s: Situation | null }) {
+  if (!s || s.state === "none") {
+    return <span className="text-fg-disabled">&ndash;</span>;
+  }
+  const isStreak = s.state === "streak";
+  const label = isStreak ? `${s.len}-game streak` : `${s.len}-game drought`;
+
+  // Chip: at-ceiling streak = don't-chase (amber); overdue/on drought = due
+  // (green); mid streak = neutral hot.
+  let chip: { text: string; cls: string } | null = null;
+  if (isStreak && s.atCeiling) {
+    chip = { text: "at ceiling", cls: "bg-neg-muted text-neg" };
+  } else if (!isStreak && (s.phase === "late" || s.phase === "on")) {
+    chip = {
+      text: s.phase === "late" ? "overdue" : "due",
+      cls: "bg-pos-muted text-pos",
+    };
+  } else if (isStreak) {
+    chip = { text: "hot", cls: "bg-brand-muted text-brand" };
+  }
+
+  const hasSeason = s.seasonN != null && s.seasonN > 0;
+  const freqText = hasSeason
+    ? `${isStreak ? "extend" : "hit"} ${s.seasonHits}/${s.seasonN} (${Math.round((s.seasonFreq ?? 0) * 100)}%)`
+    : "1st time this season";
+
+  const careerText =
+    s.careerN != null && s.careerN > 0
+      ? `Career: ${s.careerHits}/${s.careerN} (${Math.round((s.careerFreq ?? 0) * 100)}%)${
+          s.ceilingCareer != null
+            ? ` · career-high streak ${s.ceilingCareer}`
+            : ""
+        }`
+      : "No career history at this state";
+
+  return (
+    <span
+      className="whitespace-nowrap"
+      title={`${label}. Next game, from this exact state. ${careerText}`}
+    >
+      <span className="text-fg-subtle tabular-nums">{label}</span>
+      {chip && (
+        <span
+          className={`ml-1.5 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${chip.cls}`}
+        >
+          {chip.text}
+        </span>
+      )}
+      <span
+        className={`ml-1.5 text-[10px] tabular-nums ${hasSeason ? "text-fg-muted" : "text-fg-disabled"}`}
+      >
+        {freqText}
+      </span>
+    </span>
+  );
 }
 
 function fmtDate(iso: string): string {
@@ -177,8 +238,9 @@ export default function MlbPropsBoard() {
           </div>
           <div className="text-[11px] text-fg-disabled mt-0.5 max-w-xl">
             Model-ranked, odds-free. Leads with tier and how many &times; the
-            average hitter clears the market; the probability is the detail.
-            Model prop-v1, validated on held-out 2026.
+            average hitter clears the market; the probability is the detail. The
+            Situation column shows each batter&apos;s current streak/drought and
+            how often the event followed from that exact state.
           </div>
         </div>
         {/* Date nav */}
@@ -257,6 +319,12 @@ export default function MlbPropsBoard() {
                   title="Opposing probable starter (hand) + this batter's career line vs him. Context only — the projection does not use it (backtest: matchup signal is game-level noise)."
                 >
                   vs SP
+                </th>
+                <th
+                  className="text-left px-2 py-1.5 font-medium"
+                  title="This batter's CURRENT streak/drought for this market, and how often — from exactly this state — the event happened the next game (season; hover for career). Context only, not in the projection."
+                >
+                  Situation
                 </th>
                 <th className="text-left px-2 py-1.5 font-medium">Tier</th>
                 <th
@@ -337,6 +405,9 @@ export default function MlbPropsBoard() {
                     ) : (
                       <span className="text-fg-disabled">&ndash;</span>
                     )}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <SituationCell s={r.situation} />
                   </td>
                   <td className="px-2 py-1.5">
                     <span

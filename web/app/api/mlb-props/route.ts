@@ -29,6 +29,25 @@ export interface BvpLine {
   hr: number;
 }
 
+// Conditional next-game frequency for the batter's CURRENT run-state in this
+// market (mlb.player_streak_state). Display/context only — never folded into
+// the projection. Denominators always carried so a small-n rate is honest.
+export interface Situation {
+  state: "streak" | "drought" | "none";
+  len: number; // current streak/drought length
+  ceiling: number | null; // longest event-streak this season
+  ceilingCareer: number | null;
+  atCeiling: boolean; // on a streak at/above the season ceiling (don't-chase)
+  typicalGap: number | null; // drought cadence
+  phase: "early" | "on" | "late" | null; // drought vs typical gap
+  seasonN: number | null; // times reached this state (season)
+  seasonHits: number | null; // of those, event happened next game
+  seasonFreq: number | null; // 0..1
+  careerN: number | null;
+  careerHits: number | null;
+  careerFreq: number | null;
+}
+
 export interface PropRow {
   batterId: number;
   batterName: string | null;
@@ -45,6 +64,7 @@ export interface PropRow {
   bvp: BvpLine | null; // batter's career line vs that pitcher (null if never faced / unknown)
   played: boolean; // did the batter appear in a game on the as-of date
   hit: boolean | null; // did they clear THIS row's market (null when DNP)
+  situation: Situation | null; // current run-state conditional frequency
 }
 
 export interface PropsResponse {
@@ -136,7 +156,20 @@ SELECT
        WHEN 'HR'   THEN o.o_hr
        WHEN 'HRR'  THEN o.o_hrr
        WHEN 'HITS' THEN o.o_hit
-  END                             AS hit
+  END                             AS hit,
+  ss.cur_state                    AS ssState,
+  ss.cur_len                      AS ssLen,
+  ss.streak_ceiling               AS ssCeiling,
+  ss.streak_ceiling_car           AS ssCeilingCar,
+  ss.at_ceiling                   AS ssAtCeiling,
+  ss.typical_gap                  AS ssTypicalGap,
+  ss.phase                        AS ssPhase,
+  ss.season_n                     AS ssSeasonN,
+  ss.season_hits                  AS ssSeasonHits,
+  CAST(ss.season_freq AS FLOAT)   AS ssSeasonFreq,
+  ss.career_n                     AS ssCareerN,
+  ss.career_hits                  AS ssCareerHits,
+  CAST(ss.career_freq AS FLOAT)   AS ssCareerFreq
 FROM mlb.batter_prop_projections pr
 LEFT JOIN mlb.players p ON p.player_id = pr.batter_id
 LEFT JOIN team tm ON tm.player_id = pr.batter_id
@@ -144,6 +177,19 @@ LEFT JOIN mlb.teams t ON t.team_id = tm.team_id
 LEFT JOIN opp op ON op.team_id = tm.team_id
 LEFT JOIN bvp ON bvp.batter_id = pr.batter_id AND bvp.pitcher_id = op.opp_id
 LEFT JOIN outcome o ON o.batter_id = pr.batter_id
+-- The batter's run-state AS OF the morning of the board date: the latest
+-- streak_state row STRICTLY BEFORE @d (the player's prior game). A state row
+-- for date X is through-X-inclusive, so projecting X's game uses rows < X —
+-- same pre-game rule the player_patterns readers use. Market key mapped
+-- (board 'HRR' -> engine 'HRR2').
+OUTER APPLY (
+  SELECT TOP 1 s.*
+  FROM mlb.player_streak_state s
+  WHERE s.batter_id = pr.batter_id
+    AND s.market = CASE pr.market WHEN 'HR' THEN 'HR' WHEN 'HITS' THEN 'HIT' WHEN 'HRR' THEN 'HRR2' END
+    AND s.as_of_date < @d
+  ORDER BY s.as_of_date DESC
+) ss
 WHERE pr.as_of_date = @d
 ORDER BY pr.market, pr.prob DESC
 `;
@@ -167,6 +213,19 @@ interface RawRow {
   bvpHr: number | null;
   played: number; // 0 | 1
   hit: number | null; // 0 | 1 | null (null = did not play)
+  ssState: "streak" | "drought" | "none" | null;
+  ssLen: number | null;
+  ssCeiling: number | null;
+  ssCeilingCar: number | null;
+  ssAtCeiling: number | null; // 0 | 1
+  ssTypicalGap: number | null;
+  ssPhase: "early" | "on" | "late" | null;
+  ssSeasonN: number | null;
+  ssSeasonHits: number | null;
+  ssSeasonFreq: number | null;
+  ssCareerN: number | null;
+  ssCareerHits: number | null;
+  ssCareerFreq: number | null;
 }
 
 // The day's slate: team ids with a game, plus each team's opposing probable
@@ -276,6 +335,24 @@ export async function GET(req: NextRequest) {
           : null,
       played: r.played === 1,
       hit: r.hit === null ? null : r.hit === 1,
+      situation:
+        r.ssState == null
+          ? null
+          : {
+              state: r.ssState,
+              len: r.ssLen ?? 0,
+              ceiling: r.ssCeiling,
+              ceilingCareer: r.ssCeilingCar,
+              atCeiling: r.ssAtCeiling === 1,
+              typicalGap: r.ssTypicalGap,
+              phase: r.ssPhase,
+              seasonN: r.ssSeasonN,
+              seasonHits: r.ssSeasonHits,
+              seasonFreq: r.ssSeasonFreq,
+              careerN: r.ssCareerN,
+              careerHits: r.ssCareerHits,
+              careerFreq: r.ssCareerFreq,
+            },
     }));
 
     // A past date whose games have finished and whose box scores have loaded is
