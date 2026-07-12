@@ -3420,6 +3420,22 @@ def run_outcomes(engine, specific_date=None):
         (("player_points_rebounds", "player_points_rebounds_alternate"), "SUM(b.pts) + SUM(b.reb)"),
         (("player_points_assists", "player_points_assists_alternate"), "SUM(b.pts) + SUM(b.ast)"),
         (("player_rebounds_assists", "player_rebounds_assists_alternate"), "SUM(b.reb) + SUM(b.ast)"),
+        # Yes/no markets settle 1/0 against their 0.5 line. player_first_basket
+        # is deliberately absent: it needs play-by-play ordering, not box
+        # aggregates — its rows stay NULL (excluded from calibration) unless
+        # the player DNP'd.
+        (
+            ("player_double_double",),
+            "CASE WHEN (CASE WHEN SUM(b.pts) >= 10 THEN 1 ELSE 0 END"
+            " + CASE WHEN SUM(b.reb) >= 10 THEN 1 ELSE 0 END"
+            " + CASE WHEN SUM(b.ast) >= 10 THEN 1 ELSE 0 END) >= 2 THEN 1 ELSE 0 END",
+        ),
+        (
+            ("player_triple_double",),
+            "CASE WHEN (CASE WHEN SUM(b.pts) >= 10 THEN 1 ELSE 0 END"
+            " + CASE WHEN SUM(b.reb) >= 10 THEN 1 ELSE 0 END"
+            " + CASE WHEN SUM(b.ast) >= 10 THEN 1 ELSE 0 END) >= 3 THEN 1 ELSE 0 END",
+        ),
     ]
 
     total_updated = 0

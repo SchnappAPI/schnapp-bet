@@ -117,15 +117,22 @@ def ensure_calibration_schema(engine):
             END
         """)
         )
+        # Swap the PK to (sport, bucket_min). The old constraint's name is
+        # discovered dynamically — it varies by creation path and collation
+        # (pk_grade_calibration vs PK_grade_calibration vs system-generated);
+        # keying on a literal name would silently no-op and the first
+        # multi-sport publish would then collide on the single-column PK.
         conn.execute(
             text("""
-            IF EXISTS (SELECT 1 FROM sys.key_constraints
-                       WHERE name = 'pk_grade_calibration'
-                         AND parent_object_id = OBJECT_ID('common.grade_calibration'))
+            DECLARE @pk sysname = (
+                SELECT kc.name FROM sys.key_constraints kc
+                WHERE kc.parent_object_id = OBJECT_ID('common.grade_calibration')
+                  AND kc.type = 'PK');
+            IF @pk IS NOT NULL AND @pk <> 'pk_grade_calibration_v2'
             BEGIN
-                ALTER TABLE common.grade_calibration DROP CONSTRAINT pk_grade_calibration;
-                ALTER TABLE common.grade_calibration
-                    ADD CONSTRAINT pk_grade_calibration_v2 PRIMARY KEY (sport, bucket_min);
+                EXEC('ALTER TABLE common.grade_calibration DROP CONSTRAINT [' + @pk + '];
+                      ALTER TABLE common.grade_calibration
+                          ADD CONSTRAINT pk_grade_calibration_v2 PRIMARY KEY (sport, bucket_min);');
             END
         """)
         )

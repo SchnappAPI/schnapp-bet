@@ -37,15 +37,13 @@ offseason/no-games = clean exit.
 
 import argparse
 import logging
-import os
 import sys
-import time
 from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
 from scipy.stats import gaussian_kde
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 from shared.integrity import validate_and_filter, ensure_tables as ensure_integrity_tables
 from grading.calibration_core import load_calibrator, apply_calibrator
@@ -177,31 +175,9 @@ def player_id_to_gsis(pid: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def get_engine(max_retries=3, retry_wait=60):
-    trust = os.environ.get("SQL_TRUST_CERT", "no")
-    conn_str = (
-        f"mssql+pyodbc://{os.environ['SQL_USERNAME']}:"
-        f"{os.environ['SQL_PASSWORD']}@"
-        f"{os.environ['SQL_SERVER']}/"
-        f"{os.environ['SQL_DATABASE']}"
-        "?driver=ODBC+Driver+18+for+SQL+Server"
-        f"&Encrypt=yes&TrustServerCertificate={trust}"
-        "&Connection+Timeout=90"
-    )
-    last = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            eng = create_engine(conn_str, fast_executemany=False)
-            with eng.connect() as c:
-                c.execute(text("SELECT 1"))
-            log.info("DB connected.")
-            return eng
-        except Exception as exc:
-            last = exc
-            log.warning("DB connect attempt %d failed: %s", attempt, exc)
-            if attempt < max_retries:
-                time.sleep(retry_wait)
-    raise last
+# Grading connections need fast_executemany=False (NVARCHAR truncation rule);
+# shared.db.get_engine_slow is exactly that — no local engine factory.
+from shared.db import get_engine_slow as get_engine  # noqa: E402
 
 
 def today_utc_date() -> str:
@@ -231,10 +207,13 @@ def fetch_upcoming_nfl_props(engine, grade_date_str: str) -> pd.DataFrame:
     return pd.read_sql(sql, engine, params={"bk": BOOKMAKER, "d": grade_date_str})
 
 
-def fetch_game_log(
-    engine, gsis: str, expr: str, before_season: int, before_week: int, season_type: str = "REG"
-) -> pd.DataFrame:
-    """Per-game stat values strictly before (season, week), most recent first."""
+def fetch_game_log(engine, gsis: str, expr: str, before_season: int, before_week: int) -> pd.DataFrame:
+    """Per-game stat values strictly before (season, week), most recent first.
+
+    Includes REG and POST rows: nflverse week numbers are globally unique
+    within a season (REG 1-18, POST 19-22; verified on the live DB), so
+    (season, week) ordering and joins are unambiguous without season_type.
+    """
     sql = text(f"""
         SELECT season, week, opponent_team, {expr} AS stat_value
         FROM nfl.player_game_stats
@@ -448,7 +427,7 @@ def upsert_daily_grades(engine, rows: list[dict]):
                 player_id BIGINT, player_name NVARCHAR(100), market_key VARCHAR(100),
                 bookmaker_key VARCHAR(50), line_value DECIMAL(6,1), outcome_name VARCHAR(5),
                 over_price INT, outcome VARCHAR(5), composite_grade FLOAT,
-                model_version VARCHAR(50), sport VARCHAR(10)
+                model_version VARCHAR(50), sport VARCHAR(10), sample_size_60 INT
             );
         """)
         )
@@ -468,10 +447,11 @@ def upsert_daily_grades(engine, rows: list[dict]):
                 r["composite_grade"],
                 MODEL_VERSION,
                 "nfl",
+                r.get("sample_size_60"),
             )
             for r in rows
         ]
-        conn.exec_driver_sql("INSERT INTO #stage_grades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
+        conn.exec_driver_sql("INSERT INTO #stage_grades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
         conn.execute(
             text("""
             MERGE common.daily_grades AS t
@@ -483,15 +463,17 @@ def upsert_daily_grades(engine, rows: list[dict]):
                 t.composite_grade = s.composite_grade,
                 t.over_price = s.over_price,
                 t.model_version = s.model_version,
-                t.sport = s.sport
+                t.sport = s.sport,
+                t.sample_size_60 = s.sample_size_60
             WHEN NOT MATCHED THEN INSERT (
                 grade_date, event_id, game_id, player_id, player_name, market_key,
                 bookmaker_key, line_value, outcome_name, over_price, outcome,
-                composite_grade, model_version, sport
+                composite_grade, model_version, sport, sample_size_60
             ) VALUES (
                 s.grade_date, s.event_id, s.game_id, s.player_id, s.player_name,
                 s.market_key, s.bookmaker_key, s.line_value, s.outcome_name,
-                s.over_price, s.outcome, s.composite_grade, s.model_version, s.sport
+                s.over_price, s.outcome, s.composite_grade, s.model_version, s.sport,
+                s.sample_size_60
             );
         """)
         )
@@ -526,7 +508,7 @@ def upsert_tier_lines(engine, rows: list[dict]):
                 r["market_key"],
                 r["composite_grade"],
                 r.get("kde_window"),
-                0,
+                r.get("blowout_dampened", 0),
                 r.get("safe_line"),
                 r.get("safe_prob"),
                 r.get("safe_price"),
@@ -669,6 +651,31 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
         log.info("Calibrator load skipped (%s); using raw probabilities.", exc)
 
     over_props = props[props["outcome_name"] == "Over"].copy()
+
+    # Do not re-grade existing rows unless --force (grading rule). Existing
+    # keys for this date are skipped; force regrades via the MERGE update path.
+    if not force:
+        existing = pd.read_sql(
+            text("""SELECT event_id, market_key, player_id
+                      FROM common.daily_grades
+                     WHERE grade_date = :d AND model_version LIKE 'nfl%'"""),
+            engine,
+            params={"d": grade_date_str},
+        )
+        if not existing.empty:
+            existing_keys = set(map(tuple, existing.itertuples(index=False, name=None)))
+            before = len(over_props)
+            over_props = over_props[
+                ~over_props.apply(
+                    lambda r: (
+                        (str(r["event_id"]), r["market_key"], int(r["player_id"]) if pd.notna(r["player_id"]) else None)
+                        in existing_keys
+                    ),
+                    axis=1,
+                )
+            ]
+            if before - len(over_props):
+                log.info("Skipping %d already-graded props (pass --force to re-grade).", before - len(over_props))
     league_cache: dict = {}
     grade_rows, tier_rows = [], []
     processed = 0
@@ -730,6 +737,9 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
                     "over_price": int(over_price) if not pd.isna(over_price) else None,
                     "outcome": None,
                     "composite_grade": round(composite, 2),
+                    # Layer 1 always_required: the NFL sample analog is the
+                    # game-log depth feeding the model.
+                    "sample_size_60": int(len(game_log)),
                 }
             )
 
@@ -741,6 +751,8 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
                 "market_key": market_key,
                 "composite_grade": round(composite, 2),
                 "kde_window": kde_window,
+                # Layer 1 always_required; NFL never blowout-dampens.
+                "blowout_dampened": 0,
             }
             for label in ("safe", "value", "highrisk", "lotto"):
                 t = tiers.get(label)

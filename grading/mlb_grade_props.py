@@ -134,12 +134,6 @@ TIER_VALUE_PROB = 0.58
 TIER_HIGHRISK_PROB = 0.28
 TIER_LOTTO_PROB = 0.07
 
-TIER_HIGHRISK_MIN_PRICE = 150
-TIER_LOTTO_MIN_PRICE = 400
-
-IMPLIED_ODDS_CEILING = -500
-TIER_SAFE_EV_FLOOR = -0.05
-
 BATCH_DEFAULT = 20
 
 # Market config. Three families:
@@ -800,7 +794,7 @@ def compute_composite(hit_rate_grade: float, ev_grade: float, matchup_grade: flo
 
 
 def american_to_implied(price: int) -> float:
-    if price > 0:
+    if price >= 0:
         return 100.0 / (price + 100.0)
     return abs(price) / (abs(price) + 100.0)
 
@@ -943,7 +937,9 @@ def upsert_daily_grades(engine, rows: list[dict]):
                 over_price      INT,
                 outcome         VARCHAR(5),
                 composite_grade FLOAT,
-                model_version   VARCHAR(50)
+                model_version   VARCHAR(50),
+                sample_size_60  INT,
+                sport           VARCHAR(10)
             );
         """)
         )
@@ -962,10 +958,12 @@ def upsert_daily_grades(engine, rows: list[dict]):
                 r.get("outcome"),
                 r["composite_grade"],
                 MODEL_VERSION,
+                r.get("sample_size_60"),
+                "mlb",
             )
             for r in rows
         ]
-        conn.exec_driver_sql("INSERT INTO #stage_grades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
+        conn.exec_driver_sql("INSERT INTO #stage_grades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
         conn.execute(
             text("""
             MERGE common.daily_grades AS t
@@ -978,15 +976,17 @@ def upsert_daily_grades(engine, rows: list[dict]):
             WHEN MATCHED THEN UPDATE SET
                 t.composite_grade = s.composite_grade,
                 t.over_price      = s.over_price,
-                t.model_version   = s.model_version
+                t.model_version   = s.model_version,
+                t.sample_size_60  = s.sample_size_60,
+                t.sport           = s.sport
             WHEN NOT MATCHED THEN INSERT (
                 grade_date, event_id, game_id, player_id, player_name,
                 market_key, bookmaker_key, line_value, outcome_name, over_price,
-                outcome, composite_grade, model_version
+                outcome, composite_grade, model_version, sample_size_60, sport
             ) VALUES (
                 s.grade_date, s.event_id, s.game_id, s.player_id, s.player_name,
                 s.market_key, s.bookmaker_key, s.line_value, s.outcome_name, s.over_price,
-                s.outcome, s.composite_grade, s.model_version
+                s.outcome, s.composite_grade, s.model_version, s.sample_size_60, s.sport
             );
         """)
         )
@@ -1013,7 +1013,8 @@ def upsert_tier_lines(engine, rows: list[dict]):
                 value_line        DECIMAL(6,1), value_prob FLOAT, value_price INT,
                 highrisk_line     DECIMAL(6,1), highrisk_prob FLOAT, highrisk_price INT,
                 lotto_line        DECIMAL(6,1), lotto_prob FLOAT, lotto_price INT,
-                model_version     VARCHAR(50)
+                model_version     VARCHAR(50),
+                sport             VARCHAR(10)
             );
         """)
         )
@@ -1026,7 +1027,7 @@ def upsert_tier_lines(engine, rows: list[dict]):
                 r["market_key"],
                 r["composite_grade"],
                 r.get("kde_window"),
-                0,  # blowout_dampened always False for MLB grading
+                r.get("blowout_dampened", 0),  # always False for MLB grading
                 r.get("safe_line"),
                 r.get("safe_prob"),
                 r.get("safe_price"),
@@ -1040,10 +1041,11 @@ def upsert_tier_lines(engine, rows: list[dict]):
                 r.get("lotto_prob"),
                 r.get("lotto_price"),
                 MODEL_VERSION,
+                "mlb",
             )
             for r in rows
         ]
-        conn.exec_driver_sql("INSERT INTO #stage_tiers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
+        conn.exec_driver_sql("INSERT INTO #stage_tiers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
         conn.execute(
             text("""
             MERGE common.player_tier_lines AS t
@@ -1058,7 +1060,8 @@ def upsert_tier_lines(engine, rows: list[dict]):
                 t.value_line      = s.value_line, t.value_prob = s.value_prob, t.value_price = s.value_price,
                 t.highrisk_line   = s.highrisk_line, t.highrisk_prob = s.highrisk_prob, t.highrisk_price = s.highrisk_price,
                 t.lotto_line      = s.lotto_line, t.lotto_prob = s.lotto_prob, t.lotto_price = s.lotto_price,
-                t.model_version   = s.model_version
+                t.model_version   = s.model_version,
+                t.sport           = s.sport
             WHEN NOT MATCHED THEN INSERT (
                 grade_date, game_id, player_id, player_name, market_key,
                 composite_grade, kde_window, blowout_dampened,
@@ -1066,7 +1069,7 @@ def upsert_tier_lines(engine, rows: list[dict]):
                 value_line, value_prob, value_price,
                 highrisk_line, highrisk_prob, highrisk_price,
                 lotto_line, lotto_prob, lotto_price,
-                model_version
+                model_version, sport
             ) VALUES (
                 s.grade_date, s.game_id, s.player_id, s.player_name, s.market_key,
                 s.composite_grade, s.kde_window, s.blowout_dampened,
@@ -1074,7 +1077,7 @@ def upsert_tier_lines(engine, rows: list[dict]):
                 s.value_line, s.value_prob, s.value_price,
                 s.highrisk_line, s.highrisk_prob, s.highrisk_price,
                 s.lotto_line, s.lotto_prob, s.lotto_price,
-                s.model_version
+                s.model_version, s.sport
             );
         """)
         )
@@ -1340,6 +1343,12 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
                     "over_price": int(over_price) if not pd.isna(over_price) else None,
                     "outcome": None,
                     "composite_grade": round(composite, 2),
+                    # Layer 1 always_required (shared/integrity.py). The MLB
+                    # analog of the NBA 60-game window sample: games in the
+                    # market's game log. Omitting it quarantined every MLB
+                    # grade row (3,480 rows) whenever grading got past the
+                    # odds gate.
+                    "sample_size_60": int(len(game_log)),
                 }
             )
 
@@ -1352,6 +1361,8 @@ def grade_date(engine, grade_date_str: str, batch_size: int, force: bool):
                 "market_key": market_key,
                 "composite_grade": round(composite, 2),
                 "kde_window": kde_window,
+                # Layer 1 always_required; MLB never blowout-dampens.
+                "blowout_dampened": 0,
             }
             for tier_label in ("safe", "value", "highrisk", "lotto"):
                 t = tiers.get(tier_label)
@@ -1440,7 +1451,34 @@ def run_outcomes(engine, specific_date: str | None = None) -> int:
     params: dict = {"gd": specific_date} if specific_date else {}
     total = 0
 
+    # Short-circuit: the settlement scans (windowed dedup over the full
+    # boxscore tables, per market) are expensive — run them only for markets
+    # that actually have pending rows, and Pass B only when NULL-game_id
+    # pending rows exist.
+    pending_df = pd.read_sql(
+        text(f"""
+            SELECT dg.market_key,
+                   SUM(CASE WHEN dg.game_id IS NULL THEN 1 ELSE 0 END) AS n_null_game,
+                   COUNT(*) AS n_pending
+            FROM common.daily_grades dg
+            WHERE dg.outcome IS NULL
+              AND dg.player_id IS NOT NULL
+              AND dg.market_key IN ({_MLB_MARKET_LIST})
+              {date_clause}
+            GROUP BY dg.market_key
+        """),
+        engine,
+        params=params,
+    )
+    pending = {r["market_key"]: (int(r["n_pending"]), int(r["n_null_game"])) for _, r in pending_df.iterrows()}
+    if not pending:
+        log.info("Outcomes: no pending MLB rows to settle.")
+        return 0
+
     for market_key, expr in {**OUTCOME_STAT_EXPRS, **OUTCOME_PITCHER_EXPRS}.items():
+        n_pending, n_null_game = pending.get(market_key, (0, 0))
+        if n_pending == 0:
+            continue
         actual_tpl = _PITCHER_ACTUAL if market_key in OUTCOME_PITCHER_EXPRS else _BATTER_ACTUAL
         actual_sql = actual_tpl.format(expr=expr)
 
@@ -1462,20 +1500,31 @@ def run_outcomes(engine, specific_date: str | None = None) -> int:
         # game row for the player that day).
         src = "mlb.pitching_stats" if market_key in OUTCOME_PITCHER_EXPRS else "mlb.batting_stats"
         alias = "p" if market_key in OUTCOME_PITCHER_EXPRS else "b"
+        # Pass A dedups batter duplicates by max plate_appearances; pitcher rows
+        # have no PA column — innings_pitched is the analogous "primary row" key.
+        order_col = f"{alias}.innings_pitched" if alias == "p" else f"{alias}.plate_appearances"
         sql_b = text(f"""
             UPDATE dg
             SET dg.outcome = {_OUTCOME_CASE}
             FROM common.daily_grades dg
             JOIN (
-                SELECT {alias}.player_id, CAST({alias}.game_date AS DATE) AS d,
-                       MAX({expr}) AS stat_val, COUNT(DISTINCT {alias}.game_pk) AS n_games
-                FROM {src} {alias}
-                JOIN mlb.games g ON g.game_pk = {alias}.game_pk AND g.game_status = 'F'
-                GROUP BY {alias}.player_id, CAST({alias}.game_date AS DATE)
+                SELECT x.player_id, x.d, x.stat_val
+                FROM (
+                    SELECT {alias}.player_id, CAST({alias}.game_date AS DATE) AS d,
+                           {expr} AS stat_val,
+                           ROW_NUMBER() OVER (PARTITION BY {alias}.player_id, CAST({alias}.game_date AS DATE)
+                                              ORDER BY {order_col} DESC) AS rn,
+                           MIN({alias}.game_pk) OVER (PARTITION BY {alias}.player_id, CAST({alias}.game_date AS DATE)) AS min_pk,
+                           MAX({alias}.game_pk) OVER (PARTITION BY {alias}.player_id, CAST({alias}.game_date AS DATE)) AS max_pk
+                    FROM {src} {alias}
+                    JOIN mlb.games g ON g.game_pk = {alias}.game_pk AND g.game_status = 'F'
+                ) x
+                -- rn=1 = the max-PA row, matching Pass A's dedup; min_pk=max_pk
+                -- = exactly one final game that date (doubleheaders stay NULL).
+                WHERE x.rn = 1 AND x.min_pk = x.max_pk
             ) actual
               ON actual.player_id = dg.player_id
              AND actual.d = dg.grade_date
-             AND actual.n_games = 1
             WHERE dg.outcome IS NULL
               AND dg.game_id IS NULL
               AND dg.player_id IS NOT NULL
@@ -1484,7 +1533,8 @@ def run_outcomes(engine, specific_date: str | None = None) -> int:
         """)
         with engine.begin() as conn:
             n = conn.execute(sql_a, params).rowcount
-            n += conn.execute(sql_b, params).rowcount
+            if n_null_game:
+                n += conn.execute(sql_b, params).rowcount
         if n:
             log.info("  %s: %d rows settled.", market_key, n)
             total += n
