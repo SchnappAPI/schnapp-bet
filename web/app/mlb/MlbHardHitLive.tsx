@@ -8,6 +8,7 @@ import type {
   LiveHardHitPitcher,
   LiveHardHitResponse,
 } from "@/app/api/mlb-live-hardhit/route";
+import { useMlbFilters } from "@/components/mlb/MlbFilterProvider";
 import { resultColor, resultLabel, veloColor } from "./statcastFormat";
 
 // Standalone /mlb/live board: every batted ball being hit hard right now — ONE
@@ -337,9 +338,9 @@ function SectionHeader({ title, note }: { title: string; note: string }) {
 }
 
 export default function MlbHardHitLive() {
+  const { game } = useMlbFilters();
   const [data, setData] = useState<LiveHardHitResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [gameFilter, setGameFilter] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -376,22 +377,16 @@ export default function MlbHardHitLive() {
   const hasRows =
     !!data?.live && (data.balls.length > 0 || data.pitchers.length > 0);
 
-  // A selected game that has since ended falls back to "all".
-  const activeGame =
-    gameFilter != null && gameByPk.has(gameFilter) ? gameFilter : null;
+  // Shared game selection from the persistent MLB filter bar. A selected
+  // game that isn't in today's live slate (e.g. it already ended) shows
+  // everything rather than an empty board.
+  const activeGame = game && gameByPk.has(game.gamePk) ? game.gamePk : null;
   const shownBalls = activeGame
     ? (data?.balls ?? []).filter((b) => b.gamePk === activeGame)
     : (data?.balls ?? []);
   const shownPitchers = activeGame
     ? (data?.pitchers ?? []).filter((p) => p.gamePk === activeGame)
     : (data?.pitchers ?? []);
-
-  const chip = (on: boolean) =>
-    `rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
-      on
-        ? "bg-brand text-canvas"
-        : "bg-surface-hover text-fg-subtle hover:text-fg"
-    }`;
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -425,31 +420,6 @@ export default function MlbHardHitLive() {
         </div>
       ) : (
         <div className="pb-6">
-          {/* Game filter */}
-          <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2">
-            <span className="text-[10px] uppercase tracking-wider text-fg-disabled mr-1">
-              Game
-            </span>
-            <button
-              className={chip(activeGame == null)}
-              onClick={() => setGameFilter(null)}
-            >
-              All ({data!.games.length})
-            </button>
-            {data!.games.map((g) => (
-              <button
-                key={g.gamePk}
-                className={chip(activeGame === g.gamePk)}
-                onClick={() => setGameFilter(g.gamePk)}
-              >
-                {g.awayAbbr ?? "?"}@{g.homeAbbr ?? "?"}
-                {g.label ? (
-                  <span className="ml-1 opacity-70">{g.label}</span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-
           <SectionHeader
             title={`Hitting It Hard — ${shownBalls.length} batted ball${shownBalls.length === 1 ? "" : "s"}`}
             note="One row per at-bat. Barrel rows highlighted. Sort AB# for chronological order."
