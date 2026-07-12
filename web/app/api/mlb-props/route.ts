@@ -188,6 +188,8 @@ OUTER APPLY (
   WHERE s.batter_id = pr.batter_id
     AND s.market = CASE pr.market WHEN 'HR' THEN 'HR' WHEN 'HITS' THEN 'HIT' WHEN 'HRR' THEN 'HRR2' END
     AND s.as_of_date < @d
+    -- Recently active only: skip a stale run-state from a prior stint/season.
+    AND s.as_of_date >= DATEADD(day, -14, @d)
   ORDER BY s.as_of_date DESC
 ) ss
 WHERE pr.as_of_date = @d

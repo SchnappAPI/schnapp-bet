@@ -83,7 +83,11 @@ ranked AS (
     ROW_NUMBER() OVER (PARTITION BY s.batter_id, s.market ORDER BY s.as_of_date DESC) AS rn
   FROM mlb.player_streak_state s
   JOIN slate_batters sb ON sb.player_id = s.batter_id
-  WHERE s.as_of_date < @cutoff
+  -- Only recently-active batters: a state row within 14 days of the slate
+  -- (a player going into today has a row from their last game, days ago). This
+  -- excludes inactive players whose most-recent state is seasons old (stale
+  -- "27-game drought" from last September) and bounds the ranked set for speed.
+  WHERE s.as_of_date < @cutoff AND s.as_of_date >= @recent
 )
 SELECT
   ss.batter_id                    AS batterId,
@@ -157,11 +161,15 @@ export async function GET(req: NextRequest) {
     const cutoff = new Date(`${date}T00:00:00Z`);
     cutoff.setUTCDate(cutoff.getUTCDate() + 1);
     const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const recent = new Date(`${date}T00:00:00Z`);
+    recent.setUTCDate(recent.getUTCDate() - 14);
+    const recentStr = recent.toISOString().slice(0, 10);
 
     const res = await pool
       .request()
       .input("d", mssql.VarChar, date)
       .input("cutoff", mssql.VarChar, cutoffStr)
+      .input("recent", mssql.VarChar, recentStr)
       .query(SLATE_SQL);
 
     const rows = (res.recordset as RawStateRow[]).map((r) => ({
