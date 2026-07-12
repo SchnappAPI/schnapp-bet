@@ -67,6 +67,38 @@ export function isFastSwing(batSpeed: number | null): boolean {
   return batSpeed != null && batSpeed >= FAST_SWING_BAT_SPEED;
 }
 
+// "Just missed" — hit hard (EV 95+) AND carried (dist >= JUST_MISSED_MIN_DIST)
+// but the launch angle sat OUTSIDE the barrel/HR window, so elite contact did
+// not become a homer. This is the "adjust the launch angle" signal: the power
+// is there, the angle is not. Mirrors barrel's EV/LA definitions above; the
+// distance floor keeps out scorched grounders that never had HR shape.
+export const JUST_MISSED_MIN_DIST = 330; // ft — "hit it far"
+
+export function isJustMissed(
+  ev: number | null,
+  la: number | null,
+  dist: number | null,
+): boolean {
+  return (
+    ev != null &&
+    la != null &&
+    dist != null &&
+    ev >= HARD_HIT_EV &&
+    dist >= JUST_MISSED_MIN_DIST &&
+    (la < BARREL_LA_MIN || la > BARREL_LA_MAX)
+  );
+}
+
+// Which way a just-missed ball's launch angle missed the HR window — the
+// actionable note. "low" = under the window, needs more loft; "high" = over
+// it, got under the ball. null when the angle is inside the window or unknown.
+export function launchAngleMiss(la: number | null): "low" | "high" | null {
+  if (la == null) return null;
+  if (la < BARREL_LA_MIN) return "low";
+  if (la > BARREL_LA_MAX) return "high";
+  return null;
+}
+
 // Named-threshold chips (Savant Gamefeed format). Where a threshold has a
 // name, chip it instead of bare percentile shading. Rendered by
 // StatcastChips/StatcastLegend; a barrel is by definition hard-hit, so the

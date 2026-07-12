@@ -1,19 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
+import mssql from "mssql";
+import { getPool } from "@/lib/db";
 import { apiError } from "@/lib/apiError";
 import { fetchMlbLiveOverlay, todayCT } from "@/lib/mlbLive";
 import { fetchLiveGame, type LiveAtBat } from "@/lib/mlbLiveStatcast";
-import { HARD_HIT_EV, isBarrel } from "@/app/mlb/statcastFormat";
+import {
+  HARD_HIT_EV,
+  isBarrel,
+  isJustMissed,
+  launchAngleMiss,
+} from "@/app/mlb/statcastFormat";
 
 // Live "hard-hit" board for /mlb/live: every tracked batted ball across every
 // in-progress game, ONE ROW PER AT-BAT (no per-hitter roll-up), plus which
-// pitchers are getting squared up. Pure enrich — reads the live GUMBO feed
-// (via mlbLiveStatcast), writes nothing. Hard-hit is EV >= HARD_HIT_EV and
+// pitchers are getting squared up and a "Players to Watch" blend. Reads the
+// live GUMBO feed (via mlbLiveStatcast) and enriches with the pre-game HR
+// projection from the DB; writes nothing. Hard-hit is EV >= HARD_HIT_EV and
 // barrel is EV/LA in the HR window, the same definitions the ETL uses
 // (mlb_play_by_play.py, mirrored in statcastFormat) — barrels are the strongest
 // in-game HR signal. Each ball carries its game at-bat number (abNumber, 1..N
-// in the order PAs happen) so the board can be sorted chronologically, its
-// batter identity, and its own EV/LA/distance/result/inning — so every row is
-// self-contained (nothing rolls up).
+// per game — NOT a cross-game clock) AND ts (epoch ms from the feed's
+// about.endTime) so the board can sort by true wall-clock time across games,
+// plus its batter identity and its own EV/LA/distance/result/inning — so every
+// row is self-contained (nothing rolls up).
+//
+// The watch list blends the two signals the owner cares about for live HR
+// hunting: who is squaring the ball up RIGHT NOW (from the feed) and who the
+// model already likes to go deep (mlb.batter_prop_projections, market 'HR' —
+// a pure-model, odds-independent probability + tier). A hitter also earns a
+// flag when they hit it hard and far but the launch angle stayed outside the
+// HR window ("Adjust LA") — elite contact, wrong angle. The projection join is
+// additive: a DB hiccup drops the projection fields, never the board.
 //
 // EV/LA/distance are live; the modeled Savant stats (true xBA, bat speed) are
 // not in the feed and settle in the nightly load — the UI labels this LIVE.
@@ -21,9 +38,12 @@ import { HARD_HIT_EV, isBarrel } from "@/app/mlb/statcastFormat";
 // Pitcher list is bounded (a few per game); cap it so a huge slate can't
 // produce a runaway table. Batted balls are returned in full.
 const PITCHER_CAP = 40;
+// Watch list is the headline synthesis, not a full log — keep it scannable.
+const WATCH_CAP = 30;
 
 export interface LiveHardHitBattedBall {
   abNumber: number | null; // game at-bat number (1..N, order PAs happen)
+  ts: number | null; // epoch ms the play completed — the cross-game clock
   batterId: number;
   batterName: string;
   teamAbbr: string | null;
@@ -35,6 +55,32 @@ export interface LiveHardHitBattedBall {
   result: string | null;
   hard: boolean;
   barrel: boolean;
+}
+
+// One "Player to Watch": a hitter making loud contact in a live game, blended
+// with the pre-game model HR projection. reason ranks the live signal
+// (barreled > just-missed > hard contact); the hr* fields are the projection
+// and are null until the nightly projection load has run for the batter.
+export interface LiveWatchPlayer {
+  batterId: number;
+  batterName: string;
+  teamAbbr: string | null;
+  gamePk: number;
+  // live tonight
+  battedBalls: number;
+  maxEv: number | null;
+  hardHit: number;
+  barrels: number;
+  justMissed: number;
+  bestMissLa: number | null; // launch angle of the loudest just-missed ball
+  bestMissDist: number | null;
+  missDir: "low" | "high" | null; // needs loft (low) / got under it (high)
+  // pre-game model HR projection (mlb.batter_prop_projections, market 'HR')
+  hrProb: number | null; // calibrated 0..1
+  hrTier: string | null; // Elite..Fade (percentile within the HR market)
+  hrLift: number | null; // prob / league base rate (x vs avg)
+  hrBarrelsPerGame: number | null; // recent barrels/game the model saw
+  reason: "barreled" | "just_missed" | "hard_contact";
 }
 
 export interface LiveHardHitPitcher {
@@ -62,6 +108,7 @@ export interface LiveHardHitResponse {
   games: LiveHardHitGame[];
   balls: LiveHardHitBattedBall[];
   pitchers: LiveHardHitPitcher[];
+  watch: LiveWatchPlayer[];
 }
 
 interface PitcherAcc {
@@ -90,6 +137,7 @@ export async function GET(req: NextRequest) {
     games: [],
     balls: [],
     pitchers: [],
+    watch: [],
   };
 
   try {
@@ -131,6 +179,7 @@ export async function GET(req: NextRequest) {
         if (ab.batterId) {
           balls.push({
             abNumber: ab.atBatNumber ?? null,
+            ts: ab.ts,
             batterId: ab.batterId,
             batterName: ab.batterName,
             teamAbbr: batAbbr,
@@ -165,12 +214,13 @@ export async function GET(req: NextRequest) {
       xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
 
     // Default order: loudest contact first (the HR signal). The UI re-sorts by
-    // any column, including AB# for true chronological order. Barrels cluster
-    // at the top (they require EV >= 95) and are highlighted regardless.
+    // any column, including Time for true most-recent-first across games.
+    // Barrels cluster at the top (they require EV >= 95) and are highlighted
+    // regardless. Ties broken by ts (newest first), not the per-game AB#.
     const ballRows = balls.sort(
       (a, b) =>
         (b.ev ?? -Infinity) - (a.ev ?? -Infinity) ||
-        (b.abNumber ?? 0) - (a.abNumber ?? 0),
+        (b.ts ?? 0) - (a.ts ?? 0),
     );
 
     const pitcherRows: LiveHardHitPitcher[] = [...pitchers.values()]
@@ -192,6 +242,159 @@ export async function GET(req: NextRequest) {
       )
       .slice(0, PITCHER_CAP);
 
+    // --- Players to Watch: roll the live balls up per batter, then blend with
+    // the pre-game model HR projection. Gate = at least one hard-hit ball
+    // tonight (barrels and just-missed balls are hard by definition), so the
+    // list is "who is squaring it up right now" ranked by who the model likes.
+    interface WatchAcc {
+      batterId: number;
+      batterName: string;
+      teamAbbr: string | null;
+      gamePk: number;
+      battedBalls: number;
+      maxEv: number | null;
+      hardHit: number;
+      barrels: number;
+      justMissed: number;
+      bestMissEv: number; // loudest just-missed ball, to pick the advice line
+      bestMissLa: number | null;
+      bestMissDist: number | null;
+    }
+    const watchAcc = new Map<number, WatchAcc>();
+    for (const b of balls) {
+      const a =
+        watchAcc.get(b.batterId) ??
+        ({
+          batterId: b.batterId,
+          batterName: b.batterName,
+          teamAbbr: b.teamAbbr,
+          gamePk: b.gamePk,
+          battedBalls: 0,
+          maxEv: null,
+          hardHit: 0,
+          barrels: 0,
+          justMissed: 0,
+          bestMissEv: -Infinity,
+          bestMissLa: null,
+          bestMissDist: null,
+        } satisfies WatchAcc);
+      a.battedBalls += 1;
+      if (b.ev != null && (a.maxEv == null || b.ev > a.maxEv)) a.maxEv = b.ev;
+      if (b.hard) a.hardHit += 1;
+      if (b.barrel) a.barrels += 1;
+      if (isJustMissed(b.ev, b.la, b.dist)) {
+        a.justMissed += 1;
+        if ((b.ev ?? 0) > a.bestMissEv) {
+          a.bestMissEv = b.ev ?? 0;
+          a.bestMissLa = b.la;
+          a.bestMissDist = b.dist;
+        }
+      }
+      watchAcc.set(b.batterId, a);
+    }
+
+    const watchQualified = [...watchAcc.values()].filter((a) => a.hardHit > 0);
+
+    // Pre-game model HR projection for the qualified batters. Additive and
+    // best-effort: a DB failure leaves every hr* field null and the watch list
+    // still renders on the live signal alone.
+    const hrProj = new Map<
+      number,
+      {
+        prob: number | null;
+        tier: string | null;
+        lift: number | null;
+        barrelsPerGame: number | null;
+      }
+    >();
+    if (watchQualified.length > 0) {
+      try {
+        const ids = watchQualified
+          .map((a) => a.batterId)
+          .filter((n) => Number.isFinite(n));
+        if (ids.length > 0) {
+          const idList = ids.join(",");
+          const pool = await getPool();
+          // Latest as_of_date on/before today per batter for the HR market —
+          // the projection is written pre-game, so today's row is normal but a
+          // dark day falls back to the most recent one.
+          const res = await pool
+            .request()
+            .input("asOf", mssql.Date, date)
+            .query(
+              `SELECT p.batter_id      AS batterId,
+                      p.prob           AS prob,
+                      p.tier           AS tier,
+                      p.lift           AS lift,
+                      p.recent_barrels_pg AS barrelsPerGame
+               FROM mlb.batter_prop_projections p
+               INNER JOIN (
+                 SELECT batter_id, MAX(as_of_date) AS as_of_date
+                 FROM mlb.batter_prop_projections
+                 WHERE market = 'HR'
+                   AND as_of_date <= @asOf
+                   AND batter_id IN (${idList})
+                 GROUP BY batter_id
+               ) latest
+                 ON latest.batter_id = p.batter_id
+                AND latest.as_of_date = p.as_of_date
+               WHERE p.market = 'HR'`,
+            );
+          for (const r of res.recordset) {
+            hrProj.set(r.batterId as number, {
+              prob: r.prob == null ? null : Number(r.prob),
+              tier: r.tier ?? null,
+              lift: r.lift == null ? null : Number(r.lift),
+              barrelsPerGame:
+                r.barrelsPerGame == null ? null : Number(r.barrelsPerGame),
+            });
+          }
+        }
+      } catch {
+        // leave hrProj empty — projection columns stay null
+      }
+    }
+
+    const watchRows: LiveWatchPlayer[] = watchQualified
+      .map((a) => {
+        const proj = hrProj.get(a.batterId) ?? null;
+        const reason: LiveWatchPlayer["reason"] =
+          a.barrels > 0
+            ? "barreled"
+            : a.justMissed > 0
+              ? "just_missed"
+              : "hard_contact";
+        return {
+          batterId: a.batterId,
+          batterName: a.batterName,
+          teamAbbr: a.teamAbbr,
+          gamePk: a.gamePk,
+          battedBalls: a.battedBalls,
+          maxEv: a.maxEv,
+          hardHit: a.hardHit,
+          barrels: a.barrels,
+          justMissed: a.justMissed,
+          bestMissLa: a.bestMissLa,
+          bestMissDist: a.bestMissDist,
+          missDir: launchAngleMiss(a.bestMissLa),
+          hrProb: proj?.prob ?? null,
+          hrTier: proj?.tier ?? null,
+          hrLift: proj?.lift ?? null,
+          hrBarrelsPerGame: proj?.barrelsPerGame ?? null,
+          reason,
+        } satisfies LiveWatchPlayer;
+      })
+      // Squaring it up + model likes them: barrels first, then the HR
+      // projection, then just-missed count, then loudest contact.
+      .sort(
+        (a, b) =>
+          b.barrels - a.barrels ||
+          (b.hrProb ?? -1) - (a.hrProb ?? -1) ||
+          b.justMissed - a.justMissed ||
+          (b.maxEv ?? 0) - (a.maxEv ?? 0),
+      )
+      .slice(0, WATCH_CAP);
+
     return NextResponse.json({
       date,
       live: true,
@@ -199,6 +402,7 @@ export async function GET(req: NextRequest) {
       games,
       balls: ballRows,
       pitchers: pitcherRows,
+      watch: watchRows,
     } satisfies LiveHardHitResponse);
   } catch (err) {
     return apiError(err, "api/mlb-live-hardhit");

@@ -46,6 +46,11 @@ export interface LiveAtBat {
   hrBallparks: number | null; // modeled (Savant) — always null live
   awayTeamId: number;
   homeTeamId: number;
+  // Epoch ms the play completed (GUMBO about.endTime, the same field the ETL
+  // reads as at_bat_end_time). A real wall clock — unlike atBatNumber, which
+  // restarts at 1 per game — so balls from different games sort chronologically
+  // against each other. null if the feed omits the timestamp.
+  ts: number | null;
 }
 
 export interface LiveGameAtBats {
@@ -77,6 +82,8 @@ interface RawPlay {
     inning?: number;
     halfInning?: string;
     isComplete?: boolean;
+    startTime?: string;
+    endTime?: string;
   };
   matchup?: {
     batter?: { id?: number; fullName?: string };
@@ -96,6 +103,12 @@ interface RawFeed {
     teams?: { away?: RawTeam; home?: RawTeam };
   };
   liveData?: { plays?: { allPlays?: RawPlay[] } };
+}
+
+function parseTs(iso: string | undefined): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? null : t;
 }
 
 interface CacheEntry {
@@ -154,6 +167,7 @@ async function fetchUncached(gamePk: number): Promise<LiveGameAtBats | null> {
         hrBallparks: null,
         awayTeamId,
         homeTeamId,
+        ts: parseTs(about.endTime ?? about.startTime),
       });
     }
 
