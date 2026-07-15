@@ -159,10 +159,10 @@ late = 3–5; `hr_hot` = currently inside the window (`games_since_hr < 5`) with
 rate >= 0.5 over >= 3 samples. Same-season scope, through-date-inclusive rows —
 readers pick the latest `as_of_date` before the upcoming game. Backfill green
 (run 28726425148, ~123k rows). `hit_prob`/`hr_prob` = P(>= 1) via
-`1 - (1 - platoon-adjusted per-PA rate)^expectedPA`, proj-v1.1. Still open from this
-phase: the player-page HR pattern card + projections-row surfacing (web).
-**All remaining work is sequenced in `mlb-research-dashboard-remainder.md`** —
-the step-by-step executor plan (Phases A–E) written for the follow-up sessions.
+`1 - (1 - platoon-adjusted per-PA rate)^expectedPA`, proj-v1.1. The web surfacing
+(player-page HR pattern card + projections row) shipped with Phase A.
+**The follow-up executor plan (Phases A–E) is complete** — see
+`mlb-research-dashboard-remainder.md` for the record and its still-open leftovers.
 
 ### Phase 4.5 — Gamefeed adoptions (2026-07-04)
 
