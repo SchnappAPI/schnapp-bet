@@ -25,7 +25,7 @@ Documents the `common` and `odds` schemas, which serve cross-sport tables.
 Data-integrity framework tables (added 2026-04-24, ADR-20260424-2). All three are meta tables that track data quality; they do not store product data themselves:
 
 - `common.ingest_quarantine` - Rows that violated Layer-1 invariants at write time. Full row payload as JSON, plus the failed invariant. Partial index on `(table_name, row_key) WHERE resolved_at IS NULL` covers the open-row hot path.
-- `common.unmapped_entities` - Source-feed entities that could not be resolved to a canonical id (Layer 2). UQ on `(source_feed, entity_type, source_key)` for idempotent writes. Nightly resolver workflow (pending) auto-resolves via exact match + last-name/first-initial + normalized string distance; escalates to GitHub Issue after 3 attempts.
+- `common.unmapped_entities` - Source-feed entities that could not be resolved to a canonical id (Layer 2). UQ on `(source_feed, entity_type, source_key)` for idempotent writes. The nightly resolver workflow (`resolve-mappings.yml`) auto-resolves via exact match + last-name/first-initial + normalized string distance; escalates to GitHub Issue after 3 attempts.
 - `common.data_completeness_log` - Per-column NULL violations detected by the retroactive scan or by the daily retry workflow. UQ on `(table_name, row_key, column_name)`. `detected_retroactively = 1` for scan-sourced rows (historical, never moved out of production); `= 0` for rows quarantined during normal writes.
 
 Schema evolution for the three meta tables is owned by `shared/integrity.py` (the `DDL_STATEMENTS` module constant + `ensure_tables()`). Do not hand-write DDL for them.

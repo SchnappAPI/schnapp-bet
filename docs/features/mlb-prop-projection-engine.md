@@ -1,6 +1,8 @@
 # MLB Batter Prop Projection Engine
 
-**Status:** Design spec — Phase 1 pending owner review.
+**Status:** Built — `etl/mlb_prop_projections.py` writes `mlb.batter_prop_projections`, read
+by `/api/mlb-props`, `/api/mlb-transparency`, and `/api/mlb-live-hardhit`. This doc is the
+design rationale; the code is current truth.
 **Owner ask:** "Maximize/optimize everything so this is as useful a tool as possible" with "higher confidence in every number." Model-first.
 **Hard constraint (owner):** **No odds.** The engine is completely unrelated to and uninfluenced by betting markets — no lines, no implied probabilities, no +EV, no odds data in any input, feature, or validation step. It is a pure outcome-projection engine, graded only against what actually happened on the field.
 
