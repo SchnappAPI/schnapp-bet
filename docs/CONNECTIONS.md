@@ -20,18 +20,18 @@ The local container does not auto-pause. If not running, `docker start mssql` on
 
 `https://schnapp.bet` and `https://www.schnapp.bet` are served by launchd user agent `bet.schnapp.web-prod`, plist at `~/Library/LaunchAgents/bet.schnapp.web-prod.plist`. Runs `next start -H 127.0.0.1 -p 3001` from `/Users/schnapp/code/schnapp-bet/web/` against the existing `web/.next/` build. `RunAtLoad=true`, `KeepAlive=true`. Also reachable as `https://prod.schnapp.bet` (pre-cutover staging hostname alias).
 
-Dev mode is not auto-managed — run `op run --env-file=../.env.template -- npm run dev` from `web/` interactively when needed. The retired `bet.schnapp.web` launchd agent is no longer installed.
+Dev mode is not auto-managed - run `op run --env-file=../.env.template -- npm run dev` from `web/` interactively when needed. The retired `bet.schnapp.web` launchd agent is no longer installed.
 
 Plist env vars (resolved at process-start by `op-wrap.sh` per ADR-20260517-5):
 
-- `SQL_CONNECTION_STRING` — `Server=localhost,1433;Database=schnapp-bet;User Id=sa;Password=<SA password from /Users/schnapp/sql-server.env>;Encrypt=true;TrustServerCertificate=true;`
-- `ADMIN_PASSCODE` — gates `/admin` and authorizes the `x-admin-token` path on workflow-dispatching routes
-- `AUTH_TOKEN_SECRET` — session token signing
-- `ADMIN_REFRESH_CODE` — alternate auth code for the body-auth path on `/api/refresh-data`
-- `RUNNER_URL` — consumed by `/api/scoreboard`, `/api/games`, `/api/live-boxscore`
-- `RUNNER_API_KEY` — `X-Runner-Key` header on Flask calls
-- `GITHUB_PAT` — fine-grained PAT. Used by `/api/refresh-data` and `/api/refresh-lines` to dispatch workflows. Stored in vault; resolved via `op-wrap.sh` at process start.
-- `ODDS_API_KEY` — consumed by `web/app/api/live-props/route.ts`
+- `SQL_CONNECTION_STRING` - `Server=localhost,1433;Database=schnapp-bet;User Id=sa;Password=<SA password from /Users/schnapp/sql-server.env>;Encrypt=true;TrustServerCertificate=true;`
+- `ADMIN_PASSCODE` - gates `/admin` and authorizes the `x-admin-token` path on workflow-dispatching routes
+- `AUTH_TOKEN_SECRET` - session token signing
+- `ADMIN_REFRESH_CODE` - alternate auth code for the body-auth path on `/api/refresh-data`
+- `RUNNER_URL` - consumed by `/api/scoreboard`, `/api/games`, `/api/live-boxscore`
+- `RUNNER_API_KEY` - `X-Runner-Key` header on Flask calls
+- `GITHUB_PAT` - fine-grained PAT. Used by `/api/refresh-data` and `/api/refresh-lines` to dispatch workflows. Stored in vault; resolved via `op-wrap.sh` at process start.
+- `ODDS_API_KEY` - consumed by `web/app/api/live-props/route.ts`
 
 Restart: `launchctl kickstart -k gui/$UID/bet.schnapp.web-prod`.
 
@@ -54,7 +54,7 @@ Repository secrets (Settings → Secrets and variables → Actions):
 
 `GITHUB_TOKEN` is auto-provided by GitHub Actions (not stored as a repo secret); available in workflows that declare `permissions: actions: write`.
 
-All other runtime secrets (`SQL_*`, `ODDS_API_KEY`, `NBA_PROXY_URL`, etc.) are declared as `op://web-variables/...` URIs in each workflow's `env:` block and resolved by `load-secrets-action` at run time — they are not stored as GitHub Actions secrets.
+All other runtime secrets (`SQL_*`, `ODDS_API_KEY`, `NBA_PROXY_URL`, etc.) are declared as `op://web-variables/...` URIs in each workflow's `env:` block and resolved by `load-secrets-action` at run time - they are not stored as GitHub Actions secrets.
 
 ## Schnapp Mac MCP
 
@@ -66,24 +66,24 @@ Tools (10): `flask_status`, `flask_restart`, `live_scoreboard`, `live_boxscore`,
 
 Secrets: resolved via `op-wrap.sh` + a service-local `.env.template` in `/Users/schnapp/mac-mcp/` for MCP-specific vars (`MAC_MCP_AUTH_TOKEN`, `GH_PAT`, etc.). No plaintext credentials in the plist.
 
-Recovery: 1) tunnel — `sudo launchctl kickstart -k system/com.cloudflare.cloudflared`. 2) MCP — graceful restart `launchctl kill TERM gui/$(id -u)/com.schnapp.macmcp` (KeepAlive relaunches; the entrypoint now serves a pre-bound SO_REUSEADDR socket so a fresh process rebinds :8765 in ~2.5s with no [Errno 48] race — see claude-kit decision 0010 / handoff 021). Do NOT use `kickstart -k` (SIGKILL skips uvicorn's clean socket close). Hard reload only if it will not come up: `launchctl bootout gui/$(id -u)/com.schnapp.macmcp && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.schnapp.macmcp.plist`.
+Recovery: 1) tunnel - `sudo launchctl kickstart -k system/com.cloudflare.cloudflared`. 2) MCP - graceful restart `launchctl kill TERM gui/$(id -u)/com.schnapp.macmcp` (KeepAlive relaunches; the entrypoint now serves a pre-bound SO_REUSEADDR socket so a fresh process rebinds :8765 in ~2.5s with no [Errno 48] race - see claude-kit decision 0010 / handoff 021). Do NOT use `kickstart -k` (SIGKILL skips uvicorn's clean socket close). Hard reload only if it will not come up: `launchctl bootout gui/$(id -u)/com.schnapp.macmcp && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.schnapp.macmcp.plist`.
 
 ## Obsidian MCP
 
 - URL: `https://obsidian-mcp.schnapp.bet/mcp`
 - Service: launchd `com.schnapp.obsidian-mcp` (`RunAtLoad=true`, `KeepAlive=true`). Code at `/Users/schnapp/obsidian-mcp/server.py`. Venv `/Users/schnapp/obsidian-mcp/venv`. Port `8767`.
-- Auth: OAuth 2.1 + PKCE + Dynamic Client Registration (RFC 7591) via FastMCP native `OAuthAuthorizationServerProvider`. OAuth state persisted to `/Users/schnapp/obsidian-mcp/oauth_state.json`.
+- Auth: static bearer (`Authorization: Bearer` header or `?token=`), same middleware pattern as github-mcp; wrong/missing token → `401 {"error": "unauthorized"}`. Swapped from the hand-rolled OAuth 2.1/PKCE/DCR machinery 2026-07-18.
 - Vault: `~/code/schnapp-vault` (git-native, OUT of OneDrive; `~/Documents/Obsidian` is a symlink to it). Moved out of OneDrive by the 2026-07-01 gate-2 exit.
-- Secrets: `MAC_MCP_AUTH_TOKEN` resolved via `op-wrap.sh` + `/Users/schnapp/obsidian-mcp/.env.template` (`op://web-variables/MAC_MCP_AUTH_TOKEN/credential`).
+- Secrets: `OBSIDIAN_MCP_AUTH_TOKEN` resolved via `op-wrap.sh` + `/Users/schnapp/obsidian-mcp/.env.template` (`op://web-variables/OBSIDIAN_MCP_AUTH_TOKEN/credential`).
 - Tools (7): `read_note`, `write_note`, `append_note`, `search_notes`, `list_notes`, `inbox_drop`, `get_index`.
-- Connected in claude.ai. `inbox_drop` triggers the brain agent via FSEvents automatically.
+- claude.ai leg: the Cloudflare portal `mcp.schnapp.bet` with the bearer as a Custom header (slot add pending owner since the 2026-07-18 swap; the old native-OAuth standalone connector no longer authenticates). `inbox_drop` triggers the brain agent via FSEvents automatically.
 - Recovery: graceful restart `launchctl kill TERM gui/$(id -u)/com.schnapp.obsidian-mcp` (KeepAlive relaunches; reuse-socket bind, decision 0010). Hard reload only if it will not come up: `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.schnapp.obsidian-mcp.plist && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.schnapp.obsidian-mcp.plist`.
 
 ## Obsidian Brain Agent
 
 - Service: launchd `com.schnapp.brain-watcher` (`RunAtLoad=true`, `KeepAlive=true`). Plist at `~/Library/LaunchAgents/com.schnapp.brain-watcher.plist`.
 - Code: `~/code/schnapp-vault/.github/scripts/inbox_watcher.py` (FSEvents watcher) + `brain_agent.py` (Claude API classifier). Both resolve the vault root dynamically (`Path(__file__).resolve().parents[2]`).
-- Watches: `~/code/schnapp-vault/Inbox/` — fires on any `.md` create or modify.
+- Watches: `~/code/schnapp-vault/Inbox/` - fires on any `.md` create or modify.
 - Model: `claude-sonnet-4-6`. API key: `op://web-variables/ANTHROPIC_API_KEY/credential` (dedicated key named `schnapps-mbp-brain-agent` in console.anthropic.com).
 - Secrets: resolved via `op-wrap.sh` + `~/code/schnapp-vault/.github/.env.template`. `WorkingDirectory` set to `~/code/schnapp-vault/.github/` so op-wrap picks up the local template.
 - Index output: `~/code/schnapp-vault/_brain/_index.json`.
