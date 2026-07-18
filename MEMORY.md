@@ -6,6 +6,12 @@ dated entry on top.
 
 ## Open items
 
+- **Failover layer built, deploy blocked on owner** (ADR-20260718-1, `services/failover/`):
+  snapshot push + Worker fallback committed and logic-tested; needs one interactive
+  `npx wrangler login` on the Mac, then the deploy block in `services/failover/README.md`
+  (bucket create, worker deploy, first push, plist load, outage simulation). The
+  `CLOUDFLARE_API_TOKEN` vault item is a PLACEHOLDER (invalid token, dead R2 endpoint) —
+  wrangler OAuth is the auth path, do not build on that item.
 - **ODDS_API_KEY is DEACTIVATED** (Issue #8) — everything odds-dependent is dark (/mlb/grades,
   live MLB/NFL calibration corpora can't accrue, odds-stale ERROR on grading runs is expected).
   Owner must restore the key in 1Password.

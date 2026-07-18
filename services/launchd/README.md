@@ -17,6 +17,7 @@ Both mechanisms are belt-and-suspenders. `op-wrap.sh` does not assume `com.schna
 - `op-wrap.sh` - bootstrap wrapper (reads `OP_SERVICE_ACCOUNT_TOKEN` from `~/.zshrc`, execs `op run`).
 - `bet.schnapp.flask.plist` - Flask runner (`services/flask/runner.py`) on port 5000.
 - `bet.schnapp.web-prod.plist` - Next.js production server on port 3001.
+- `bet.schnapp.failover-snapshot.plist` - R2 snapshot push every 30 min (`services/failover/snapshot_push.py`). No `op-wrap.sh`: auth is wrangler OAuth, not vault secrets. See `services/failover/README.md`.
 - `rotate-op-token.sh` - rotate `OP_SERVICE_ACCOUNT_TOKEN` end-to-end. Copy the new token from 1Password (UI → service-account regenerate), then run `bash services/launchd/rotate-op-token.sh`. It reads the token from `pbpaste`, updates `~/.zshrc` and `~/.zshenv`, updates the GitHub repo secret, cycles all launchd agents, and verifies. Safe to re-run.
 
 ## Other managed services (not in this repo)

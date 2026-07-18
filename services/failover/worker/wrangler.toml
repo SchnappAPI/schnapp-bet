@@ -1,0 +1,16 @@
+# schnapp-failover: active-passive edge fallback for schnapp.bet.
+# Sits on the site routes, passes every request to the tunnel origin,
+# and serves the R2 snapshot (pushed by ../snapshot_push.py) when the
+# origin is unreachable (Mac/home-internet outage -> Cloudflare 530).
+name = "schnapp-failover"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+routes = [
+  { pattern = "schnapp.bet/*", zone_name = "schnapp.bet" },
+  { pattern = "www.schnapp.bet/*", zone_name = "schnapp.bet" },
+]
+
+[[r2_buckets]]
+binding = "SNAPSHOT"
+bucket_name = "schnapp-bet-failover"

@@ -48,3 +48,6 @@ sql-server.env
 /.env
 /.env.*
 !/.env.template
+
+# failover snapshot job
+services/failover/*.log

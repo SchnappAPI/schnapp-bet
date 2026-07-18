@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>bet.schnapp.failover-snapshot</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/python3</string>
+        <string>/Users/schnapp/code/schnapp-bet/services/failover/snapshot_push.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/schnapp/code/schnapp-bet/services/failover</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>1800</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/schnapp/code/schnapp-bet/services/failover/snapshot-push.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/schnapp/code/schnapp-bet/services/failover/snapshot-push.err.log</string>
+</dict>
+</plist>
