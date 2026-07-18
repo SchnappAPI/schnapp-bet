@@ -7,7 +7,9 @@ Push, not pull: a dead Mac cannot be polled, so this job runs on a
 LaunchAgent interval and uploads only content whose hash changed since
 the last successful push. The manifest (with the snapshot timestamp the
 Worker shows in its banner) is uploaded last so a half-finished push
-never advances the visible "data as of" time.
+never advances the visible "data as of" time. It uploads on every
+successful crawl, changed content or not, so its generated_at doubles as
+the heartbeat freshness_check.py alerts on.
 
 Stdlib only. Auth: wrangler OAuth (`npx wrangler login`, one-time).
 
@@ -90,9 +92,7 @@ def api_urls() -> list[str]:
 
 
 def fetch(url_path: str) -> tuple[bytes, str] | None:
-    req = urllib.request.Request(
-        BASE + url_path, headers={"User-Agent": "schnapp-failover-snapshot"}
-    )
+    req = urllib.request.Request(BASE + url_path, headers={"User-Agent": "schnapp-failover-snapshot"})
     try:
         with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
             if resp.status != 200:
@@ -181,9 +181,18 @@ def wrangler_put(key: str, body: bytes, content_type: str) -> None:
     try:
         subprocess.run(
             [
-                "npx", "--yes", "wrangler", "r2", "object", "put",
-                f"{BUCKET}/{key}", "--file", str(tmp),
-                "--content-type", content_type, "--remote",
+                "npx",
+                "--yes",
+                "wrangler",
+                "r2",
+                "object",
+                "put",
+                f"{BUCKET}/{key}",
+                "--file",
+                str(tmp),
+                "--content-type",
+                content_type,
+                "--remote",
             ],
             cwd=WORKER_DIR,
             check=True,
@@ -226,9 +235,11 @@ def main() -> int:
             for key, _, ct, _ in changed:
                 print(f"  would push {key} ({ct})")
             return 0
-        if not changed:
-            return 0
 
+        # No early return when nothing changed: the manifest still goes up
+        # (for-else below) so generated_at is a heartbeat freshness_check.py
+        # can alert on. Semantics hold: the crawl just verified the snapshot
+        # is current as of now.
         pushed = 0
         for key, body, ct, digest in changed:
             try:
