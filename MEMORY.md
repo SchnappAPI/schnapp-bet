@@ -11,7 +11,11 @@ dated entry on top.
   `npx wrangler login` on the Mac, then the deploy block in `services/failover/README.md`
   (bucket create, worker deploy, first push, plist load, outage simulation). The
   `CLOUDFLARE_API_TOKEN` vault item is a PLACEHOLDER (invalid token, dead R2 endpoint) —
-  wrangler OAuth is the auth path, do not build on that item.
+  wrangler OAuth is the auth path, do not build on that item. Freshness alerting built
+  (`freshness_check.py` + `bet.schnapp.failover-freshness.plist`, hourly, iMessage on >2 h
+  stale manifest heartbeat; logic-tested offline): owner deploy block in the README's
+  "Freshness alerting" section (vault item `ALERT_IMESSAGE/handle`, plist load, `--test`
+  send for the Messages Automation prompt).
 - **ODDS_API_KEY is DEACTIVATED** (Issue #8) — everything odds-dependent is dark (/mlb/grades,
   live MLB/NFL calibration corpora can't accrue, odds-stale ERROR on grading runs is expected).
   Owner must restore the key in 1Password.

@@ -15,9 +15,11 @@ Two halves:
    components fetch. Pushes only hash-changed objects to the R2 bucket
    `schnapp-bet-failover` via `npx wrangler r2 object put`, then uploads
    `manifest.json` (snapshot timestamp) last, so a partial push never
-   advances the visible "data as of" time. Push, not pull: a dead Mac
-   cannot be polled. State (per-key content hashes) lives outside the repo
-   at `~/.schnapp-failover-state.json`.
+   advances the visible "data as of" time. The manifest uploads on every
+   successful crawl even when no content changed, so `generated_at` is a
+   heartbeat. Push, not pull: a dead Mac cannot be polled. State (per-key
+   content hashes) lives outside the repo at
+   `~/.schnapp-failover-state.json`.
 
 2. **Worker fallback (edge side)** - `worker/` (`schnapp-failover`), routed
    on `schnapp.bet/*` and `www.schnapp.bet/*`. Passes every request to the
@@ -67,10 +69,45 @@ sleep 15
 curl -si https://schnapp.bet/ | grep -e '^HTTP' -e 'x-schnapp-failover'   # expect 200, no failover header
 ```
 
+## Freshness alerting
+
+`freshness_check.py`, run hourly by
+`services/launchd/bet.schnapp.failover-freshness.plist`, reads
+`manifest.json` from R2 (`wrangler r2 object get --remote`, same OAuth as
+the pusher) and iMessages the owner when `generated_at` is older than 2 h
+(4 missed push cycles) or the manifest is unreadable twice in a row.
+Re-alerts every 6 h while the condition persists; sends one recovery
+message when it clears. Throttle state:
+`~/.schnapp-failover-freshness.json`. Running on the Mac itself is the
+"Mac is up" gate: a dead Mac cannot run the check, and stale-while-down is
+the expected failover state, not an alert.
+
+The recipient handle is `ALERT_IMESSAGE_TO`, resolved by op-wrap from
+`services/failover/.env.template` (layered per-service so a missing vault
+item cannot break the other launchd services; never hardcoded, repo is
+public).
+
+Deploy (one-time):
+
+```bash
+# 1. Vault item (handle lives only in 1Password).
+op item create --vault web-variables --category "Secure Note" \
+  --title ALERT_IMESSAGE 'handle=<FILL:owner iMessage handle>'
+# 2. Load the LaunchAgent.
+cp /Users/schnapp/code/schnapp-bet/services/launchd/bet.schnapp.failover-freshness.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/bet.schnapp.failover-freshness.plist
+# 3. Test send (also triggers the one-time macOS Automation prompt for Messages).
+cd /Users/schnapp/code/schnapp-bet/services/failover
+op run --env-file=/Users/schnapp/code/schnapp-bet/.env.template --env-file=.env.template -- \
+  python3 freshness_check.py --test
+```
+
 ## Ops notes
 
 - Snapshot cadence: `StartInterval 1800`. Logs: `snapshot-push.log` /
   `snapshot-push.err.log` in this directory (gitignored).
+- Freshness check cadence: `StartInterval 3600`. Logs: `freshness-check.log` /
+  `freshness-check.err.log`, same directory (gitignored).
 - Wrangler v4 R2 object commands default to local simulation; the script
   passes `--remote` explicitly.
 - Worker logic has a mock-based node test exercised at build time (origin
