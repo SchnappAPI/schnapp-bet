@@ -72,7 +72,7 @@ Recovery: 1) tunnel - `sudo launchctl kickstart -k system/com.cloudflare.cloudfl
 
 - URL: `https://obsidian-mcp.schnapp.bet/mcp`
 - Service: launchd `com.schnapp.obsidian-mcp` (`RunAtLoad=true`, `KeepAlive=true`). Code at `/Users/schnapp/obsidian-mcp/server.py`. Venv `/Users/schnapp/obsidian-mcp/venv`. Port `8767`.
-- Auth: static bearer (`Authorization: Bearer` header or `?token=`), same middleware pattern as github-mcp; wrong/missing token → `401 {"error": "unauthorized"}`. Swapped from the hand-rolled OAuth 2.1/PKCE/DCR machinery 2026-07-18.
+- Auth: static bearer (`Authorization: Bearer` header or `?token=`), same middleware pattern as mac-mcp; wrong/missing token → `401 {"error": "unauthorized"}`. Swapped from the hand-rolled OAuth 2.1/PKCE/DCR machinery 2026-07-18.
 - Vault: `~/code/schnapp-vault` (git-native, OUT of OneDrive; `~/Documents/Obsidian` is a symlink to it). Moved out of OneDrive by the 2026-07-01 gate-2 exit.
 - Secrets: `OBSIDIAN_MCP_AUTH_TOKEN` resolved via `op-wrap.sh` + `/Users/schnapp/obsidian-mcp/.env.template` (`op://web-variables/OBSIDIAN_MCP_AUTH_TOKEN/credential`).
 - Tools (7): `read_note`, `write_note`, `append_note`, `search_notes`, `list_notes`, `inbox_drop`, `get_index`.
@@ -92,10 +92,11 @@ Recovery: 1) tunnel - `sudo launchctl kickstart -k system/com.cloudflare.cloudfl
 
 ## GitHub MCP
 
-- URL: `https://github-mcp.schnapp.bet/mcp`
-- Service: launchd `com.schnapp.githubmcp` (`KeepAlive=true`). Code at `/Users/schnapp/github-mcp/server.py`. Port `8766`.
-- Recovery: graceful restart `launchctl kill TERM gui/$(id -u)/com.schnapp.githubmcp` (KeepAlive relaunches; reuse-socket bind, decision 0010). Hard reload: `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.schnapp.githubmcp.plist && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.schnapp.githubmcp.plist`.
-- Auth: Bearer token (`MAC_MCP_AUTH_TOKEN`). Connected in claude.ai as `Schnapp GitHub`.
+- GitHub's official MCP server, reached through the Schnapp Portal (`mcp.schnapp.bet`) github slot.
+  Origin `https://api.githubcopilot.com/mcp/`; auth and toolsets set as portal-side headers.
+  Mac-independent (no local service). Canon: schnapp-os ADR 0036.
+- The old Mac-hosted connector (launchd `com.schnapp.githubmcp`, port 8766,
+  `github-mcp.schnapp.bet`) was decommissioned 2026-07-18.
 
 ## Flask Runner (Mac)
 
@@ -115,7 +116,7 @@ Recovery: 1) tunnel - `sudo launchctl kickstart -k system/com.cloudflare.cloudfl
 | `mac-flask.schnapp.bet`          | Mac Flask `:5000` via `schnapp-mac`        | Orange | live                                                                                            |
 | `mac-mcp.schnapp.bet`            | Mac MCP `:8765` via `schnapp-mac`          | Orange | live                                                                                            |
 | `obsidian-mcp.schnapp.bet`       | Obsidian MCP `:8767` via `schnapp-mac`     | Orange | live                                                                                            |
-| `github-mcp.schnapp.bet`         | GitHub MCP `:8766` via `schnapp-mac`       | Orange | live                                                                                            |
+| `github-mcp.schnapp.bet`         | none (connector decommissioned, ADR 0036)  | Orange | DNS record still present, backend gone (404); ingress + DNS removal pending                     |
 | `mcp.schnapp.bet`                | Self-hosted 1Password MCP portal           | Orange | live; Cloudflare Access required (email login)                                                  |
 
 All Schnapp subdomains are Cloudflare-proxied (orange cloud). Do not flip any to DNS-only.

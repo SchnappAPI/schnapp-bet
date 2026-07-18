@@ -10,21 +10,20 @@ Two components cooperate to make `OP_SERVICE_ACCOUNT_TOKEN` available to all lau
 
 2. **`op-wrap.sh`** (in this repo): each service plist invokes this wrapper as the first `ProgramArguments` entry. It independently reads `OP_SERVICE_ACCOUNT_TOKEN` from `~/.zshrc` via grep, exports it, then execs `op run --env-file=<repo-root>/.env.template -- <real command>`. This resolves all `op://` URIs in `.env.template` and injects them as environment variables before the service process starts. If the service's working directory also contains a `.env.template`, that file is layered on top (`--env-file=<global> --env-file=<local>`), allowing per-service secrets without polluting the repo-root template.
 
-Both mechanisms are belt-and-suspenders. `op-wrap.sh` does not assume `com.schnapp.environment` has run — it always re-reads `~/.zshrc` directly. Plists contain zero secret values.
+Both mechanisms are belt-and-suspenders. `op-wrap.sh` does not assume `com.schnapp.environment` has run - it always re-reads `~/.zshrc` directly. Plists contain zero secret values.
 
 ## Contents (this repo)
 
-- `op-wrap.sh` — bootstrap wrapper (reads `OP_SERVICE_ACCOUNT_TOKEN` from `~/.zshrc`, execs `op run`).
-- `bet.schnapp.flask.plist` — Flask runner (`services/flask/runner.py`) on port 5000.
-- `bet.schnapp.web-prod.plist` — Next.js production server on port 3001.
-- `rotate-op-token.sh` — rotate `OP_SERVICE_ACCOUNT_TOKEN` end-to-end. Copy the new token from 1Password (UI → service-account regenerate), then run `bash services/launchd/rotate-op-token.sh`. It reads the token from `pbpaste`, updates `~/.zshrc` and `~/.zshenv`, updates the GitHub repo secret, cycles all launchd agents, and verifies. Safe to re-run.
+- `op-wrap.sh` - bootstrap wrapper (reads `OP_SERVICE_ACCOUNT_TOKEN` from `~/.zshrc`, execs `op run`).
+- `bet.schnapp.flask.plist` - Flask runner (`services/flask/runner.py`) on port 5000.
+- `bet.schnapp.web-prod.plist` - Next.js production server on port 3001.
+- `rotate-op-token.sh` - rotate `OP_SERVICE_ACCOUNT_TOKEN` end-to-end. Copy the new token from 1Password (UI → service-account regenerate), then run `bash services/launchd/rotate-op-token.sh`. It reads the token from `pbpaste`, updates `~/.zshrc` and `~/.zshenv`, updates the GitHub repo secret, cycles all launchd agents, and verifies. Safe to re-run.
 
 ## Other managed services (not in this repo)
 
 The following services also use `op-wrap.sh` but live outside this repo:
 
-- `com.schnapp.macmcp` (`~/Library/LaunchAgents/com.schnapp.macmcp.plist`) — Mac MCP server at `/Users/schnapp/mac-mcp/`. Uses `op-wrap.sh` + a local `.env.template` in the service directory for MCP-specific secrets.
-- `com.schnapp.githubmcp` (`~/Library/LaunchAgents/com.schnapp.githubmcp.plist`) — GitHub MCP server at `/Users/schnapp/github-mcp/`. Same pattern.
+- `com.schnapp.macmcp` (`~/Library/LaunchAgents/com.schnapp.macmcp.plist`) - Mac MCP server at `/Users/schnapp/mac-mcp/`. Uses `op-wrap.sh` + a local `.env.template` in the service directory for MCP-specific secrets.
 
 ## Install / refresh
 
@@ -58,7 +57,7 @@ curl -sf http://127.0.0.1:3001            # Next.js
 
 ## What changed from sports-modeling
 
-The sports-modeling plists carried per-secret `EnvironmentVariables` entries in plaintext (SQL connection string, GITHUB_PAT, ODDS_API_KEY, etc.). The schnapp-bet plists carry none of those — they're resolved by `op run` from `.env.template` at process-start time. The only secret that touches disk on this host is `OP_SERVICE_ACCOUNT_TOKEN` in `~/.zshrc` and `~/.zshenv`.
+The sports-modeling plists carried per-secret `EnvironmentVariables` entries in plaintext (SQL connection string, GITHUB_PAT, ODDS_API_KEY, etc.). The schnapp-bet plists carry none of those - they're resolved by `op run` from `.env.template` at process-start time. The only secret that touches disk on this host is `OP_SERVICE_ACCOUNT_TOKEN` in `~/.zshrc` and `~/.zshenv`.
 
 ## Failure modes
 
