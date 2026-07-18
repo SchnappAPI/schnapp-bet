@@ -116,7 +116,7 @@ Recovery: 1) tunnel - `sudo launchctl kickstart -k system/com.cloudflare.cloudfl
 | `mac-flask.schnapp.bet`          | Mac Flask `:5000` via `schnapp-mac`        | Orange | live                                                                                            |
 | `mac-mcp.schnapp.bet`            | Mac MCP `:8765` via `schnapp-mac`          | Orange | live                                                                                            |
 | `obsidian-mcp.schnapp.bet`       | Obsidian MCP `:8767` via `schnapp-mac`     | Orange | live                                                                                            |
-| `github-mcp.schnapp.bet`         | none (connector decommissioned, ADR 0036)  | Orange | DNS record still present, backend gone (404); ingress + DNS removal pending                     |
+| `github-mcp.schnapp.bet`         | none (connector decommissioned, ADR 0036)  | Orange | DNS record still present, tunnel ingress removed (404 from catch-all); DNS record removal pending                     |
 | `mcp.schnapp.bet`                | Self-hosted 1Password MCP portal           | Orange | live; Cloudflare Access required (email login)                                                  |
 
 All Schnapp subdomains are Cloudflare-proxied (orange cloud). Do not flip any to DNS-only.
